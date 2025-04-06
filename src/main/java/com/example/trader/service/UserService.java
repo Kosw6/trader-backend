@@ -1,0 +1,52 @@
+package com.example.trader.service;
+
+import com.example.trader.entity.User;
+
+import com.example.trader.repository.UserRepository;
+import org.springframework.transaction.annotation.Transactional;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+@Transactional
+public class UserService {
+    private final UserRepository userRepository;
+
+    public User findUserByUserId(Long userId) {
+        return userRepository.findById(userId).orElseThrow(()->{throw new RuntimeException("유효하지 않은 아이디");});
+    }
+    public User findUserByLoginId(String loginId) {
+        return userRepository.findByLoginId(loginId).orElseThrow();
+    }
+    public User findUserByEmail(String email) {
+        return userRepository.findByEmail(email).orElseThrow();
+    }
+
+    public Long createUser(User user) {
+        validateDuplicateUser(user);
+        return userRepository.save(user).getId();
+    }
+
+    private void validateDuplicateUser(User user) {//중복검사
+        if (userRepository.findByEmail(user.getEmail()).isPresent()) {
+            throw new RuntimeException("중복된 회원입니다.");
+        }
+    }
+    public Long updateUser(User user){
+        //todo:컨트롤러에서 SecurityContext에서 유저 id를 찾아서 저장소에서 검색해서 업데이트 시킬 유저를 생성해서 반환
+        return userRepository.save(user).getId();
+    }
+
+    public void deleteUser(Long userId){
+        //todo:컨트롤러에서 컨텍스트에 있는 유저 id로 삭제요청 진행하고 오류 발생하지 않을시에 정상응답 반환 + jwt토큰 만료?? -> 삭제 응답시에 프론트에서 브라우저에 있는 토큰을 지우도록 하자
+        userRepository.deleteById(userId);
+    }
+
+    public User findUserByEmailAndProviderId(String email,String providerId){
+        User user = userRepository.findByEmailAndProviderId(email, providerId).orElseThrow(() -> {
+            throw new RuntimeException("존재하지 않는 outh2계정입니다.");
+        });
+        return user;
+    }
+}
