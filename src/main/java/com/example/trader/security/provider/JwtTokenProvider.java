@@ -22,7 +22,8 @@ import java.util.Date;
 public class JwtTokenProvider {
 
     public final String secret = "~cN-T:#7T(1Ocfc7{";//시그니쳐키
-    public final int accessTokenExpMinutes = 10;//엑세스 토큰
+    //TODO:나중에 최종 빌드할때는 시간 줄이기
+    public final int accessTokenExpMinutes = 30;//엑세스 토큰
     public final int refreshTokenExpMinutes = 100;//리프레쉬 토큰
 
     private final UserService userService;
@@ -61,7 +62,7 @@ public class JwtTokenProvider {
                 .withExpiresAt(new Date(System.currentTimeMillis() + (60000 * refreshTokenExpMinutes)))//60초 * 1000밀리초 = 60000밀리초:1분*100분
                 .sign(Algorithm.HMAC256(secret));//알고리즘으로 서명후 반환
     }
-    public String getAccessTokenInfo(String receivedToken) throws UnsupportedEncodingException {
+    public String getTokenInfo(String receivedToken) throws UnsupportedEncodingException {
         //비밀키를 받아서 알고리즘으로 복호화, 만약 전달받은 토큰이 알고리즘과 비밀키가 일치하지 않으면 예외반환하고
         //만약 일치하면 복호화한 유저ID반환
         //만료시간 비교하고 만약 만료되었으면 리프레쉬 토큰을 확인하고
@@ -77,6 +78,7 @@ public class JwtTokenProvider {
 //Todo:예외처리 중앙화하고 수정        throw new InvalidJwtTokenException("검증하는 토큰이 유효하지 않음-재발급필요");
         throw new RuntimeException("검증하는 토큰이 유효하지 않음-재발급필요");
     }
+
 
     // 토큰 유효성 검사-복호화하고, 시간확인
     public DecodedJWT validateToken(String receivedToken) {
@@ -105,7 +107,7 @@ public class JwtTokenProvider {
 
      //Authentication 객체 생성
     public Authentication getAuthentication(String token, UserDetailsService userDetailsService) throws UnsupportedEncodingException {
-        String userId = getAccessTokenInfo(token);//유저아이디 받아아서 로그인 아이디로 변환
+        String userId = getTokenInfo(token);//유저아이디 받아아서 로그인 아이디로 변환
         Long id = Long.parseLong(userId);
         String loginId = userService.findUserByUserId(id).getLoginId();
         UserDetails userDetails = userDetailsService.loadUserByUsername(loginId);

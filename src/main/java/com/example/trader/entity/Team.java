@@ -32,11 +32,11 @@ public class Team {
         userTeams.remove(userTeam);
         userTeam.setTeam(null);
     }
-    @OneToMany(mappedBy = "team", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "teamId", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Note> noteList;
     public void addNotes(List<Note> notes){
         for (Note note : notes) {
-            note.setTeam(this);
+            note.setTeam(this.id);
         }
         this.noteList.addAll(notes);
     }

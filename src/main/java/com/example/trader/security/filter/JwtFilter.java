@@ -41,7 +41,15 @@ public class JwtFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         String path = request.getRequestURI();
-        if (path.startsWith("/api/login")) {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        //TODO:배포시에 swagger보안처리
+        if (path.startsWith("/api/login")||path.startsWith("/swagger-ui")
+                || path.startsWith("/v3/api-docs")
+                || path.startsWith("/swagger-resources")
+                || path.startsWith("/webjars")) {
             filterChain.doFilter(request, response); // 로그인 관련 요청은 필터 통과
             return;
         }
@@ -57,17 +65,20 @@ public class JwtFilter extends OncePerRequestFilter {
         } else {
             //토큰이 없거나 유지기한이 유효하지 않을떄
             // TODO:리프레쉬 토큰 확인하고 안되면 따로 처리해주기 예를들어 에러응답을 반환하거나 401?
-            handleInvalidToken(response, "JWT 처리 중 오류 발생");
+            handleInvalidToken(response, "accessToken인증오류");
         }
 
         try {
             log.info("JWT필터->다음 필터로");
             // 다음 필터로 요청을 넘김->userNamePasswordAuthenticaionFilter
+            System.out.println(SecurityContextHolder.getContext().getAuthentication());
+            log.info("Authentication set in SecurityContext: {}", SecurityContextHolder.getContext().getAuthentication());
             filterChain.doFilter(request, response);
         } catch (Exception e) {
             log.error(e.getMessage());
             throw e;
-        } finally {
+        }
+        finally {
             log.info("JWT필터 SecurityContextHolder.clearContext() 작동");
             // SecurityContext 초기화 (요청이 끝난 후)
             SecurityContextHolder.clearContext();

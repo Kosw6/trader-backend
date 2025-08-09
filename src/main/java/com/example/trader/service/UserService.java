@@ -2,6 +2,8 @@ package com.example.trader.service;
 
 import com.example.trader.entity.User;
 
+import com.example.trader.exception.BaseException;
+import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.repository.UserRepository;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -14,7 +16,8 @@ public class UserService {
     private final UserRepository userRepository;
 
     public User findUserByUserId(Long userId) {
-        return userRepository.findById(userId).orElseThrow(()->{throw new RuntimeException("유효하지 않은 아이디");});
+        return userRepository.findById(userId).orElseThrow(()->{
+            throw new BaseException(BaseResponseStatus.NON_EXIST_USER);});
     }
     public User findUserByLoginId(String loginId) {
         return userRepository.findByLoginId(loginId).orElseThrow();
@@ -28,9 +31,10 @@ public class UserService {
         return userRepository.save(user).getId();
     }
 
+
     private void validateDuplicateUser(User user) {//중복검사
         if (userRepository.findByEmail(user.getEmail()).isPresent()) {
-            throw new RuntimeException("중복된 회원입니다.");
+            throw new BaseException(BaseResponseStatus.EXIST_EMAIL);
         }
     }
     public Long updateUser(User user){
@@ -40,12 +44,17 @@ public class UserService {
 
     public void deleteUser(Long userId){
         //todo:컨트롤러에서 컨텍스트에 있는 유저 id로 삭제요청 진행하고 오류 발생하지 않을시에 정상응답 반환 + jwt토큰 만료?? -> 삭제 응답시에 프론트에서 브라우저에 있는 토큰을 지우도록 하자
-        userRepository.deleteById(userId);
+        try{
+            userRepository.deleteById(userId);
+        }catch (RuntimeException e){
+            throw new BaseException(BaseResponseStatus.NON_EXIST_USER);
+        }
+
     }
 
     public User findUserByEmailAndProviderId(String email,String providerId){
         User user = userRepository.findByEmailAndProviderId(email, providerId).orElseThrow(() -> {
-            throw new RuntimeException("존재하지 않는 outh2계정입니다.");
+            throw new BaseException(BaseResponseStatus.NON_EXIST_USER);
         });
         return user;
     }

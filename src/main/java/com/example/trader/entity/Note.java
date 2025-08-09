@@ -2,10 +2,10 @@ package com.example.trader.entity;
 
 
 import com.example.trader.entity.base.BaseTimeEntity;
+import jakarta.annotation.Nullable;
 import jakarta.persistence.*;
 import lombok.*;
 
-@ToString(exclude = "user")
 @Entity
 @Getter
 @Table(name = "note")
@@ -19,20 +19,20 @@ public class Note extends BaseTimeEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @JoinColumn(name = "user_id", referencedColumnName = "id")
-    @ManyToOne(fetch = FetchType.LAZY,cascade = CascadeType.REMOVE)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
     private User user;
-    @ManyToOne(fetch = FetchType.LAZY,cascade = CascadeType.REMOVE)
-    private Team team;
+    private Long teamId;
     private String subject;
     private String content;
     private String stockSymb;
 
-    public void setUser(User user){
-        this.user=user;
+
+    public void setUser(User userId){
+        this.user = user;
     }
-    public void setTeam(Team team){
-        this.team = team;
+    public void setTeam(Long teamId){
+        this.teamId = teamId;
     }
     public void changeContent(String content){
         this.content = content;

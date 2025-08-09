@@ -1,5 +1,6 @@
 package com.example.trader.entity;
 
+import com.example.trader.dto.RequestUserDto;
 import com.example.trader.entity.base.BaseTimeEntity;
 import jakarta.persistence.*;
 import lombok.*;
@@ -29,7 +30,7 @@ public class User extends BaseTimeEntity {
     private String password;
     private Gender gender;
     @NonNull
-    private String nick_name;
+    private String nickName;
     @NonNull
     private Role role;
 
@@ -37,7 +38,7 @@ public class User extends BaseTimeEntity {
     private List<UserTeam> userTeams = new ArrayList<>();
     private String provider;
     private String providerId;
-    @OneToMany(mappedBy = "user",orphanRemoval = true)//고아객체 삭제 + note객체의 user필드와 연결
+    @OneToMany(mappedBy = "user",cascade = CascadeType.ALL,orphanRemoval = true)//고아객체 삭제 + note객체의 user필드와 연결
     private final List<Note> notes = new ArrayList<>();
 
     public void addNotes(List<Note> notes){
@@ -59,5 +60,17 @@ public class User extends BaseTimeEntity {
     public void removeTeam(UserTeam userTeam) {
         userTeams.remove(userTeam);
         userTeam.setUser(null);
+    }
+    public static User of(RequestUserDto userDto){
+        return User.builder().username(userDto.username()).
+                email(userDto.email()).
+                role(Role.USER).
+                loginId(userDto.loginId()).
+                gender(Gender.ofGender(userDto.gender())).
+                age(userDto.age()).
+                password(userDto.password()).
+                nickName(userDto.nickName()).
+                id(userDto.id()).build();
+
     }
 }
