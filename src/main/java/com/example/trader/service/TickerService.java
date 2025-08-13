@@ -14,10 +14,11 @@ public class TickerService {
 
     public List suggestTicker(String ticker){
         var rows = repository.suggestFuzzy(ticker, 10);
-        return rows.stream().map(r -> new TickerDto(
-                (String)  r[0],                     // symbol
-                (String)  r[1],                     // name_ko
-                (String)  r[2]                     // name_en
+        List<TickerDto> tickerDtos = rows.stream().map(r -> new TickerDto(
+                (String) r[0],                     // symbol
+                (String) r[1],                     // name_ko
+                (String) r[2]                     // name_en
         )).toList();
+        return tickerDtos;
     }
 }

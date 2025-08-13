@@ -23,18 +23,17 @@ public interface TickerRepository extends JpaRepository<Ticker,Long> {
     // (2) 부분일치/오타 허용: pg_trgm + GIN 기대
     //  → similarity()는 JPQL에 없으므로 nativeQuery로
     @Query(value = """
-        set local pg_trgm.similarity_threshold = 0.35;
-        select symb, name, ename
-        from ticker
-        where symb ilike :q || '%'
-           or name ilike :q || '%'
-           or similarity(symb, :q) > 0.35
-           or similarity(name, :q) > 0.35
-        order by
-          case when symb ilike :q || '%' or name ilike :q || '%' then 0 else 1 end,
-          similarity(name, :q) desc,
-          length(name) asc
-        limit :limit
-        """, nativeQuery = true)
+    select symb, name, ename
+    from stock_info
+    where symb ilike :q || '%'
+       or name ilike :q || '%'
+       or similarity(symb, :q) > 0.35
+       or similarity(name, :q) > 0.35
+    order by
+      case when symb ilike :q || '%' or name ilike :q || '%' then 0 else 1 end,
+      similarity(name, :q) desc,
+      length(name) asc
+    limit :limit
+    """, nativeQuery = true)
     List<Object[]> suggestFuzzy(@Param("q") String q, @Param("limit") int limit);
 }
