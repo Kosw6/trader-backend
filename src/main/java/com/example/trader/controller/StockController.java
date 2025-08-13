@@ -1,7 +1,9 @@
 package com.example.trader.controller;
 
 import com.example.trader.dto.StockRequest;
-import com.example.trader.mongodb.StockService;
+
+import com.example.trader.entity.Stock;
+import com.example.trader.service.StockService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -31,8 +33,8 @@ public class StockController {
         )
         @ApiResponse(responseCode = "200", description = "성공")
         @GetMapping()
-        public ResponseEntity<List<Document>> getStockListByTimestamp(@ModelAttribute StockRequest stockRequest){
-            List<Document> timeSeriesData = stockService.getTimeSeriesData(stockRequest.getStart(),stockRequest.getEnd(),stockRequest.getStockName());
+        public ResponseEntity<List<Stock>> getStockListByTimestamp(@ModelAttribute StockRequest stockRequest){
+            List<Stock> timeSeriesData = stockService.getTimeSeriesData(stockRequest.getStart(),stockRequest.getEnd(),stockRequest.getStockName());
             return ResponseEntity.status(HttpStatus.OK).body(timeSeriesData);
         }
 
@@ -49,8 +51,8 @@ public class StockController {
                 @Parameter(name = "count",description = "데이터 개수",example = "10",required = true)
         })
         @GetMapping("/latest-stock-before")
-        public ResponseEntity<List<Document>> getStockListByLatestTimestampBefore(@RequestParam LocalDateTime latestDate, @RequestParam String stock, @RequestParam int count){
-            List<Document> timeSeriesData = stockService.getLatestDataBefore(latestDate,stock,count);
+        public ResponseEntity<List<Stock>> getStockListByLatestTimestampBefore(@RequestParam LocalDateTime latestDate, @RequestParam String stock, @RequestParam int count){
+            List<Stock> timeSeriesData = stockService.getLatestDataBefore(latestDate,stock,count);
             return ResponseEntity.status(HttpStatus.OK).body(timeSeriesData);
         }
         @Operation(
@@ -64,19 +66,19 @@ public class StockController {
                 @Parameter(name = "count",description = "데이터 개수",example = "10",required = true)
         })
         @GetMapping("/latest-stock-after")
-        public ResponseEntity<List<Document>> getStockListByLatestTimestampAfter(@RequestParam LocalDateTime latestDate, @RequestParam String stock, @RequestParam int count){
-            List<Document> timeSeriesData = stockService.getLatestDataAfter(latestDate,stock,count);
+        public ResponseEntity<List<Stock>> getStockListByLatestTimestampAfter(@RequestParam LocalDateTime latestDate, @RequestParam String stock, @RequestParam int count){
+            List<Stock> timeSeriesData = stockService.getLatestDataAfter(latestDate,stock,count);
             return ResponseEntity.status(HttpStatus.OK).body(timeSeriesData);
         }
 
-        @Operation(
-                summary = "주식 검색 자동완성을 위한 api",
-                description = "전송한 텍스트를 포함하여 완성될 수 있는 주식의 전체 이름 목록을 반환"
-        )
-        @ApiResponse(responseCode = "200", description = "성공")
-        @GetMapping("/search/{searchText}")
-        public ResponseEntity<List<Document>> getSearchStockName(@PathVariable String searchText){
-            List<Document> searchStock = stockService.getSearchStock(searchText);
-            return ResponseEntity.status(HttpStatus.OK).body(searchStock);
-        }
+//        @Operation(
+//                summary = "주식 검색 자동완성을 위한 api",
+//                description = "전송한 텍스트를 포함하여 완성될 수 있는 주식의 전체 이름 목록을 반환"
+//        )
+//        @ApiResponse(responseCode = "200", description = "성공")
+//        @GetMapping("/search/{searchText}")
+//        public ResponseEntity<List<Stock>> getSearchStockName(@PathVariable String searchText){
+//            List<Stock> searchStock = stockService.getSearchStock(searchText);
+//            return ResponseEntity.status(HttpStatus.OK).body(searchStock);
+//        }
 }

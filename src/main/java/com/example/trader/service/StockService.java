@@ -1,0 +1,48 @@
+package com.example.trader.service;
+
+import com.example.trader.entity.Stock;
+import com.example.trader.repository.StockRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.Collections;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class StockService {
+    private final StockRepository repository;
+    public List<Stock> getTimeSeriesData(LocalDateTime start, LocalDateTime end, String stockName) {
+        OffsetDateTime from = toOffset(start);
+        OffsetDateTime to   = toOffset(end);
+        return repository.findBySymbAndTimestampBetweenOrderByTimestampAsc(stockName, from, to);
+    }
+
+    public List<Stock> getLatestDataBefore(LocalDateTime latestDate, String stock, int count) {
+        OffsetDateTime cursor = toOffset(latestDate);
+        List<Stock> rowsDesc = repository
+                .findBySymbAndTimestampLessThanEqualOrderByTimestampDesc(
+                        stock, cursor, PageRequest.of(0, Math.max(count, 1))
+                ).getContent();
+        // “이전 N개”를 시간 오름차순으로 주고 싶으면 역순 정렬
+//        Collections.reverse(rowsDesc);
+        return rowsDesc;
+    }
+
+    public List<Stock> getLatestDataAfter(LocalDateTime latestDate, String stock, int count) {
+        OffsetDateTime cursor = toOffset(latestDate);
+        return repository
+                .findBySymbAndTimestampGreaterThanEqualOrderByTimestampAsc(
+                        stock, cursor, PageRequest.of(0, Math.max(count, 1))
+                ).getContent();
+    }
+
+
+    private static OffsetDateTime toOffset(LocalDateTime ldt) {
+        return ldt.atOffset(ZoneOffset.of("+09:00")); // 환경에 맞게 조정
+    }
+}
