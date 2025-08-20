@@ -2,7 +2,8 @@ package com.example.trader.security.config;
 
 import com.example.trader.security.entrypoint.CustomAuthenticationEntryPoint;
 import com.example.trader.security.filter.JwtFilter;
-import com.example.trader.security.service.CustomOAuth2UserService;
+import com.example.trader.security.oauth2.CustomOAuth2UserService;
+import com.example.trader.security.oauth2.OAuth2SuccessHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,6 +31,7 @@ public class SecurityConfig {
 
     private final AuthenticationProvider authenticationProvider;
     private final CustomOAuth2UserService customOAuth2UserService;
+    private final OAuth2SuccessHandler oAuth2SuccessHandler;
     private final AccessDeniedHandler customAccessDeniedHandler;
     private final JwtFilter jwtFilter;
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
@@ -81,7 +83,12 @@ public class SecurityConfig {
                     .exceptionHandling(exception -> {
                         exception.authenticationEntryPoint(authenticationEntryPoint);
                         exception.accessDeniedHandler(customAccessDeniedHandler);
-                    });
+                    })
+                    // 1) OAuth2 로그인(성공/실패 핸들러 + 사용자 정보 매핑)
+                    .oauth2Login(o -> o
+                            .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
+                            .successHandler(oAuth2SuccessHandler)
+                    );
             return http.build();
     }
 }

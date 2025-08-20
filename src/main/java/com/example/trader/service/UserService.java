@@ -1,5 +1,6 @@
 package com.example.trader.service;
 
+import com.example.trader.entity.Role;
 import com.example.trader.entity.User;
 
 import com.example.trader.exception.BaseException;
@@ -8,6 +9,7 @@ import com.example.trader.repository.UserRepository;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.apache.commons.lang3.RandomStringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -57,5 +59,28 @@ public class UserService {
             throw new BaseException(BaseResponseStatus.NON_EXIST_USER);
         });
         return user;
+    }
+
+    public User upsertOAuthUser(String provider, String providerId, String email, String name) {
+        return userRepository.findByProviderAndProviderId(provider, providerId)
+                .map(user -> {
+                    // TODO : 이미 있으면 업데이트
+                    user.changeEmailUserName(email,name);
+                    return user;
+                })
+                .orElseGet(() -> {
+                    String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%";
+                    String strongPwd = RandomStringUtils.random(16, chars);
+                    // 없으면 신규 추가
+                    User newUser = User.builder().provider(provider)
+                            .providerId(providerId)
+                            .email(email)
+                            .username(name)
+                            .role(Role.USER)
+                            .nickName(name)
+                            .password(strongPwd)
+                            .loginId(email).build();
+                    return userRepository.save(newUser);
+                });
     }
 }

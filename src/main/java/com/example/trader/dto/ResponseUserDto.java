@@ -23,8 +23,9 @@ public class ResponseUserDto {//Authentication 인증객체로 넘길 dto
 
 
     public static ResponseUserDto of(User user){
+        String genderName = user.getGender() != null ? user.getGender().getGenderName() : null;
         return ResponseUserDto.builder().email(user.getEmail())
-                .gender(user.getGender().getGenderName()).
+                .gender(genderName).
                 id(user.getId()).
                 nickName(user.getNickName()).
                 loginId(user.getLoginId()).

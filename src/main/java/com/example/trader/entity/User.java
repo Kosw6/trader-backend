@@ -7,7 +7,7 @@ import lombok.*;
 
 import java.util.ArrayList;
 import java.util.List;
-@ToString
+@ToString(onlyExplicitlyIncluded = true)
 @Entity
 @Getter
 @Table(name = "users")
@@ -35,10 +35,12 @@ public class User extends BaseTimeEntity {
     private Role role;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @ToString.Exclude
     private List<UserTeam> userTeams = new ArrayList<>();
     private String provider;
     private String providerId;
     @OneToMany(mappedBy = "user",cascade = CascadeType.ALL,orphanRemoval = true)//고아객체 삭제 + note객체의 user필드와 연결
+    @ToString.Exclude
     private final List<Note> notes = new ArrayList<>();
 
     public void addNotes(List<Note> notes){
@@ -72,5 +74,20 @@ public class User extends BaseTimeEntity {
                 nickName(userDto.nickName()).
                 id(userDto.id()).build();
 
+    }
+    public User changeEmailUserName(String email,String username){
+        return User.builder()
+                .username(username)
+                .role(this.role)
+                .email(email)
+                .age(this.age)
+                .providerId(this.providerId)
+                .provider(this.provider)
+                .gender(this.gender)
+                .nickName(this.nickName)
+                .loginId(this.loginId)
+                .password(this.password)
+                .userTeams(this.userTeams)
+                .id(this.id).build();
     }
 }
