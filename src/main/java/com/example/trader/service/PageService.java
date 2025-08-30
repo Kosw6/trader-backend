@@ -25,7 +25,6 @@ public class PageService {
 
         Page page = Page.builder()
                 .title(dto.getTitle())
-                .content(dto.getContent())
                 .directory(directory)
                 .build();
 
@@ -51,7 +50,6 @@ public class PageService {
         page = Page.builder()
                 .id(page.getId())
                 .title(dto.getTitle())
-                .content(dto.getContent())
                 .directory(page.getDirectory())
                 .nodeList(page.getNodeList())
                 .edgeList(page.getEdgeList())
@@ -70,7 +68,6 @@ public class PageService {
         return ResponsePageDto.builder()
                 .id(page.getId())
                 .title(page.getTitle())
-                .content(page.getContent())
                 .directoryId(page.getDirectory() != null ? page.getDirectory().getId() : null)
                 .nodeList(page.getNodeList())
                 .edgeList(page.getEdgeList())

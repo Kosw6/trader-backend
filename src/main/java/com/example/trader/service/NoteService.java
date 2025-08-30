@@ -11,6 +11,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -34,7 +36,15 @@ public class NoteService {
         }
         return page.map(ResponseNoteDto::fromEntity);
     }
-    public Page findAllNote(Long userId, Pageable pageable){
+    //유저아이디와 주식에 해당하는 모든 노트 가져오기
+    public Page findAllNoteRangeByUserIdAndStock(Long userId, String stockName, Pageable pageable, LocalDate startDate, LocalDate endDate){
+        Page<Note> page = noteRepository.findByUserIdAndStockSymbAndNoteDateBetween(userId,stockName,startDate,endDate,pageable);
+        if (page.isEmpty()) {
+            throw new BaseException(BaseResponseStatus.INVALID_NOTE);
+        }
+        return page.map(ResponseNoteDto::fromEntity);
+    }
+    public Page findAllNoteByUser(Long userId, Pageable pageable){
         Page<Note> page = noteRepository.findByUserId(userId, pageable);
         // 페이지 내용이 비었을 때 예외 처리
         if (page.isEmpty()) {

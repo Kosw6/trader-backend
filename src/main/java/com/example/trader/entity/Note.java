@@ -6,6 +6,9 @@ import jakarta.annotation.Nullable;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDate;
+import java.util.Date;
+
 @Entity
 @Getter
 @Table(name = "note")
@@ -26,6 +29,7 @@ public class Note extends BaseTimeEntity {
     private String subject;
     private String content;
     private String stockSymb;
+    private LocalDate noteDate;
 
 
     public void setUser(User userId){

@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
@@ -29,6 +30,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
 
 @Tag(name = "NOTE API", description = "학습노트 관련 API")
 @RequiredArgsConstructor
@@ -54,7 +57,7 @@ public class NoteControlelr {
     public ResponseEntity findAllNote(@ParameterObject
                                           @PageableDefault(sort = "createdDate", direction = Sort.Direction.DESC) Pageable pageable) {
         Long userId = SecurityService.getAuthenticationUserId();
-        Page page = noteService.findAllNote(userId, pageable);
+        Page page = noteService.findAllNoteByUser(userId, pageable);
         if(page.getContent().isEmpty()){
             return ResponseEntity.status(BaseResponseStatus.INVALID_NOTE.getCode()).body(String.format("노트가 없습니다."));
         }else{
@@ -65,12 +68,31 @@ public class NoteControlelr {
             summary = "해당 주식의 모든 노트 조회"
     )
     @ApiResponse(responseCode = "200", description = "성공")
-    @GetMapping(params = {"stockName"})
+    @GetMapping(params = {"stockName","!startDate", "!endDate"})
     public ResponseEntity findAllNoteByStock(@Parameter(name = "stockName", example = "TSLA") @RequestParam String stockName,     // stockName 파라미터
                                               @ParameterObject
                                               @PageableDefault(sort = "createdDate", direction = Sort.Direction.DESC) Pageable pageable){
         Long userId = SecurityService.getAuthenticationUserId();
         Page page = noteService.findAllNoteByUserIdAndStock(userId, stockName, pageable);
+        if(page.getContent().isEmpty()){
+            return ResponseEntity.status(BaseResponseStatus.INVALID_NOTE.getCode()).body(String.format("주식명이 %s인 노트가 없습니다.",stockName));
+        }else{
+            return ResponseEntity.ok(page);
+        }
+
+    }
+    @Operation(
+            summary = "해당 주식의 범위 노트 조회"
+    )
+    @ApiResponse(responseCode = "200", description = "성공")
+    @GetMapping(params = {"stockName","startDate", "endDate"})
+    public ResponseEntity findAllNoteRangeByStock(@Parameter(name = "stockName", example = "TSLA") @RequestParam String stockName,     // stockName 파라미터
+                                                  @Parameter(name = "startDate", example = "2025-01-01") @RequestParam LocalDate startDate,
+                                                  @Parameter(name = "endDate", example = "2025-02-01") @RequestParam LocalDate endDate,
+                                                  @ParameterObject
+                                                      @PageableDefault(sort = "createdDate", direction = Sort.Direction.DESC) Pageable pageable){
+        Long userId = SecurityService.getAuthenticationUserId();
+        Page page = noteService.findAllNoteRangeByUserIdAndStock(userId, stockName, pageable,startDate,endDate);
         if(page.getContent().isEmpty()){
             return ResponseEntity.status(BaseResponseStatus.INVALID_NOTE.getCode()).body(String.format("주식명이 %s인 노트가 없습니다.",stockName));
         }else{
@@ -97,7 +119,7 @@ public class NoteControlelr {
     )
     @ApiResponse(responseCode = "200", description = "성공")
     @PostMapping("/save")
-    public ResponseEntity saveNote(@RequestBody RequestNoteDto noteDto){
+    public ResponseEntity saveNote(@Valid @RequestBody RequestNoteDto noteDto){
         UserContext userContext = (UserContext) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         Long id = userContext.getUserDto().getId();
         User user = userService.findUserByUserId(id);
@@ -108,6 +130,7 @@ public class NoteControlelr {
                     user(user).
                     teamId(noteDto.teamId()).
                     content(noteDto.content()).
+                    noteDate(noteDto.noteDate()).
                     subject(noteDto.subject()).build();
         }else{
             note = Note.builder().
@@ -115,6 +138,7 @@ public class NoteControlelr {
                     user(user).
                     teamId(null).
                     content(noteDto.content()).
+                    noteDate(noteDto.noteDate()).
                     subject(noteDto.subject()).build();
         }
         Long noteId = noteService.saveNote(note);
@@ -136,7 +160,7 @@ public class NoteControlelr {
     @ApiResponse(responseCode = "200", description = "성공")
     @PutMapping("/update/{noteId}")
     @PreAuthorize("@securityService.canAccessNote(authentication, #noteId)")
-    public ResponseEntity updateNote(@RequestBody RequestNoteDto noteDto, @PathVariable Long noteId){
+    public ResponseEntity updateNote(@Valid @RequestBody RequestNoteDto noteDto, @PathVariable Long noteId){
         Note note = noteService.findNoteById(noteId);
         if(validateTeam(noteDto)){
             note.changeContent(noteDto.content());

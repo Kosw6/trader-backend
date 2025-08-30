@@ -4,6 +4,7 @@ package com.example.trader.controller;
 import com.example.trader.dto.RequestPageDto;
 import com.example.trader.dto.ResponsePageDto;
 import com.example.trader.service.PageService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,7 +17,7 @@ public class PageController {
     private final PageService pageService;
 
     @PostMapping
-    public ResponseEntity<ResponsePageDto> createPage(@RequestBody RequestPageDto dto) {
+    public ResponseEntity<ResponsePageDto> createPage(@Valid @RequestBody RequestPageDto dto) {
         return ResponseEntity.ok(pageService.createPage(dto));
     }
 
@@ -26,7 +27,7 @@ public class PageController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<ResponsePageDto> updatePage(@PathVariable Long id, @RequestBody RequestPageDto dto) {
+    public ResponseEntity<ResponsePageDto> updatePage(@PathVariable Long id,@Valid @RequestBody RequestPageDto dto) {
         return ResponseEntity.ok(pageService.updatePage(id, dto));
     }
 

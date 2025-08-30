@@ -3,7 +3,9 @@ package com.example.trader.dto;
 import com.example.trader.entity.Note;
 import lombok.*;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Date;
 
 @Getter
 @Setter
@@ -20,7 +22,7 @@ public class ResponseNoteDto {
     private String stockSymb;
     private LocalDateTime createdDate;
     private LocalDateTime modifiedDate;
-
+    private LocalDate noteDate;
     // 엔티티 -> DTO 변환 메서드
     public static ResponseNoteDto fromEntity(Note note) {
         return ResponseNoteDto.builder()
@@ -33,6 +35,7 @@ public class ResponseNoteDto {
                 .stockSymb(note.getStockSymb())
                 .createdDate(note.getCreatedDate())
                 .modifiedDate(note.getModifiedDate())
+                .noteDate(note.getNoteDate())
                 .build();
     }
 }

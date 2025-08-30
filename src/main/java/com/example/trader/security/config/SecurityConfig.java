@@ -5,8 +5,10 @@ import com.example.trader.security.filter.JwtFilter;
 import com.example.trader.security.oauth2.CustomOAuth2UserService;
 import com.example.trader.security.oauth2.OAuth2SuccessHandler;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
@@ -17,6 +19,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -59,13 +62,28 @@ public class SecurityConfig {
         return source;
     }
 
+    // 0) Actuator만 전부 허용 (Prometheus 스크랩용)
     @Bean
+    @Order(0)
+    SecurityFilterChain actuatorChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher(new AntPathRequestMatcher("/actuator/**")) // ← 명시 매칭
+                .authorizeHttpRequests(a -> a.anyRequest().permitAll())
+                .csrf(csrf -> csrf.disable())
+                .requestCache(c -> c.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        return http.build();
+    }
+    @Bean
+    @Order(1)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception{
             http.cors(cors->cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
                     .authorizeHttpRequests(auth -> auth
                             //TODO:swagger보안처리 배포전에 해두기
                             .requestMatchers(
+                                    "/actuator/**",
+                                    "/error",
                                     "/swagger-ui/**",
                                     "/v3/api-docs",
                                     "/v3/api-docs/**",
