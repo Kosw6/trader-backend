@@ -24,4 +24,16 @@ public class UserTeam extends BaseTimeEntity {
     private Team team;
 
     // Getter, Setter
+
+    public Long getId() {
+        return id;
+    }
+
+    public User getUser() {
+        return user;
+    }
+
+    public Team getTeam() {
+        return team;
+    }
 }
