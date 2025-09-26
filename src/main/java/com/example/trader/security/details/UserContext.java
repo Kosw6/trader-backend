@@ -33,5 +33,8 @@ public class UserContext implements UserDetails {
     public String getUsername() {//로그인시 사용한 로그인 아이디
         return userDto.getLoginId();
     }
-
+    @Override public boolean isAccountNonExpired() { return true; }
+    @Override public boolean isAccountNonLocked() { return true; }
+    @Override public boolean isCredentialsNonExpired() { return true; }
+    @Override public boolean isEnabled() { return true; }
 }

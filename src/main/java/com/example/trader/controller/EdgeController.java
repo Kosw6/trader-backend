@@ -1,7 +1,7 @@
 package com.example.trader.controller;
 
-import com.example.trader.dto.EdgeRequestDto;
-import com.example.trader.dto.EdgeResponseDto;
+import com.example.trader.dto.map.RequestEdgeDto;
+import com.example.trader.dto.map.ResponseEdgeDto;
 import com.example.trader.service.EdgeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -18,30 +18,30 @@ public class EdgeController {
 
     // 특정 페이지의 엣지 전체 조회
     @GetMapping("/page/{pageId}")
-    public ResponseEntity<List<EdgeResponseDto>> getEdgesByPage(@PathVariable Long pageId) {
+    public ResponseEntity<List<ResponseEdgeDto>> getEdgesByPage(@PathVariable Long pageId) {
         return ResponseEntity.ok(edgeService.findAllByPageId(pageId));
     }
 
     // 엣지 단건 조회
     @GetMapping("/{id}")
-    public ResponseEntity<EdgeResponseDto> getEdge(@PathVariable Long id) {
+    public ResponseEntity<ResponseEdgeDto> getEdge(@PathVariable Long id) {
         return ResponseEntity.ok(edgeService.findById(id));
     }
 
     // 엣지 생성
     @PostMapping("/page/{pageId}")
-    public ResponseEntity<EdgeResponseDto> createEdge(@RequestBody EdgeRequestDto dto, @PathVariable Long pageId) {
-        EdgeResponseDto saved = edgeService.createEdge(dto, pageId);
+    public ResponseEntity<ResponseEdgeDto> createEdge(@RequestBody RequestEdgeDto dto, @PathVariable Long pageId) {
+        ResponseEdgeDto saved = edgeService.createEdge(dto, pageId);
         return ResponseEntity.ok(saved);
     }
 
     // 엣지 수정
     @PutMapping("/{id}/page/{pageId}")
-    public ResponseEntity<EdgeResponseDto> updateEdge(
+    public ResponseEntity<ResponseEdgeDto> updateEdge(
             @PathVariable Long id,
-            @RequestBody EdgeRequestDto dto,
+            @RequestBody RequestEdgeDto dto,
             @PathVariable Long pageId) {
-        EdgeResponseDto updated = edgeService.updateEdge(id, dto, pageId);
+        ResponseEdgeDto updated = edgeService.updateEdge(id, dto, pageId);
         return ResponseEntity.ok(updated);
     }
 

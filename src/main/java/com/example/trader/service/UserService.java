@@ -21,12 +21,12 @@ public class UserService {
         return userRepository.findById(userId).orElseThrow(()->{
             throw new BaseException(BaseResponseStatus.NON_EXIST_USER);});
     }
-    public User findUserByLoginId(String loginId) {
-        return userRepository.findByLoginId(loginId).orElseThrow();
-    }
-    public User findUserByEmail(String email) {
-        return userRepository.findByEmail(email).orElseThrow();
-    }
+//    public User findUserByLoginId(String loginId) {
+//        return userRepository.findByLoginId(loginId).orElseThrow();
+//    }
+//    public User findUserByEmail(String email) {
+//        return userRepository.findByEmail(email).orElseThrow();
+//    }
 
     public Long createUser(User user) {
         validateDuplicateUser(user);
@@ -36,6 +36,9 @@ public class UserService {
 
     private void validateDuplicateUser(User user) {//중복검사
         if (userRepository.findByEmail(user.getEmail()).isPresent()) {
+            if(userRepository.findByEmail(user.getLoginId()).isPresent()){
+                throw new BaseException(BaseResponseStatus.EXIST_LOGIN_ID);
+            }
             throw new BaseException(BaseResponseStatus.EXIST_EMAIL);
         }
     }
@@ -46,20 +49,18 @@ public class UserService {
 
     public void deleteUser(Long userId){
         //todo:컨트롤러에서 컨텍스트에 있는 유저 id로 삭제요청 진행하고 오류 발생하지 않을시에 정상응답 반환 + jwt토큰 만료?? -> 삭제 응답시에 프론트에서 브라우저에 있는 토큰을 지우도록 하자
-        try{
-            userRepository.deleteById(userId);
-        }catch (RuntimeException e){
+        if (!userRepository.existsById(userId)) {
             throw new BaseException(BaseResponseStatus.NON_EXIST_USER);
         }
-
+        userRepository.deleteById(userId);
     }
 
-    public User findUserByEmailAndProviderId(String email,String providerId){
-        User user = userRepository.findByEmailAndProviderId(email, providerId).orElseThrow(() -> {
-            throw new BaseException(BaseResponseStatus.NON_EXIST_USER);
-        });
-        return user;
-    }
+//    public User findUserByEmailAndProviderId(String email,String providerId){
+//        User user = userRepository.findByEmailAndProviderId(email, providerId).orElseThrow(() -> {
+//            throw new BaseException(BaseResponseStatus.NON_EXIST_USER);
+//        });
+//        return user;
+//    }
 
     public User upsertOAuthUser(String provider, String providerId, String email, String name) {
         return userRepository.findByProviderAndProviderId(provider, providerId)

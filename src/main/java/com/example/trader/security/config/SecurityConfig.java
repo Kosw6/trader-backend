@@ -52,7 +52,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of("http://localhost:5173")); // 허용할 프론트 주소
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE","PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Requested-With","Access-Control-Request-Method","Access-Control-Request-Headers","Access-Control-Allow-Origin","Access-Control-Allow-Credentials"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L); // 캐시 시간(초)

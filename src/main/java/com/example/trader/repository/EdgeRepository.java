@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface EdgeRepository extends JpaRepository<Edge,Long> {
     // EdgeRepository.java
@@ -15,4 +16,6 @@ public interface EdgeRepository extends JpaRepository<Edge,Long> {
     @Modifying
     @Query("DELETE FROM Edge e WHERE e.source.id = :nodeId OR e.target.id = :nodeId")
     void deleteByNodeId(@Param("nodeId") Long nodeId);
+
+    boolean existsBySourceIdAndTargetId(Long sourceId, Long targetId);
 }

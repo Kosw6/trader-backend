@@ -68,7 +68,7 @@ public class NoteControlelr {
             summary = "해당 주식의 모든 노트 조회"
     )
     @ApiResponse(responseCode = "200", description = "성공")
-    @GetMapping(params = {"stockName","!startDate", "!endDate"})
+    @GetMapping(value = "/stock",params = {"stockName"})
     public ResponseEntity findAllNoteByStock(@Parameter(name = "stockName", example = "TSLA") @RequestParam String stockName,     // stockName 파라미터
                                               @ParameterObject
                                               @PageableDefault(sort = "createdDate", direction = Sort.Direction.DESC) Pageable pageable){
@@ -85,7 +85,7 @@ public class NoteControlelr {
             summary = "해당 주식의 범위 노트 조회"
     )
     @ApiResponse(responseCode = "200", description = "성공")
-    @GetMapping(params = {"stockName","startDate", "endDate"})
+    @GetMapping(value = "/range",params = {"stockName","startDate", "endDate"})
     public ResponseEntity findAllNoteRangeByStock(@Parameter(name = "stockName", example = "TSLA") @RequestParam String stockName,     // stockName 파라미터
                                                   @Parameter(name = "startDate", example = "2025-01-01") @RequestParam LocalDate startDate,
                                                   @Parameter(name = "endDate", example = "2025-02-01") @RequestParam LocalDate endDate,

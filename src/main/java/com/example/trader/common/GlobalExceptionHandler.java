@@ -2,6 +2,7 @@ package com.example.trader.common;
 
 import com.example.trader.exception.BaseException;
 import io.swagger.v3.oas.annotations.Hidden;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,5 +35,14 @@ public class GlobalExceptionHandler {
         errorResponse.put("message", "요청하신 경로가 존재하지 않습니다.");
         errorResponse.put("path", ex.getRequestURL());
         return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
+    }
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest request) {
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("status", 400);
+        errorResponse.put("error", "Bad Request");
+        errorResponse.put("message", ex.getMessage());
+        errorResponse.put("path", request.getRequestURI());
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 }

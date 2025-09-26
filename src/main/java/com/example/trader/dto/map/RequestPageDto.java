@@ -1,5 +1,5 @@
 // RequestPageDto.java
-package com.example.trader.dto;
+package com.example.trader.dto.map;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
@@ -9,6 +9,6 @@ import lombok.Setter;
 @Setter
 public class RequestPageDto {
     @NotBlank(message = "제목은 필수입니다.")
-    private String title;
-    private Long directoryId;
+    private String title;//제목 수정
+    private Long directoryId;//할당된 디렉토리 위치변경
 }

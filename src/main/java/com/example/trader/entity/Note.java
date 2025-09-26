@@ -7,7 +7,10 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
+import java.util.Objects;
 
 @Entity
 @Getter
@@ -31,6 +34,8 @@ public class Note extends BaseTimeEntity {
     private String stockSymb;
     private LocalDate noteDate;
 
+    @OneToMany(mappedBy = "note")   // 소유자는 링크 엔티티
+    private final List<NodeNoteLink> nodeLinks = new ArrayList<>();
 
     public void setUser(User userId){
         this.user = user;
@@ -46,5 +51,17 @@ public class Note extends BaseTimeEntity {
     }
     public void changestockSymb(String stockSymb){
         this.stockSymb = stockSymb;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Note note)) return false;
+        return id.equals(note.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
     }
 }

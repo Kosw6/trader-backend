@@ -21,17 +21,18 @@ public class Directory {
     private Long id;
     private String name;
 
-    // 자기참조: 상위 디렉토리
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+    // 자기참조: 상위 디렉토리, + 하위 디렉토리는 cascade옵션 DB레벨에서 설정
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id") // FK 컬럼명
     private Directory parent;
 
-    // (선택) 하위 디렉토리 목록 - 양방향 매핑 원할 때
-    @OneToMany(mappedBy = "parent")
-    private List<Directory> children = new ArrayList<>();
-
-    @OneToMany(mappedBy = "directory", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<Page> pages = new ArrayList<>();
-    // getter, setter
-
+    public void rename(String name){
+        this.name = name;
+    }
+    public void setParent(Directory parent){
+        this.parent = parent;
+    }
 }

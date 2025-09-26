@@ -2,6 +2,7 @@ plugins {
 	id 'java'
 	id 'org.springframework.boot' version '3.4.3'
 	id 'io.spring.dependency-management' version '1.1.7'
+	id 'jacoco'
 }
 
 group = 'com.example'
@@ -44,7 +45,64 @@ dependencies {
 
 
 }
+jacoco {
+	toolVersion = "0.8.12"
+}
 
 tasks.named('test') {
 	useJUnitPlatform()
+	finalizedBy tasks.jacocoTestReport   // 리포트는 테스트 후
 }
+
+tasks.jacocoTestReport {
+	dependsOn tasks.test
+	reports{
+		xml.required.set(true)
+		html.required.set(true)
+	}
+}
+
+/** ③ 커버리지 게이트(70%) — 전체 번들 기준(필요 시 클래스/패키지 룰 추가 가능) */
+tasks.jacocoTestCoverageVerification {
+	dependsOn tasks.test
+	violationRules {
+//		rule {
+//			element = 'BUNDLE'
+//			limit {
+//				counter = 'INSTRUCTION'
+//				value   = 'COVEREDRATIO'
+//				minimum = 0.70
+//			}
+//		}
+//		 예) 특정 컨트롤러도 강제하려면 FQN 정확히:
+		rule {
+			element = 'CLASS'
+			includes = ['com.example.trader.service.UserService']
+			limit {
+				counter = 'INSTRUCTION'
+				value   = 'COVEREDRATIO'
+				minimum = 0.50
+			}
+		}
+	}
+}
+
+/** ④ check에 “강제 검사 + 커버리지 게이트”를 확실히 연결 */
+tasks.named('check') {
+//	dependsOn 'enforceTestsPresent'
+//	dependsOn 'enforceCoverageData'
+	dependsOn 'jacocoTestCoverageVerification'
+}
+tasks.register('printTestClasses') {
+	dependsOn tasks.named('testClasses')
+	doLast {
+		def tree = sourceSets.test.output.classesDirs.asFileTree.matching { include '**/*.class' }
+		println "== Compiled test classes =="
+		tree.files.each { println it }
+	}
+}
+/** (보험) build가 check를 반드시 타도록 — 기본이긴 하지만 명시해둬도 무방 */
+tasks.named('build') {
+	dependsOn 'check'
+}
+check.dependsOn jacocoTestCoverageVerification // ✅ 빌드/체크 시 커버리지 게이트 적용

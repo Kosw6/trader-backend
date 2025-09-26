@@ -1,10 +1,13 @@
 package com.example.trader.controller;
 
-import com.example.trader.dto.NodeRequestDto;
-import com.example.trader.dto.NodeResponseDto;
+import com.example.trader.dto.UpdateNodePositionReq;
+import com.example.trader.dto.map.RequestNodeDto;
+import com.example.trader.dto.map.ResponseNodeDto;
+import com.example.trader.security.details.UserContext;
 import com.example.trader.service.NodeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,35 +21,42 @@ public class NodeController {
 
     // 특정 페이지의 노드 전체 조회
     @GetMapping("/page/{pageId}")
-    public ResponseEntity<List<NodeResponseDto>> getNodesByPage(@PathVariable Long pageId) {
+    public ResponseEntity<List<ResponseNodeDto>> getNodesByPage(@PathVariable Long pageId) {
         return ResponseEntity.ok(nodeService.findAllByPageId(pageId));
     }
 
     // 노드 단건 조회
     @GetMapping("/{id}")
-    public ResponseEntity<NodeResponseDto> getNode(@PathVariable Long id) {
+    public ResponseEntity<ResponseNodeDto> getNode(@PathVariable Long id) {
         return ResponseEntity.ok(nodeService.findById(id));
     }
 
     // 노드 생성
     @PostMapping("/page/{pageId}")
-    public ResponseEntity<NodeResponseDto> createNode(@RequestBody NodeRequestDto dto, @PathVariable Long pageId) {
-        NodeResponseDto saved = nodeService.createNode(dto, pageId);
+    public ResponseEntity<ResponseNodeDto> createNode(@RequestBody RequestNodeDto dto, @PathVariable Long pageId) {
+        ResponseNodeDto saved = nodeService.createNode(dto, pageId);
         return ResponseEntity.ok(saved);
     }
 
-    // 노드 수정
-    @PutMapping("/{id}/page/{pageId}")
-    public ResponseEntity<NodeResponseDto> updateNode(
+    // 노드 위치 수정
+    @PatchMapping("{id}/position")
+    public ResponseEntity<Void> updateNodePosition(
             @PathVariable Long id,
-            @RequestBody NodeRequestDto dto,
-            @PathVariable Long pageId
+            @RequestBody UpdateNodePositionReq dto
     ) {
-        NodeResponseDto updated = nodeService.updateNode(id, dto, pageId);
-        return ResponseEntity.ok(updated);
+        nodeService.updatePosition(id,dto.x(),dto.y());
+        return ResponseEntity.noContent().build();
+    }
+    //노드 수정
+    @PatchMapping("{nodeId}")
+    public ResponseEntity<ResponseNodeDto> updateNode(
+            @PathVariable Long nodeId,
+            @RequestBody RequestNodeDto dto
+    ) {
+        ResponseNodeDto responseNodeDto = nodeService.updateNode(nodeId, dto);
+        return ResponseEntity.ok(responseNodeDto);
     }
 
-    // 노드 삭제
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteNode(@PathVariable Long id) {
         nodeService.deleteNode(id);

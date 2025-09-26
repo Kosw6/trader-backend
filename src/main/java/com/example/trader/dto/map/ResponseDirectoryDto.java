@@ -1,5 +1,5 @@
 // ResponseDirectoryDto.java
-package com.example.trader.dto;
+package com.example.trader.dto.map;
 
 import com.example.trader.entity.Page;
 import lombok.Builder;
@@ -13,5 +13,4 @@ public class ResponseDirectoryDto {
     private Long id;
     private String name;
     private Long parentId;
-    private List<Page> pages;
 }

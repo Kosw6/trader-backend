@@ -51,4 +51,9 @@ public class SecurityService {
         UserContext userContext = (UserContext) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         return userContext.getUserDto().getId();
     }
+    public User getAuthenticationUser(){
+        UserContext userContext = (UserContext) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        return userRepository.findById(userContext.getUserDto().getId())
+                .orElseThrow(() ->  new RuntimeException("getAuthenticationUser: 유저가 존재하지 않음"));
+    }
 }
