@@ -3,6 +3,7 @@ package com.example.trader.service;
 import com.example.trader.entity.Stock;
 import com.example.trader.repository.StockRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -16,12 +17,21 @@ import java.util.List;
 @RequiredArgsConstructor
 public class StockService {
     private final StockRepository repository;
+    @Cacheable(
+            cacheNames = "stockRange",
+            key = "#stockName + ':' + #start.toString() + ':' + #end.toString()",
+            unless = "#result == null || #result.isEmpty()"
+    )
     public List<Stock> getTimeSeriesData(LocalDateTime start, LocalDateTime end, String stockName) {
         OffsetDateTime from = toOffset(start);
         OffsetDateTime to   = toOffset(end);
         return repository.findBySymbAndTimestampBetweenOrderByTimestampAsc(stockName, from, to).orElseThrow(()->new IllegalArgumentException("존재하지 않는 주식명입니다."));
     }
-
+    @Cacheable(
+            cacheNames = "stockBefore",
+            key = "#stock + ':before:' + #latestDate.toString() + ':' + #count",
+            unless = "#result == null || #result.isEmpty()"
+    )
     public List<Stock> getLatestDataBefore(LocalDateTime latestDate, String stock, int count) {
         OffsetDateTime cursor = toOffset(latestDate);
         List<Stock> rowsDesc = repository
@@ -33,6 +43,11 @@ public class StockService {
         return rowsDesc;
     }
 
+    @Cacheable(
+            cacheNames = "stockAfter",
+            key = "#stock + ':after:' + #latestDate.toString() + ':' + #count",
+            unless = "#result == null || #result.isEmpty()"
+    )
     public List<Stock> getLatestDataAfter(LocalDateTime latestDate, String stock, int count) {
         OffsetDateTime cursor = toOffset(latestDate);
         return repository

@@ -39,7 +39,7 @@ public class SecurityService {
 
         // 게시물 작성자와 현재 사용자 비교
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.NON_EXIST_USER));
 
         if(!user.getId().equals(((UserContext) authentication.getPrincipal()).getUserDto().getId())){
             throw new AccessDeniedException("해당 유저정보의 접근 권한이 없습니다."); // 권한 없으
@@ -54,6 +54,6 @@ public class SecurityService {
     public User getAuthenticationUser(){
         UserContext userContext = (UserContext) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         return userRepository.findById(userContext.getUserDto().getId())
-                .orElseThrow(() ->  new RuntimeException("getAuthenticationUser: 유저가 존재하지 않음"));
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.NON_EXIST_USER));
     }
 }

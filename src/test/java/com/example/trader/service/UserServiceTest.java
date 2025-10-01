@@ -78,7 +78,8 @@ class UserServiceTest {
     @Test
     void validateDuplicateUser(){
         userService.createUser(testUser);
-        assertThatThrownBy(()->{userService.createUser(testUser);}).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(()->{userService.createUser(testUser);}).isInstanceOf(BaseException.class)
+                .hasFieldOrPropertyWithValue("status","INVALID_USER");
     }
     @Test
     void updateUser(){

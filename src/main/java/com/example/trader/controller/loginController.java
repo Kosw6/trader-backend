@@ -103,7 +103,7 @@ public class loginController {
             // 인증 실패 시 401 Unauthorized 응답
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException(e);
+            throw new UnsupportedEncodingException();
         }
     }
     //todo:회원가입시 201응답을 받았으면 프론트에서 로그인 페이지로 리다이렉트시키기

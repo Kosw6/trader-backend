@@ -1,6 +1,8 @@
 package com.example.trader.service;
 
 import com.example.trader.dto.map.*;
+import com.example.trader.exception.BaseException;
+import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.repository.DirectoryRepository;
 import com.example.trader.repository.PageRepository;
 import lombok.RequiredArgsConstructor;
@@ -51,7 +53,7 @@ public class ContentCoordinator {
     public DeleteResponse deleteDirectoryWithPageIds(Long dirId, Long userId) {
         // 1) 삭제 전 ID 수집 (소유자 검증 포함)
         List<Long> dirIds = directoryRepository.findDirectorySubtreeIds(dirId, userId);
-        if (dirIds.isEmpty()) throw new RuntimeException("Directory not found");
+        if (dirIds.isEmpty()) throw new BaseException(BaseResponseStatus.INVALID_DIRECTORY);
 
         List<Long> pageIds =  pageRepository.findPageIdsInDirectoryTree(dirId, userId);
 

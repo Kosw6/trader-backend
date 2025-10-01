@@ -2,8 +2,11 @@ package com.example.trader.security.provider;
 
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
+import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.example.trader.entity.User;
+import com.example.trader.exception.BaseException;
+import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -71,12 +74,10 @@ public class JwtTokenProvider {
             if(new Date(System.currentTimeMillis()).before(decodedJWT.getExpiresAt())) {//토큰만료시간 이전이냐
                 return decodedJWT.getSubject();
             }else{//토큰이 만료되었을때 발생->호출하는 쪽에서 getRefreshTokenInfo메서드로 확인하고 AccessToken발급
-//Todo:예외처리 중앙화하고 수정                throw new ExpiredAccessTokenException("AccessToken만료");
-                throw new RuntimeException("AccessToken만료");
+                throw new BaseException(BaseResponseStatus.ACCESS_TOKEN_EXPIRED);
             }
         }
-//Todo:예외처리 중앙화하고 수정        throw new InvalidJwtTokenException("검증하는 토큰이 유효하지 않음-재발급필요");
-        throw new RuntimeException("검증하는 토큰이 유효하지 않음-재발급필요");
+        throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
     }
 
 
@@ -92,6 +93,7 @@ public class JwtTokenProvider {
             }
             return null;//호출하는 쪽에서 널값 체크해서 처리
         } catch (Exception e) {
+            log.error(e.getMessage());
             return null;
         }
     }
