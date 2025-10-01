@@ -45,6 +45,16 @@ export function setup() {
   };
 }
 
+export function handleSummary(data) {
+  // 요약에서 민감 정보 제거
+  if (data.setup_data) data.setup_data = { redacted: true };
+
+  return {
+    "summary.json": JSON.stringify(data, null, 2),
+    stdout: "", // 콘솔 출력 생략(선택)
+  };
+}
+
 /** ===== 템플릿/카르테시안 헬퍼 ===== */
 function renderTemplate(tpl, ctx) {
   return tpl.replace(/{{\s*([\w]+)\s*}}/g, (_, k) => {
