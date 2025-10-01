@@ -39,7 +39,9 @@ dependencies {
 	implementation 'org.apache.commons:commons-lang3:3.14.0'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	implementation "com.fasterxml.jackson.core:jackson-databind"
 	implementation 'org.springframework.boot:spring-boot-starter-cache'      // @Cacheable 등
+	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
 	implementation 'io.micrometer:micrometer-registry-prometheus'
 	runtimeOnly 'org.postgresql:postgresql'
 
@@ -87,10 +89,7 @@ tasks.jacocoTestCoverageVerification {
 	}
 }
 
-/** ④ check에 “강제 검사 + 커버리지 게이트”를 확실히 연결 */
 tasks.named('check') {
-//	dependsOn 'enforceTestsPresent'
-//	dependsOn 'enforceCoverageData'
 	dependsOn 'jacocoTestCoverageVerification'
 }
 tasks.register('printTestClasses') {

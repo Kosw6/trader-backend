@@ -1,0 +1,45 @@
+[
+  {
+    "controller": "StockController",
+    "base": "/api/stock",
+    "endpoints": [
+      {
+        "name": "range",
+        "method": "GET",
+        "path": "",
+        "qsTemplate": "stockName={{stock}}&start={{start}}&end={{end}}",
+        "params": {
+          "stock": ["AAPL", "MSFT"],
+          "start": ["2025-02-01T00:00:00"],
+          "end": ["2025-03-01T00:00:00", "2025-03-10T00:00:00"]
+        },
+        "paramLabels": ["stock", "end"],
+
+        "variants": [
+          {
+            "name": "light",
+            "executor": "constant-arrival-rate",
+            "rate": 50,
+            "vus": 10,
+            "duration": "30s"
+          },
+          {
+            "name": "heavy",
+            "executor": "constant-arrival-rate",
+            "rate": 200,
+            "vus": 30,
+            "maxVUs": 100,
+            "duration": "30s"
+          }
+        ]
+      },
+
+      {
+        "name": "before",
+        "method": "GET",
+        "path": "/latest-stock-before",
+        "qs": "stock=AAPL&latestDate=2025-05-10T00:00:00&count=100"
+      }
+    ]
+  }
+]
