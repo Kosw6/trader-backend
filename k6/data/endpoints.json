@@ -41,5 +41,68 @@
         "qs": "stock=AAPL&latestDate=2025-05-10T00:00:00&count=100"
       }
     ]
+  },
+  {
+    "controller": "DirectoryController",
+    "base": "/api/directories",
+    "endpoints": [
+      {
+        "name": "list",
+        "method": "GET",
+        "path": "",
+        "qsTemplate": "",
+        "variants": [
+          {
+            "name": "light",
+            "executor": "constant-arrival-rate",
+            "rate": 50,
+            "vus": 10,
+            "duration": "30s"
+          },
+          {
+            "name": "heavy",
+            "executor": "constant-arrival-rate",
+            "rate": 200,
+            "vus": 30,
+            "maxVUs": 100,
+            "duration": "30s"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "controller": "PageController",
+    "base": "/api/pages",
+    "endpoints": [
+      {
+        "name": "list",
+        "method": "GET",
+        "path": "",
+        "qsTemplate": "id={{id}}",
+        "params": {
+          "id": ["100", "3000", "8643"]
+        },
+        "paramLabels": ["id"],
+        "variants": [
+          {
+            "name": "light",
+            "executor": "constant-arrival-rate",
+            "rate": 50,
+            "vus": 10,
+            "duration": "30s"
+          },
+          {
+            "name": "heavy",
+            "executor": "constant-arrival-rate",
+            "rate": 200,
+            "vus": 30,
+            "maxVUs": 100,
+            "duration": "30s"
+          }
+        ]
+      },
+      {}
+    ]
   }
 ]

@@ -46,12 +46,55 @@ export function setup() {
 }
 
 export function handleSummary(data) {
-  // 요약에서 민감 정보 제거
+  // 민감정보 제거
   if (data.setup_data) data.setup_data = { redacted: true };
 
+  // 안전한 값 추출 헬퍼
+  const get = (path, fallback = undefined) =>
+    path.split(".").reduce((o, k) => (o && k in o ? o[k] : undefined), data) ??
+    fallback;
+
+  // 다양한 포맷(예: --summary-export vs handleSummary 내부 표현) 대비한 다중 시도
+  const p95 =
+    get("metrics.http_req_duration.values.p(95)") ??
+    get("metrics.http_req_duration.percentiles.95") ??
+    get("metrics.http_req_duration.p(95)");
+
+  const avg =
+    get("metrics.http_req_duration.values.avg") ??
+    get("metrics.http_req_duration.avg");
+
+  const rps =
+    get("metrics.http_reqs.values.rate") ?? get("metrics.http_reqs.rate");
+
+  const failRate =
+    get("metrics.http_req_failed.values.rate") ??
+    get("metrics.http_req_failed.value"); // 0~1일 수도, 절대값일 수도 있음
+
+  const toMs = (v) => (typeof v === "number" ? v.toFixed(2) : "n/a");
+  const toNum = (v) => (typeof v === "number" ? v.toFixed(2) : "n/a");
+  const toPct = (v) =>
+    typeof v === "number" ? (v * 100).toFixed(2) + "%" : "n/a";
+
+  const text = [
+    "=== k6 Summary (safe) ===",
+    `avg latency: ${toMs(avg)} ms`,
+    `p95 latency: ${toMs(p95)} ms`,
+    `throughput: ${toNum(rps)} req/s`,
+    `fail rate: ${toPct(failRate)}`,
+    "",
+  ].join("\n");
+
+  // 출력 파일 경로 (원하면 -e SUMMARY=... 로 덮어쓰기)
+  const outFile = "outputs/summary.json";
+
+  // summary.json에는 원본 전체를 남기되 setup_data는 마스킹
+  const cloned = JSON.parse(JSON.stringify(data));
+  if (cloned.setup_data) cloned.setup_data = { redacted: true };
+
   return {
-    "summary.json": JSON.stringify(data, null, 2),
-    stdout: "", // 콘솔 출력 생략(선택)
+    [outFile]: JSON.stringify(cloned, null, 2),
+    stdout: text,
   };
 }
 
@@ -189,7 +232,7 @@ for (const ep of all) {
     VARIANT: ep.variant || "",
     COMBO: ep.combo || "",
   };
-
+  //고정 도착률 -> RPS를 직접 제어, RPS 기반 부하 모델
   if (execType === "constant-arrival-rate") {
     scenarios[scenarioName] = {
       executor: "constant-arrival-rate",
@@ -203,7 +246,7 @@ for (const ep of all) {
     };
   } else {
     scenarios[scenarioName] = {
-      executor: "constant-vus",
+      executor: "constant-vus", //사용자 수 기반 부하 모델, VU(가상 유저)의 수를 고정, 실제 유저 시뮬레이션에 근접
       vus,
       duration,
       exec: "dispatch",
