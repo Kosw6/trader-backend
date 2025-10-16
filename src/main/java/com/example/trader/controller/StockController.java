@@ -3,6 +3,8 @@ package com.example.trader.controller;
 import com.example.trader.dto.StockRequest;
 
 import com.example.trader.entity.Stock;
+import com.example.trader.exception.BaseException;
+import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.service.StockService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -10,6 +12,7 @@ import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -17,8 +20,10 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Tag(name = "Stock API", description = "주가 관련 데이터 API")
 @RestController
 @RequestMapping("/api/stock")
@@ -32,8 +37,17 @@ public class StockController {
         )
         @ApiResponse(responseCode = "200", description = "성공")
         @GetMapping()
-        public ResponseEntity<List<Stock>> getStockListByTimestamp(@ModelAttribute StockRequest stockRequest){
-            List<Stock> timeSeriesData = stockService.getTimeSeriesData(stockRequest.getStart(),stockRequest.getEnd(),stockRequest.getStockName());
+        public ResponseEntity<List<Stock>> getStockListByTimestamp(@RequestParam LocalDateTime start, @RequestParam LocalDateTime end, @RequestParam String stockName){
+            log.info("HIT /api/stock stockName={}, start={}, end={}",
+                    stockName,start,end);
+            List<Stock> timeSeriesData = new ArrayList<>();
+            try{
+                timeSeriesData = stockService.getTimeSeriesData(start,end,stockName);
+            }catch(Exception e){
+                log.error("StockController.getStockListByTimestamp Error: {}", e.getMessage(), e);
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(timeSeriesData);
+            }
+            log.info("HIT Not ERROR");
             return ResponseEntity.status(HttpStatus.OK).body(timeSeriesData);
         }
 

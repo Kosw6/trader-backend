@@ -3,6 +3,8 @@ package com.example.trader.service;
 import com.example.trader.entity.Stock;
 import com.example.trader.repository.StockRepository;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class StockService {
+    private static final Logger log = LoggerFactory.getLogger(StockService.class);
     private final StockRepository repository;
     @Cacheable(
             cacheNames = "stockRange",
@@ -25,6 +28,7 @@ public class StockService {
     public List<Stock> getTimeSeriesData(LocalDateTime start, LocalDateTime end, String stockName) {
         OffsetDateTime from = toOffset(start);
         OffsetDateTime to   = toOffset(end);
+        log.info("HIT getTimeSeriesData");
         return repository.findBySymbAndTimestampBetweenOrderByTimestampAsc(stockName, from, to).orElseThrow(()->new IllegalArgumentException("존재하지 않는 주식명입니다."));
     }
     @Cacheable(
