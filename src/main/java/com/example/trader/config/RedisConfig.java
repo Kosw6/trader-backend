@@ -57,7 +57,7 @@ public class RedisConfig {
             perCache.put("fastCache",  defaults.entryTtl(Duration.ofMinutes(1)));
             perCache.put("slowCache",  defaults.entryTtl(Duration.ofHours(1)));
 
-            log.info("Using RedisCacheManager (Redis reachable).");
+//            log.info("Using RedisCacheManager (Redis reachable).");
             return RedisCacheManager.builder(RedisCacheWriter.nonLockingRedisCacheWriter(cf))
                     .cacheDefaults(defaults)
                     .withInitialCacheConfigurations(perCache)

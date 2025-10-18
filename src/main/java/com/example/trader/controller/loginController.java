@@ -129,11 +129,11 @@ public class loginController {
 
     @GetMapping("/api/login/refresh")
     public ResponseEntity refreshJwt(HttpServletRequest request, HttpServletResponse response) throws UnsupportedEncodingException {
-        log.info("refresh catch");
-        log.info("request.getCookies():",request.getCookies());
+//        log.info("refresh catch");
+//        log.info("request.getCookies():",request.getCookies());
             if(request.getCookies()!=null){
             for (Cookie cookie : request.getCookies()) {
-                log.info(cookie.getName());
+//                log.info(cookie.getName());
                 if("refreshToken".equals(cookie.getName())){
                     //토큰 확인하고 복호화
                     String token = cookie.getValue();

@@ -61,7 +61,7 @@ public class JwtFilter extends OncePerRequestFilter {
             Authentication authentication = jwtTokenProvider.getAuthentication(token, userDetailService);
             // SecurityContextHolder에 인증 정보 설정 (요청에 대해 일시적으로 유효함)
             SecurityContextHolder.getContext().setAuthentication(authentication);
-            log.info("Context에 Authenticaion저장");
+//            log.info("Context에 Authenticaion저장");
         } else {
             //토큰이 없거나 유지기한이 유효하지 않을떄
             // TODO:리프레쉬 토큰 확인하고 안되면 따로 처리해주기 예를들어 에러응답을 반환하거나 401?
@@ -69,17 +69,17 @@ public class JwtFilter extends OncePerRequestFilter {
         }
 
         try {
-            log.info("JWT필터->다음 필터로");
+//            log.info("JWT필터->다음 필터로");
             // 다음 필터로 요청을 넘김->userNamePasswordAuthenticaionFilter
             System.out.println(SecurityContextHolder.getContext().getAuthentication());
-            log.info("Authentication set in SecurityContext: {}", SecurityContextHolder.getContext().getAuthentication());
+//            log.info("Authentication set in SecurityContext: {}", SecurityContextHolder.getContext().getAuthentication());
             filterChain.doFilter(request, response);
         } catch (Exception e) {
             log.error(e.getMessage());
             throw e;
         }
         finally {
-            log.info("JWT필터 SecurityContextHolder.clearContext() 작동");
+//            log.info("JWT필터 SecurityContextHolder.clearContext() 작동");
             // SecurityContext 초기화 (요청이 끝난 후)
             SecurityContextHolder.clearContext();
         }

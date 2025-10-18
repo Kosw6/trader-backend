@@ -38,8 +38,7 @@ public class StockController {
         @ApiResponse(responseCode = "200", description = "성공")
         @GetMapping()
         public ResponseEntity<List<Stock>> getStockListByTimestamp(@RequestParam LocalDateTime start, @RequestParam LocalDateTime end, @RequestParam String stockName){
-            log.info("HIT /api/stock stockName={}, start={}, end={}",
-                    stockName,start,end);
+//            log.info("HIT /api/stock stockName={}, start={}, end={}",stockName,start,end);
             List<Stock> timeSeriesData = new ArrayList<>();
             try{
                 timeSeriesData = stockService.getTimeSeriesData(start,end,stockName);
@@ -47,7 +46,7 @@ public class StockController {
                 log.error("StockController.getStockListByTimestamp Error: {}", e.getMessage(), e);
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(timeSeriesData);
             }
-            log.info("HIT Not ERROR");
+//            log.info("HIT Not ERROR");
             return ResponseEntity.status(HttpStatus.OK).body(timeSeriesData);
         }
 

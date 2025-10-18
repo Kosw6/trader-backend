@@ -28,7 +28,7 @@ public class StockService {
     public List<Stock> getTimeSeriesData(LocalDateTime start, LocalDateTime end, String stockName) {
         OffsetDateTime from = toOffset(start);
         OffsetDateTime to   = toOffset(end);
-        log.info("HIT getTimeSeriesData");
+//        log.info("HIT getTimeSeriesData");
         return repository.findBySymbAndTimestampBetweenOrderByTimestampAsc(stockName, from, to).orElseThrow(()->new IllegalArgumentException("존재하지 않는 주식명입니다."));
     }
     @Cacheable(

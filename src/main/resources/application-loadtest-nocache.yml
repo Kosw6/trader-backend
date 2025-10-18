@@ -1,0 +1,126 @@
+spring:
+  application:
+    name: trader
+  datasource:
+    hikari:
+      maximum-pool-size: 150   # 요청 중 DB를 쓰는 비율 × 동시성 × 1.2
+      minimum-idle: 20
+      connection-timeout: 2000     # ms
+      max-lifetime: 1800000        # 30m
+      idle-timeout: 30000
+    url: jdbc:postgresql://localhost:5432/trader
+    username: postgres
+    password: '060606'
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate.jdbc.lob.non_contextual_creation: true
+      hibernate:
+        show_sql: false
+        format_sql: false
+        use_sql_comments: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  data:
+    redis:
+      host: localhost   # 도커 컴포즈 redis 사용 시 그대로
+      port: 6379
+      timeout: 500ms
+    cache:
+      redis:
+        time-to-live: 10m
+        key-prefix: "demo::"
+        cache-null-values: false
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${OAUTH_GOOGLE_CLIENT_ID}
+            client-secret: ${OAUTH_GOOGLE_CLIENT_SECRET}
+            scope: profile, email
+            redirect-uri: "http://localhost:8080/login/oauth2/code/google"
+          kakao:
+            client-id: ${OAUTH_KAKAO_CLIENT_ID}
+            #client-secret: YOUR_KAKAO_CLIENT_SECRET
+            client-authentication-method: client_secret_post
+            authorization-grant-type: authorization_code
+            redirect-uri: "http://localhost:8080/login/oauth2/code/kakao"
+            scope: profile_nickname
+            #이메일은 나중에 추가 예정
+            client-name: Kakao
+            provider: kakao
+        provider:
+          kakao:
+            authorization-uri: https://kauth.kakao.com/oauth/authorize
+            token-uri: https://kauth.kakao.com/oauth/token
+            user-info-uri: https://kapi.kakao.com/v2/user/me
+            user-name-attribute: id
+  web:
+    resources:
+      add-mappings: false #정적 리소스 매핑 비활성화
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+    prometheus:
+      enabled: true         # ← 명시 (기본 true지만 안전하게)
+  prometheus:
+    metrics:
+      export:
+        enabled: true       # ← Prometheus 레지스트리 활성화
+      distribution:
+        percentiles-histogram:
+          hikaricp.connections.usage: true
+          hikaricp.connections.acquire: true
+          hikaricp.connections.creation: true
+
+  # 응답시간(p95 등) 보려면 히스토그램을 켜야 함
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true  # ← http.server.requests 히스토그램 ON
+    tags:
+      application: trader-backend  # (옵션) 공통 태그
+
+# Tomcat 메트릭을 위해 MBean registry 활성화 (매우 중요)
+server:
+  tomcat:
+    threads:
+      max: 300
+      min-spare: 30
+    # (선택) 버스트 흡수
+    accept-count: 512
+    connection-timeout: 10s
+    mbeanregistry:
+      enabled: true
+
+logging:
+  level:
+    root: ERROR
+    org.springframework: ERROR
+    org.springframework.web: ERROR
+    org.springframework.security: ERROR
+    org.springframework.boot.actuate: ERROR
+    org.springframework.boot.autoconfigure.security: ERROR
+    io.micrometer: ERROR
+    io.micrometer.core: ERROR
+    io.micrometer.prometheus: ERROR
+    reactor.netty: ERROR        # WebClient/Netty 쓰면 여기서도 찍힐 수 있음
+    org.apache.catalina: ERROR  # Tomcat
+    org.apache.tomcat: ERROR
+    com.zaxxer.hikari: ERROR
+    org.hibernate: ERROR                 # 전체 상한
+    org.hibernate.SQL: OFF               # 실행 SQL 줄
+    org.hibernate.type: OFF              # 파라미터 타입/바인딩
+    org.hibernate.orm.jdbc.bind: OFF     # (Hibernate 6) 바인드 값 디버그
+    org.hibernate.orm.results: OFF       # (Hibernate 6) 결과 매핑 로그
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR  # SQL 경고는 숨기고 에러만
+    org.hibernate.type.descriptor.sql.BasicBinder: OFF  # (Hibernate 5 계열)
+    org.hibernate.orm.jdbc.extract: OFF                 # (Hibernate 6 계열)

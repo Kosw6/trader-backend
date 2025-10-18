@@ -86,8 +86,8 @@ public class JwtTokenProvider {
         try {
             DecodedJWT verify = JWT.require(Algorithm.HMAC256(secret))
                     .build().verify(receivedToken);
-            log.info("verify.getExpiresAt: "+ verify.getExpiresAt());
-            log.info("System.currentTimeMillis(): "+ new Date(System.currentTimeMillis()));
+//            log.info("verify.getExpiresAt: "+ verify.getExpiresAt());
+//            log.info("System.currentTimeMillis(): "+ new Date(System.currentTimeMillis()));
             if(new Date(System.currentTimeMillis()).before(verify.getExpiresAt())) {//토큰만료시간 이전이냐
                 return verify;
             }
