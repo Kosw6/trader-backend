@@ -39,11 +39,11 @@
             "preAllocatedVUs": 60,
             "maxVUs": 240,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],
@@ -66,11 +66,11 @@
             "preAllocatedVUs": 40,
             "maxVUs": 160,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],
@@ -115,11 +115,11 @@
             "preAllocatedVUs": 20,
             "maxVUs": 100,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],
@@ -168,11 +168,11 @@
             "preAllocatedVUs": 30,
             "maxVUs": 120,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],
@@ -221,11 +221,11 @@
             "preAllocatedVUs": 30,
             "maxVUs": 150,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],
@@ -274,11 +274,11 @@
             "preAllocatedVUs": 20,
             "maxVUs": 80,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],
@@ -327,11 +327,11 @@
             "preAllocatedVUs": 30,
             "maxVUs": 120,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],
@@ -380,11 +380,11 @@
             "preAllocatedVUs": 30,
             "maxVUs": 120,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],
@@ -433,11 +433,11 @@
             "preAllocatedVUs": 50,
             "maxVUs": 300,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],
@@ -486,11 +486,11 @@
             "preAllocatedVUs": 15,
             "maxVUs": 60,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],
@@ -534,11 +534,11 @@
             "preAllocatedVUs": 15,
             "maxVUs": 60,
             "stages": [
-              { "target": 40, "duration": "30s" },
-              { "target": 80, "duration": "30s" },
-              { "target": 120, "duration": "30s" },
-              { "target": 160, "duration": "30s" },
-              { "target": 200, "duration": "30s" }
+              { "target": 40, "duration": "90s" },
+              { "target": 80, "duration": "90s" },
+              { "target": 120, "duration": "90s" },
+              { "target": 160, "duration": "90s" },
+              { "target": 200, "duration": "90s" }
             ],
             "thresholds": {
               "http_req_failed": ["rate<0.05"],

@@ -68,7 +68,7 @@ public class DirectoryService {
             new IllegalArgumentException("Parent directory not found");
         }
         Directory parent = null;
-        System.out.println(dto.parentId() == null);
+//        System.out.println(dto.parentId() == null);
         if (dto.parentId() != null && dto.parentId() !=0L) {
             parent = directoryRepository.findById(dto.parentId())
                     .orElseThrow(() -> new IllegalArgumentException("Parent directory not found"));

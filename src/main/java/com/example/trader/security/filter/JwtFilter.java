@@ -71,7 +71,7 @@ public class JwtFilter extends OncePerRequestFilter {
         try {
 //            log.info("JWT필터->다음 필터로");
             // 다음 필터로 요청을 넘김->userNamePasswordAuthenticaionFilter
-            System.out.println(SecurityContextHolder.getContext().getAuthentication());
+//            System.out.println(SecurityContextHolder.getContext().getAuthentication());
 //            log.info("Authentication set in SecurityContext: {}", SecurityContextHolder.getContext().getAuthentication());
             filterChain.doFilter(request, response);
         } catch (Exception e) {

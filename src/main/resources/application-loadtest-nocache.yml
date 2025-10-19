@@ -3,9 +3,9 @@ spring:
     name: trader
   datasource:
     hikari:
-      maximum-pool-size: 150   # 요청 중 DB를 쓰는 비율 × 동시성 × 1.2
+      maximum-pool-size: 80   # 요청 중 DB를 쓰는 비율 × 동시성 × 1.2
       minimum-idle: 20
-      connection-timeout: 2000     # ms
+      connection-timeout: 5000     # ms
       max-lifetime: 1800000        # 30m
       idle-timeout: 30000
     url: jdbc:postgresql://localhost:5432/trader
