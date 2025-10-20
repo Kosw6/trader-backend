@@ -23,12 +23,14 @@ public class NoteService {
         return noteRepository.save(note).getId();
     }
     //단일 노트건 가져오기
+    @Transactional(readOnly = true)
     public Note findNoteById(Long noteId){
         return noteRepository.findById(noteId).orElseThrow(() -> {
             throw new BaseException(BaseResponseStatus.INVALID_NOTE);
         });
     }
     //유저아이디와 주식에 해당하는 모든 노트 가져오기
+    @Transactional(readOnly = true)
     public Page findAllNoteByUserIdAndStock(Long userId, String stockName, Pageable pageable){
         Page<Note> page = noteRepository.findByUserIdAndStockSymb(userId,stockName,pageable);
         if (page.isEmpty()) {
@@ -37,6 +39,7 @@ public class NoteService {
         return page.map(ResponseNoteDto::fromEntity);
     }
     //유저아이디와 주식에 해당하는 모든 노트 가져오기
+    @Transactional(readOnly = true)
     public Page findAllNoteRangeByUserIdAndStock(Long userId, String stockName, Pageable pageable, LocalDate startDate, LocalDate endDate){
         Page<Note> page = noteRepository.findByUserIdAndStockSymbAndNoteDateBetween(userId,stockName,startDate,endDate,pageable);
         if (page.isEmpty()) {
@@ -44,6 +47,7 @@ public class NoteService {
         }
         return page.map(ResponseNoteDto::fromEntity);
     }
+    @Transactional(readOnly = true)
     public Page findAllNoteByUser(Long userId, Pageable pageable){
         Page<Note> page = noteRepository.findByUserId(userId, pageable);
         // 페이지 내용이 비었을 때 예외 처리

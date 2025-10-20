@@ -4,6 +4,7 @@ import com.example.trader.dto.ResponseUserDto;
 import com.example.trader.entity.User;
 import com.example.trader.repository.UserRepository;
 import com.example.trader.security.details.UserContext;
+import com.example.trader.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -18,12 +19,12 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class FormUserDetailService implements UserDetailsService {
-    private final UserRepository userRepository;
-
+//    private final UserRepository userRepository;
+    private final UserService userService;
     //회원Dto와 권한을 가져옴
     @Override
     public UserDetails loadUserByUsername(String loginId) throws UsernameNotFoundException {
-        User user = userRepository.findByLoginId(loginId).get();
+        User user = userService.findUserByLoginId(loginId);
         if (user == null) {
             //TODO:클라이언트가 따로 처리하도록 하기
             throw new UsernameNotFoundException("No user found with loginId: " + loginId);

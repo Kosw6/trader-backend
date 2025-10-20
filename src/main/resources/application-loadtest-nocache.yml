@@ -4,10 +4,10 @@ spring:
   datasource:
     hikari:
       maximum-pool-size: 80   # 요청 중 DB를 쓰는 비율 × 동시성 × 1.2
-      minimum-idle: 20
-      connection-timeout: 5000     # ms
+      minimum-idle: 80
+      connection-timeout: 2000     # ms
       max-lifetime: 1800000        # 30m
-      idle-timeout: 30000
+      idle-timeout: 300000
     url: jdbc:postgresql://localhost:5432/trader
     username: postgres
     password: '060606'
@@ -25,7 +25,13 @@ spring:
     redis:
       host: localhost   # 도커 컴포즈 redis 사용 시 그대로
       port: 6379
-      timeout: 500ms
+      timeout: 2s
+      lettuce:
+        pool:
+          max-active: 100
+          max-idle: 50
+          min-idle: 10
+          max-wait: 2s
     cache:
       redis:
         time-to-live: 10m
@@ -79,15 +85,29 @@ management:
           hikaricp.connections.acquire: true
           hikaricp.connections.creation: true
 
-  # 응답시간(p95 등) 보려면 히스토그램을 켜야 함
   metrics:
+    export:
+      prometheus:
+        enabled: true         # ← Prometheus 레지스트리 on (Spring Boot 3 기준)
     distribution:
       percentiles-histogram:
+        hikaricp.connections.acquire: true
+        hikaricp.connections.creation: true
+        hikaricp.connections.usage: true
         http:
           server:
-            requests: true  # ← http.server.requests 히스토그램 ON
+            requests: true
+      sla: # ← 'slo' 아님! Micrometer는 'sla' 키 사용
+        hikaricp.connections.acquire: 1ms,5ms,10ms,20ms,50ms,100ms,200ms,500ms,1s,2s,5s
+        hikaricp.connections.creation: 1ms,5ms,10ms,20ms,50ms,100ms,200ms,500ms,1s
+        hikaricp.connections.usage: 1ms,5ms,10ms,20ms,50ms,100ms,200ms,500ms,1s,2s,5s
+      minimum-expected-value:
+        hikaricp.connections.acquire: 1ms
+      maximum-expected-value:
+        hikaricp.connections.acquire: 5s
     tags:
       application: trader-backend  # (옵션) 공통 태그
+
 
 # Tomcat 메트릭을 위해 MBean registry 활성화 (매우 중요)
 server:

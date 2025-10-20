@@ -6,6 +6,7 @@ import com.example.trader.entity.User;
 import com.example.trader.exception.BaseException;
 import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.repository.UserRepository;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,14 +17,17 @@ import org.apache.commons.lang3.RandomStringUtils;
 @Transactional
 public class UserService {
     private final UserRepository userRepository;
-
+    @Cacheable(cacheNames = "userById",key = "#userId")
+    @Transactional(readOnly = true)
     public User findUserByUserId(Long userId) {
         return userRepository.findById(userId).orElseThrow(()->{
             throw new BaseException(BaseResponseStatus.NON_EXIST_USER);});
     }
-//    public User findUserByLoginId(String loginId) {
-//        return userRepository.findByLoginId(loginId).orElseThrow();
-//    }
+    @Cacheable(cacheNames = "userByLoginId",key = "#userId")
+    @Transactional(readOnly = true)
+    public User findUserByLoginId(String loginId) {
+        return userRepository.findByLoginId(loginId).orElseThrow();
+    }
 //    public User findUserByEmail(String email) {
 //        return userRepository.findByEmail(email).orElseThrow();
 //    }
