@@ -2,6 +2,45 @@ import http from "k6/http";
 import { check, sleep } from "k6";
 import { SharedArray } from "k6/data";
 import { Trend } from "k6/metrics";
+// ── users.csv 로드 (헤더 1줄 포함)
+const USERS = new SharedArray("users", () => {
+  const text = open("../data/users.csv"); // k6 실행 위치 기준: k6/scripts/에서 실행 시 ../data/users.csv
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (i === 0 && line.toLowerCase().startsWith("loginid,")) continue; // 헤더 스킵
+    const [loginId, password, id] = line.split(",");
+    if (loginId && password) out.push({ loginId, password, id });
+  }
+  if (!out.length)
+    throw new Error("users.csv 로드 실패: 유효한 행이 없습니다.");
+  return out;
+});
+// 템플릿에서 변수명 뽑기 (path, qsTemplate 합쳐서 첫 변수명 사용)
+function extractFirstVar(pathTpl, qsTpl) {
+  const both = `${pathTpl || ""} ${qsTpl || ""}`;
+  const m = both.match(/{{\s*([\w]+)\s*}}/);
+  return m ? m[1] : null;
+}
+
+// params.json: { "Controller.endpoint": { "<userId>": [ {k:v}, ... ] } }
+// NOTE: SharedArray는 배열만 가능. params는 객체라 그냥 로드.
+let PARAMS = {};
+try {
+  PARAMS = JSON.parse(open("../data/params.json"));
+} catch (_) {
+  PARAMS = {};
+}
+// === 활성 endpoints에 대해 params가 있는 user만 모아 로그인 풀을 최소화 ===
+const STRICT_PARAMS = String(__ENV.STRICT_PARAMS || "1") === "1"; // 켜두는 걸 권장
+
+// all[] 만들기 전에 endpoints.json만 보고 mapKey 후보를 미리 알 수 없으니,
+// all[] 만든 다음 union으로 활성 mapKey를 모읍니다.
+// (아래 all[] 생성 이후에 실행)
+let ACTIVE_USER_SET = null; // Set<string> of userId
+let FILTERED_USERS = null; // users.csv에서 ACTIVE_USER_SET에 속하는 행만
 
 /** ===== 커스텀 메트릭: 스테이지별 응답시간 ===== */
 const RT_STAGE = new Trend("rt_stage", true); // tag별(submetric) 집계 허용
@@ -55,6 +94,37 @@ export function setup() {
     headers: { Authorization: `Bearer ${token}` },
     testStartTs: Date.now(), // 스테이지 경과 시간 계산용 앵커
   };
+}
+// ── VU 로컬 토큰/헤더 (각 VU 런타임은 분리됨)
+let VU_TOKEN = null;
+let VU_HEADERS = null;
+let VU_USER = null; // ✅ { loginId, password, id }
+const VU_PARAM_IDX = {}; // ✅ per-endpoint 라운드로빈용 카운터 (key=controller.name)
+
+// ── 각 VU가 자신의 계정으로 1회 로그인
+function loginPerVUFromCSV() {
+  if (VU_TOKEN) return;
+  const pool = FILTERED_USERS || USERS;
+  const idx = (__VU - 1) % pool.length;
+  const { loginId, password, id } = pool[idx];
+  const res = http.post(
+    `${BASE}/api/login/signin`,
+    JSON.stringify({ loginId, password }),
+    {
+      headers: { "Content-Type": "application/json" },
+    }
+  );
+  if (res.status !== 200) {
+    throw new Error(
+      `로그인 실패(VU=${__VU}, loginId=${loginId}): ${res.status} ${res.body}`
+    );
+  }
+  const token = JSON.parse(res.body).accessToken; // 서버 응답 키 이름에 맞게 유지
+  VU_TOKEN = token;
+  VU_HEADERS = { Authorization: `Bearer ${token}` };
+  VU_USER = { loginId, password, id: String(id ?? "").trim() }; // ✅ 사용자 id 확보
+  // 필요하면 디버그 로깅:
+  // console.log(`VU ${__VU} logged in as ${loginId}`);
 }
 
 export function handleSummary(data) {
@@ -205,9 +275,13 @@ for (const c of cfg) {
 
     const baseItem = {
       controller: c.controller,
+      base: c.base,
       name: ep.name,
       method: (ep.method || "GET").toUpperCase(),
       body: ep.body || null,
+      rawPath: ep.path || "", // ✅ 원본 템플릿 보존
+      rawQsTemplate: ep.qsTemplate || "", // ✅ 원본 템플릿 보존
+      rawParams: ep.params || null, // ✅ 원본 파라미터 보존
       _defaults: {
         executor: ep.executor,
         rate: ep.rate,
@@ -301,7 +375,29 @@ for (const c of cfg) {
 // 빠른 조회 맵
 const allMap = {};
 for (const it of all) allMap[it.key] = it;
-
+// === 여기서 활성화된 mapKey들의 유저 집합을 계산
+if (STRICT_PARAMS) {
+  const activeMapKeys = new Set(
+    all.map((it) => `${it.controller}.${it.name}`) // 예: "GraphController.list"
+  );
+  ACTIVE_USER_SET = new Set();
+  for (const mapKey of activeMapKeys) {
+    const userMap = PARAMS[mapKey];
+    if (!userMap || typeof userMap !== "object") continue;
+    for (const uid of Object.keys(userMap)) {
+      // 배열/const 상관없이 키만 수집
+      ACTIVE_USER_SET.add(String(uid));
+    }
+  }
+  // users.csv에서 활성 유저만 필터링 (없으면 전체 유지)
+  const temp = [];
+  for (const u of USERS) {
+    if (ACTIVE_USER_SET.has(String(u.id))) temp.push(u);
+  }
+  FILTERED_USERS = temp.length ? temp : USERS;
+} else {
+  FILTERED_USERS = USERS;
+}
 /** ===== (신규) 그룹별 조합 수/기준 rate 집계 & 분배 =====
  * 그룹 키: controller.name + variant (콤보들은 같은 그룹으로 간주)
  * - 같은 그룹 내 여러 combo가 있으면 per-combo rate로 나눠 총 RPS 유지
@@ -464,17 +560,107 @@ function ok(res) {
 
 /** ===== 실행 함수(모든 시나리오가 이걸 호출) ===== */
 export function dispatch(data) {
+  loginPerVUFromCSV();
+
   const key = __ENV.KEY;
   const ep = allMap[key];
   if (!ep) throw new Error(`No endpoint matched KEY=${key}`);
-  // dispatch 맨 위 근처
+
+  // ── 4-1. params.json 오버라이드 조회 (키: "Controller.endpoint")
+  const mapKey = `${ep.controller}.${ep.name}`; // e.g. "GraphController.list"
+  const userId = String(VU_USER?.id || "");
+
+  const needsTpl =
+    hasTemplateBraces(ep.rawPath) || hasTemplateBraces(ep.rawQsTemplate);
+
+  // 템플릿의 첫 변수명 (예: "pageId" 또는 "id")
+  const firstVar = extractFirstVar(ep.rawPath, ep.rawQsTemplate);
+
+  // endpoints.json 기본 파라미터(카르테시안)
+  const defaultCombos = cartesianParams(ep.rawParams || {});
+
+  const userMap = PARAMS[mapKey] || {};
+
+  // primitive → {firstVar: value} 로 변환(필요 시)
+  function toObj(v) {
+    if (v == null) return null;
+    if (typeof v === "object" && !Array.isArray(v)) return v;
+    if (Array.isArray(v)) return null; // 배열은 상위에서 순회
+    if (firstVar) return { [firstVar]: String(v) };
+    // fallback: endpoints.json에 단일키가 있으면 그 키로 매핑
+    const keys = Object.keys(ep.rawParams || {});
+    if (keys.length === 1) return { [keys[0]]: String(v) };
+    // 최후 수단
+    return { id: String(v) };
+  }
+
+  // === 후보 풀 만들기 (우선순위: per-user > const > endpoints.json 기본)
+  let candidates = null;
+
+  // 1) per-user
+  const perUser = userMap[userId];
+  if (Array.isArray(perUser) && perUser.length) {
+    candidates = perUser.slice(); // [{...}, ...]
+  } else if (perUser && typeof perUser === "object") {
+    candidates = [perUser];
+  } else if (perUser != null) {
+    const o = toObj(perUser);
+    if (o) candidates = [o];
+  }
+
+  // 2) const (모든 유저가 공유)
+  if (!candidates) {
+    const cst = userMap.const;
+    if (Array.isArray(cst) && cst.length) {
+      const arr = cst
+        .map((v) => (typeof v === "object" ? v : toObj(v)))
+        .filter(Boolean);
+      if (arr.length) candidates = arr;
+    } else if (cst && typeof cst === "object") {
+      candidates = [cst];
+    } else if (cst != null) {
+      const o = toObj(cst);
+      if (o) candidates = [o];
+    }
+  }
+
+  // 3) 폴백: endpoints.json 기본(params) 또는 스킵
+  if (!candidates) {
+    if (STRICT_PARAMS && needsTpl) {
+      console.warn(`[SKIP] no params for user=${userId} on ${mapKey}`);
+      return; // 템플릿 치환이 필요한데 값이 없으면 안전하게 스킵
+    }
+    candidates = defaultCombos.length ? defaultCombos : [{}];
+  }
+
+  // 라운드로빈 인덱스 (per-user > const > fallback 그룹 구분)
+  const rrScope = userMap[userId]
+    ? `user:${userId}`
+    : userMap.const
+    ? "const"
+    : "fallback";
+  const idxKey = `${mapKey}::${rrScope}`;
+  const cur = VU_PARAM_IDX[idxKey] || 0;
+  const chosen = candidates[cur % candidates.length];
+  VU_PARAM_IDX[idxKey] = cur + 1;
+
+  // 최종 URL 조립 (항상 원본 템플릿 기준)
+  const renderedPath = needsTpl
+    ? renderTemplate(ep.rawPath, chosen)
+    : ep.rawPath;
+  const qs = needsTpl
+    ? renderTemplate(ep.rawQsTemplate, chosen)
+    : ep.rawQsTemplate || "";
+  const path = normalizePath(renderedPath);
+  const finalUrl = `${BASE}${ep.base}${path}${qs ? "?" + qs : ""}`;
+
   // console.log(
-  //   `[REQ] ${ep.method} ${ep.url}  combo=${__ENV.COMBO || ""} variant=${
-  //     __ENV.VARIANT || ""
-  //   }`
+  //   `[DBG] ${mapKey} user=${userId} url=${finalUrl} chosen=${JSON.stringify(
+  //     chosen
+  //   )}`
   // );
 
-  // 현재 시나리오의 경과 시간(초) → 스테이지 인덱스 계산
+  // ── 이하 그대로
   const testStartTs = data?.testStartTs || 0;
   const startOffset = Number(__ENV.START_OFFSET_S || 0);
   const elapsedS = Math.max(
@@ -492,13 +678,13 @@ export function dispatch(data) {
         stageIdx = i;
         break;
       }
-      stageIdx = i; // 마지막 스테이지 이후면 최종 인덱스로
+      stageIdx = i;
     }
   }
 
   const params = {
     headers: {
-      ...(data?.headers || {}),
+      ...(VU_HEADERS || {}),
       ...(ep._defaults.headers || {}),
       ...(ep._overrides?.headers || {}),
     },
@@ -507,33 +693,31 @@ export function dispatch(data) {
       endpoint: `${ep.controller}.${ep.name}`,
       combo: __ENV.COMBO || "",
       variant: __ENV.VARIANT || "",
-      stage: String(stageIdx), // ← 중요: 스테이지 태그
+      stage: String(stageIdx),
     },
-    responseType: DROP_BODIES ? "none" : "text", // 요청 단위 바디 폐기
+    responseType: DROP_BODIES ? "none" : "text",
   };
 
   const bodyToUse = ep._overrides?.body ?? ep.body;
   let res;
   switch (ep.method) {
     case "GET":
-      res = http.get(ep.url, params);
+      res = http.get(finalUrl, params);
       break;
     case "POST":
-      res = http.post(ep.url, bodyToUse, params);
+      res = http.post(finalUrl, bodyToUse, params);
       break;
     case "PUT":
-      res = http.put(ep.url, bodyToUse, params);
+      res = http.put(finalUrl, bodyToUse, params);
       break;
     case "DELETE":
-      res = http.del(ep.url, null, params);
+      res = http.del(finalUrl, null, params);
       break;
     default:
       throw new Error(`Unsupported method: ${ep.method}`);
   }
 
-  // per-stage 응답시간 수집
   RT_STAGE.add(res.timings.duration, params.tags);
-
   check(res, { "status is 200": (r) => r.status === 200 });
   if (res.status >= 400) {
     const e = extractError(res);
@@ -547,14 +731,12 @@ export function dispatch(data) {
     ]
       .filter(Boolean)
       .join(" ");
-    // console.log(`[BODY] ${String(res.body).slice(0, 200)}`);/
     console.error(
       `[FAIL] ${params.tags.endpoint}${
         comboStr || variantStr ? ` [${comboStr}${variantStr}]` : ""
       } ${meta}\n` + `→ ${e.msg}`
     );
   }
-  // sleep(1);
 }
 
 /** ===== 에러 메시지/메타 추출 ===== */

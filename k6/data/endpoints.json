@@ -92,8 +92,12 @@
       {
         "name": "list",
         "method": "GET",
-        "path": "",
+        "path": "id={{id}}",
         "qsTemplate": "",
+        "params": {
+          "id": ["200149"]
+        },
+        "paramLabels": ["id"],
         "variants": [
           {
             "name": "light",
@@ -197,7 +201,7 @@
       {
         "name": "list",
         "method": "GET",
-        "path": "/{{pageId}}",
+        "path": "{{pageId}}",
         "qsTemplate": "",
         "params": {
           "pageId": ["200149"]
@@ -278,21 +282,21 @@
           {
             "name": "find-limit",
             "executor": "ramping-arrival-rate",
-            "startRate": 20,
+            "startRate": 200,
             "timeUnit": "1s",
-            "preAllocatedVUs": 20,
-            "maxVUs": 80,
+            "preAllocatedVUs": 200,
+            "maxVUs": 400,
             "stages": [
-              { "target": 40, "duration": "90s" },
-              { "target": 80, "duration": "90s" },
-              { "target": 120, "duration": "90s" },
-              { "target": 160, "duration": "90s" },
-              { "target": 200, "duration": "90s" },
-              { "target": 200, "duration": "180s" }
+              { "target": 240, "duration": "60s" },
+              { "target": 320, "duration": "90s" },
+              { "target": 400, "duration": "90s" },
+              { "target": 500, "duration": "90s" },
+              { "target": 600, "duration": "90s" },
+              { "target": 600, "duration": "180s" }
             ],
             "thresholds": {
-              "http_req_failed": ["rate<0.05"],
-              "http_req_duration": ["p(95)<3000"]
+              "http_req_failed": ["rate<0.01"],
+              "http_req_duration": ["p(95)<300"]
             }
           }
         ]
@@ -468,8 +472,8 @@
       {
         "name": "list",
         "method": "GET",
-        "path": "",
-        "qsTemplate": "id={{id}}",
+        "path": "/{{id}}",
+        "qsTemplate": "",
         "params": {
           "id": ["100"]
         },
