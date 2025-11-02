@@ -93,9 +93,6 @@ public class SecurityConfig {
                                     "/oauth2/**",
                                     "/login/oauth2/code/**").permitAll()
                             .anyRequest().authenticated())
-                    //TODO:oauth2로그인 -> 앱 개발후 CI정보 제공 서비스에서 비즈앱 등록받아야 원하는 정보 받을 수 있음.
-//                    .oauth2Login(oauth2 -> oauth2.userInfoEndpoint(userInfo -> userInfo.userService(customOAuth2UserService)))
-                    //todo:jwt필터의 위치는? oauth2필터의 앞이여야 하는가
                     .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                     .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                     .exceptionHandling(exception -> {

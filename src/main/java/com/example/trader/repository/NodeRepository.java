@@ -10,7 +10,13 @@ import java.util.List;
 import java.util.Optional;
 
 public interface NodeRepository extends JpaRepository<Node,Long> {
-    // NodeRepository.java
+    @Query("""
+        select distinct n
+        from Node n
+        left join fetch n.noteLinks l
+        left join fetch l.note
+        where n.page.id = :pageId
+        """)
     List<Node> findByPageId(Long pageId);
 
     @Query("""

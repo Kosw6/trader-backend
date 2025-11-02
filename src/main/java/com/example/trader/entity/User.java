@@ -2,6 +2,8 @@ package com.example.trader.entity;
 
 import com.example.trader.dto.RequestUserDto;
 import com.example.trader.entity.base.BaseTimeEntity;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -13,7 +15,7 @@ import java.util.List;
 @Table(name = "users")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)//JPA의 지연로딩을 위해 필요함, 빈 객체 생성후 값 주입 방식
 @AllArgsConstructor
-@EqualsAndHashCode
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
 @Builder
 public class User extends BaseTimeEntity {
     @Id
@@ -35,12 +37,16 @@ public class User extends BaseTimeEntity {
     private Role role;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
     @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private List<UserTeam> userTeams = new ArrayList<>();
     private String provider;
     private String providerId;
     @OneToMany(mappedBy = "user",cascade = CascadeType.ALL,orphanRemoval = true)//고아객체 삭제 + note객체의 user필드와 연결
+    @JsonIgnore
     @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private final List<Note> notes = new ArrayList<>();
 
     public void addNotes(List<Note> notes){

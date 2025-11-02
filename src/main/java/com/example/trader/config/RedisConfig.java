@@ -4,6 +4,10 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.jsontype.PolymorphicTypeValidator;
+import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.cache.CacheManager;
@@ -29,10 +33,13 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 public class RedisConfig {
 
     /* ===== 공통 직렬화기 ===== */
-    private GenericJackson2JsonRedisSerializer jsonSerializer() {
-        ObjectMapper om = new ObjectMapper();
-        om.registerModule(new JavaTimeModule());
-        om.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    private GenericJackson2JsonRedisSerializer jsonSerializer(){
+        PolymorphicTypeValidator ptv = LaissezFaireSubTypeValidator.instance;
+        ObjectMapper om = JsonMapper.builder()
+                .addModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .activateDefaultTyping(ptv, ObjectMapper.DefaultTyping.NON_FINAL, JsonTypeInfo.As.PROPERTY) // ✅ 타입정보
+                .build();
         return new GenericJackson2JsonRedisSerializer(om);
     }
     private RedisSerializationContext.SerializationPair<Object> jsonPair() {

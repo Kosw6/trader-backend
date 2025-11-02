@@ -131,7 +131,7 @@ public class NodeService {
 
     @Transactional(readOnly = true)
     public ResponseNodeDto findById(Long id) {
-        return toResponseDto(nodeRepository.findById(id).orElseThrow(()-> new IllegalArgumentException()));
+        return toResponseDto(nodeRepository.findByIdWithLinks(id).orElseThrow(()-> new IllegalArgumentException()));
     }
 
     private ResponseNodeDto toResponseDto(Node node) {
