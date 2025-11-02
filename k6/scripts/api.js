@@ -2,6 +2,7 @@ import http from "k6/http";
 import { check, sleep } from "k6";
 import { SharedArray } from "k6/data";
 import { Trend } from "k6/metrics";
+
 // ── users.csv 로드 (헤더 1줄 포함)
 const USERS = new SharedArray("users", () => {
   const text = open("../data/users.csv"); // k6 실행 위치 기준: k6/scripts/에서 실행 시 ../data/users.csv
@@ -24,7 +25,7 @@ function extractFirstVar(pathTpl, qsTpl) {
   const m = both.match(/{{\s*([\w]+)\s*}}/);
   return m ? m[1] : null;
 }
-
+let LAST_STAGE_LOGGED = -1; // __VU==1에서만 사용
 // params.json: { "Controller.endpoint": { "<userId>": [ {k:v}, ... ] } }
 // NOTE: SharedArray는 배열만 가능. params는 객체라 그냥 로드.
 let PARAMS = {};
@@ -46,7 +47,8 @@ let FILTERED_USERS = null; // users.csv에서 ACTIVE_USER_SET에 속하는 행�
 const RT_STAGE = new Trend("rt_stage", true); // tag별(submetric) 집계 허용
 
 /** ===== 실행 파라미터 (ENV) ===== */
-const BASE = __ENV.BASE_URL || "http://172.30.1.78:8080";
+// const BASE = __ENV.BASE_URL || "http://172.30.1.78:8080";
+const BASE = __ENV.BASE_URL || "http://trading-replay.duckdns.org:8080";
 const VUS = Number(__ENV.VUS || 5);
 const DURATION = __ENV.DURATION || "10s";
 const EXECUTOR = (__ENV.EXECUTOR || "constant-vus").trim(); // "constant-vus" | "constant-arrival-rate" | "ramping-arrival-rate"
@@ -166,28 +168,42 @@ export function handleSummary(data) {
     "",
   ];
 
-  // ===== 스테이지별 p95 출력 =====
-  const metrics = data.metrics || {};
-  const stageKeys = Object.keys(metrics).filter((k) => {
-    // 'rt_stage{stage:0,...}' 처럼 stage 태그가 있는 submetric만
-    return k.startsWith("rt_stage{") && /stage:\d+/.test(k);
-  });
+  // ===== 스테이지별 p95 출력 (실샘플 있는 서브메트릭만 집계) =====
+  {
+    const metrics = data.metrics || {};
+    const stageBest = {}; // stageIdx -> 그 stage에서 관측된 p95의 최댓값(ms)
 
-  // stage index 기준 정렬
-  stageKeys.sort((a, b) => {
-    const ai = Number((a.match(/stage:(\d+)/) || [])[1] || 0);
-    const bi = Number((b.match(/stage:(\d+)/) || [])[1] || 0);
-    return ai - bi;
-  });
+    for (const [key, v] of Object.entries(metrics)) {
+      if (!key.startsWith("rt_stage{")) continue;
+      if (__ENV.SCENARIO && !key.includes(`scenario:${__ENV.SCENARIO}`))
+        continue; // ✅ 같은 시나리오만 우선 집계
+      const m = key.match(/stage:(\d+)/);
+      if (!m) continue;
 
-  if (stageKeys.length) {
-    lines.push("per-stage p95 (ms):");
-    for (const k of stageKeys) {
-      const idx = (k.match(/stage:(\d+)/) || [])[1] || "0";
-      const p = metrics[k]?.values?.["p(95)"];
-      lines.push(`  stage ${idx}: ${toMs(p)}`);
+      const idx = Number(m[1]);
+
+      // k6 버전에 따라 값 경로가 다를 수 있어 넉넉히 가져옴
+      const values = v?.values || {};
+      const count = values.count ?? v?.count ?? 0;
+
+      // p95 추출(일부 버전은 percentiles.95에 있을 수 있음)
+      const p95 = values["p(95)"] ?? values.percentiles?.["95"];
+
+      if (!count || typeof p95 !== "number") continue; // 샘플 없는 빈 서브메트릭은 스킵
+
+      stageBest[idx] = Math.max(stageBest[idx] ?? 0, p95);
     }
-    lines.push("");
+
+    const stageIdxs = Object.keys(stageBest)
+      .map(Number)
+      .sort((a, b) => a - b);
+    if (stageIdxs.length) {
+      lines.push("per-stage p95 (ms):");
+      for (const i of stageIdxs) {
+        lines.push(`  stage ${i}: ${toMs(stageBest[i])}`);
+      }
+      lines.push("");
+    }
   }
 
   // 출력 파일 경로
@@ -322,7 +338,12 @@ for (const c of cfg) {
 
       if (Array.isArray(ep.variants) && ep.variants.length) {
         for (const v of ep.variants) {
-          if (VARIANTS.length && !VARIANTS.includes(v.name)) continue;
+          const NO_WARMUP = String(__ENV.NO_WARMUP || "0") === "1";
+          const wantThisVariant =
+            !VARIANTS.length ||
+            VARIANTS.includes(v.name) ||
+            (!NO_WARMUP && v.name === "warmup");
+          if (!wantThisVariant) continue;
 
           const item = {
             ...baseItem,
@@ -340,6 +361,7 @@ for (const c of cfg) {
               headers: v.headers,
               body: v.body,
               startTime: v.startTime,
+              tags: v.tags,
               // ✅ ramping-arrival-rate 관련 필드 반영
               startRate: v.startRate,
               timeUnit: v.timeUnit,
@@ -375,6 +397,22 @@ for (const c of cfg) {
 // 빠른 조회 맵
 const allMap = {};
 for (const it of all) allMap[it.key] = it;
+
+// ---- 웜업 오프셋 계산: 같은 endpoint의 warmup variant duration(초)+10s
+const warmupOffsetByTarget = {}; // key = "Controller.endpoint" -> seconds
+for (const it of all) {
+  if (String(it.variant).toLowerCase() !== "warmup") continue;
+  const mapKey = `${it.controller}.${it.name}`;
+  const dur = it._overrides?.duration || it._defaults?.duration || "";
+  const sec = toSeconds(dur) || 0;
+  if (sec > 0) {
+    // 여러 warmup이 있어도 가장 긴 걸 기준(보수적)
+    warmupOffsetByTarget[mapKey] = Math.max(
+      warmupOffsetByTarget[mapKey] || 0,
+      sec + 10
+    );
+  }
+}
 // === 여기서 활성화된 mapKey들의 유저 집합을 계산
 if (STRICT_PARAMS) {
   const activeMapKeys = new Set(
@@ -474,12 +512,21 @@ for (const ep of all) {
   );
   const duration = ep._overrides?.duration || ep._defaults.duration || DURATION;
   const startTime = ep._overrides?.startTime;
-
+  const NO_WARMUP = String(__ENV.NO_WARMUP || "0") === "1";
+  const mapKey = `${ep.controller}.${ep.name}`;
+  const autoStartTime =
+    !startTime &&
+    !NO_WARMUP &&
+    String(ep.variant).toLowerCase() !== "warmup" &&
+    warmupOffsetByTarget[mapKey]
+      ? `${warmupOffsetByTarget[mapKey]}s`
+      : null;
   const env = {
     KEY: ep.key, // 🔴 유니크 매핑 키
     TARGET: `${ep.controller}.${ep.name}`,
     VARIANT: ep.variant || "",
     COMBO: ep.combo || "",
+    SCENARIO: scenarioName,
   };
 
   if (execType === "constant-arrival-rate") {
@@ -492,7 +539,15 @@ for (const ep of all) {
       maxVUs,
       exec: "dispatch",
       env,
-      ...(startTime ? { startTime } : {}),
+      tags: {
+        ...(ep._overrides?.tags || {}),
+        controller: ep.controller,
+        endpoint: `${ep.controller}.${ep.name}`,
+        variant: ep.variant || "",
+      },
+      ...(startTime || autoStartTime
+        ? { startTime: startTime || autoStartTime }
+        : {}),
     };
   } else if (execType === "ramping-arrival-rate") {
     // ✅ JSON에 넣은 stages/startRate/timeUnit을 최우선 사용
@@ -523,13 +578,21 @@ for (const ep of all) {
         STAGE_TARGETS: stageTargets.join(","), // "40,80,120,160,200"
         START_OFFSET_S: String(startTime ? toSeconds(startTime) : 0),
       },
-      ...(startTime ? { startTime } : {}),
+      tags: {
+        ...(ep._overrides?.tags || {}),
+        controller: ep.controller,
+        endpoint: `${ep.controller}.${ep.name}`,
+        variant: ep.variant || "",
+      },
+      ...(startTime || autoStartTime
+        ? { startTime: startTime || autoStartTime }
+        : {}),
     };
     // ✅ 여기 추가: 스테이지별 더미 threshold를 자동 주입해 summary에 서브메트릭 노출
     for (let i = 0; i < rawStages.length; i++) {
       // mergeThresholds는 태그가 없는 키에만 {scenario:...}를 붙입니다.
       // 여기서는 태그를 명시하지 않고 넣어도 되고, 명시하고 싶다면 아래처럼:
-      const key = `rt_stage{stage:${i}}`; // 또는 `rt_stage{stage:${i},scenario:${scenarioName}}`
+      const key = `rt_stage{stage:${i},scenario:${scenarioName}}`;
       thresholds[key] = ["p(95)<100000"]; // 아주 느슨한 더미 기준
     }
   } else {
@@ -539,7 +602,15 @@ for (const ep of all) {
       duration, // CV에서는 duration 사용
       exec: "dispatch",
       env,
-      ...(startTime ? { startTime } : {}),
+      ...(startTime || autoStartTime
+        ? { startTime: startTime || autoStartTime }
+        : {}),
+      tags: {
+        ...(ep._overrides?.tags || {}),
+        controller: ep.controller,
+        endpoint: `${ep.controller}.${ep.name}`,
+        variant: ep.variant || "",
+      },
     };
   }
 
@@ -551,6 +622,7 @@ for (const ep of all) {
 export const options = {
   scenarios,
   thresholds,
+  summaryTrendStats: ["avg", "min", "max", "p(90)", "p(95)"], // ✅ 추가
 };
 
 /** ===== 공통 검증 ===== */
@@ -654,11 +726,11 @@ export function dispatch(data) {
   const path = normalizePath(renderedPath);
   const finalUrl = `${BASE}${ep.base}${path}${qs ? "?" + qs : ""}`;
 
-  // console.log(
-  //   `[DBG] ${mapKey} user=${userId} url=${finalUrl} chosen=${JSON.stringify(
-  //     chosen
-  //   )}`
-  // );
+  console.log(
+    `[DBG] ${mapKey} user=${userId} url=${finalUrl} chosen=${JSON.stringify(
+      chosen
+    )}`
+  );
 
   // ── 이하 그대로
   const testStartTs = data?.testStartTs || 0;
@@ -694,9 +766,32 @@ export function dispatch(data) {
       combo: __ENV.COMBO || "",
       variant: __ENV.VARIANT || "",
       stage: String(stageIdx),
+      // 시나리오(tags)로도 이미 붙지만, 확실히 하기 위해 요청에도 phase 덧붙임
+      scenario: __ENV.SCENARIO || "",
+      ...(ep._overrides?.tags?.phase
+        ? { phase: ep._overrides.tags.phase }
+        : {}),
     },
     responseType: DROP_BODIES ? "none" : "text",
   };
+  // ✅ 진행 로그(옵션): find-limit 같은 램핑부하에서 스테이지 바뀔 때 1번만 출력
+  if (String(__ENV.LOG_PROGRESS || "0") === "1" && __VU === 1) {
+    if (stageIdx !== LAST_STAGE_LOGGED) {
+      const targets = String(__ENV.STAGE_TARGETS || "")
+        .split(",")
+        .map((s) => Number(s));
+      const targetRps = Number.isFinite(targets[stageIdx])
+        ? targets[stageIdx]
+        : null;
+      const mins = (elapsedS / 60).toFixed(1);
+      console.log(
+        `[PROGRESS] t=${mins}m stage=${stageIdx}` +
+          (targetRps ? ` target≈${targetRps}/s` : "") +
+          ` scenario=${__ENV.SCENARIO || "n/a"}`
+      );
+      LAST_STAGE_LOGGED = stageIdx;
+    }
+  }
 
   const bodyToUse = ep._overrides?.body ?? ep.body;
   let res;
@@ -723,27 +818,34 @@ export function dispatch(data) {
     const e = extractError(res);
     const comboStr = params.tags.combo || "";
     const variantStr = params.tags.variant ? ` / ${params.tags.variant}` : "";
+
+    // ✅ URL과 메서드 정보 추가
     const meta = [
+      `${ep.method} ${finalUrl}`,
       `status=${res.status}`,
       e.path ? `path=${e.path}` : null,
       e.ts ? `ts=${e.ts}` : null,
       e.trace ? `reqId=${e.trace}` : null,
     ]
       .filter(Boolean)
-      .join(" ");
+      .join(" | ");
+
+    // ✅ 에러 메시지가 없을 경우 응답 본문 일부 표시
+    const errorMsg =
+      e.msg || `(no error message, body: ${short(res.body, 200)})`;
+
     console.error(
       `[FAIL] ${params.tags.endpoint}${
         comboStr || variantStr ? ` [${comboStr}${variantStr}]` : ""
-      } ${meta}\n` + `→ ${e.msg}`
+      }\n${meta}\n→ ${errorMsg}`
     );
   }
-}
-
-/** ===== 에러 메시지/메타 추출 ===== */
-function short(s, n = 400) {
-  if (!s) return "";
-  const str = String(s);
-  return str.length > n ? str.slice(0, n) + "…" : str;
+  /** ===== 에러 메시지/메타 추출 ===== */
+  function short(s, n = 400) {
+    if (!s) return "";
+    const str = String(s);
+    return str.length > n ? str.slice(0, n) + "…" : str;
+  }
 }
 function extractError(res) {
   let json = null;
