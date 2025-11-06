@@ -1,4 +1,4 @@
-### StockController 테스트
+### StockController 조회 성능 최적화: PostgreSQL TimeScaleDB확장 및 하이퍼테이블 구조, 청크(시간,공간) 영향 분석
 
 ### 테스트 환경
 
@@ -98,7 +98,7 @@ ORDER BY timestamp ASC;
 | stock_30d_32웜캐시   | 3ms               | 0.4ms              |
 | stock_30d_8웜캐시    | 3ms               | 0.4ms              |
 
-- 둘 간의 성능차이가 의미가 없은
+- 둘 간의 성능차이가 없음
   -> num_partition은 조회성능 크게 영향을 주기보다 부가적인 기능
 
 | 항목                 | 평균 planningTime | 평균 executionTime |
@@ -195,7 +195,7 @@ ORDER BY timestamp ASC;
 | stock_90d_8 | 300 | 331.99ms | 292.21 req/s | 0.00%    |
 | stock_90d_4 | 300 | 235.32ms | 292.23 req/s | 0.00%    |
 
-- RPS 300기준 성능 30향상
+- 같은 시간청크, RPS 300기준 성능 30%향상
 
 ### 하이퍼테이블 최종 선택 결과
 
