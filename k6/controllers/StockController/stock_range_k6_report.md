@@ -33,20 +33,11 @@
 - 인덱스 확인 및 최적화
 - 하이퍼 테이블 적용
 - 청크 변경 기존(30day로 운영중)
-  RPS 10<br>
-  === k6 Summary (safe) ===<br>
-  avg latency: 187.28 ms<br>
-  p95 latency: 342.14 ms<br>
-  throughput: 9.48 req/s<br>
-  fail rate: 0.00%<br>
 
-- 인덱싱 후
-  RPS 10<br>
-  === k6 Summary (safe) ===<br>
-  avg latency: 18.71 ms<br>
-  p95 latency: 32.06 ms<br>
-  throughput: 9.94 req/s<br>
-  fail rate: 0.00%<br>
+| 항목           | RPS | P95       | throughtput | failRate |
+| -------------- | --- | --------- | ----------- | -------- |
+| stock(인덱싱X) | 10  | 342.14 ms | 9.48 req/s  | 0.00%    |
+| stock(인덱싱O) | 10  | 32.06 ms  | 9.94 req/s  | 0.00%    |
 
 #### ２.하이퍼테이블 누락 확인
 
