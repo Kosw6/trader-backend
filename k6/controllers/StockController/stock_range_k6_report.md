@@ -11,7 +11,7 @@
 | 테스트 도구    | k6 v0.52                                                                              |
 | 초기 부하 유형 | ramping-arrival 20rps 시작으로도 과부하 -><br>매우 낮은 constant-arrival-rate(5~7rps) |
 | 네트워크       | 내부 브릿지 (Docker Compose 환경)                                                     |
-| 데이터 구성    | 방대한 주식 OHLCV데이터로 구성되어 PostgreSQL의 TimeScaleDB로 확장, 데이터셋          |
+| 데이터 구성    | 방대한 주식 OHLCV데이터로 구성되어 PostgreSQL의 TimeScaleDB로 확장, 데이터 2600만 행  |
 
 #### 1차 테스트 결과
 
