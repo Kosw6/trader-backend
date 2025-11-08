@@ -20,13 +20,13 @@
 
 - 기존 데이터의 경우 노드-링크매핑테이블(node_note_link)-노트 다대일 구조
 
-- 초기 테스트 구조 노드 1대 링크매핑테이블 1로 테스트 진행 Lazy로딩만 사용하였고 매핑테이블을 터치한다
+- 초기 테스트 구조 노드 1대 링크매핑테이블 1로 테스트 진행 Lazy로딩만 사용하였다.
 
-- 개선 방향이 필요해보였고 확실한 비교를 위해 노드와 연결된 노트의 개수를 10개로 늘려서 테스트 진행 -> 추후 서비스 운영시에 예상되는 노드1개당 최대 5개의 노트 사용량으로 예측되므로 10개의 노트링크를 5개로 줄여 안정값 테스트 진행예정
+- 개선 방향이 필요해보였고 확실한 비교를 위해 노드와 연결된 노트의 개수를 10개로 늘려서 테스트 진행 -> 추후 서비스 운영시에 예상되는 노드1개당 최대 5개의 노트 사용량으로 예측되므로 10개의 노트링크를 5개로 줄여 안정값 테스트 진행예정이다.
 
-#### 웜캐싱 테스트
+#### 웜캐시 테스트
 
-- 각 동일 조건, APP,DB초기화, OS캐싱 제거 후 3회 중에 중앙값으로 진행
+- 각 동일 조건, (APP,DB)컨테이너 내린 후 재시작, OS캐시 제거 후 3회 중에 중앙값으로 기록
 
 | 항목                      | RPS | P95        | Throughtput  |
 | ------------------------- | --- | ---------- | ------------ |
@@ -41,9 +41,9 @@
 | FetchJoin단건(work_mem:8) | 120 | 874.27 ms  | 127.22 req/s |
 | FetchJoin목록(work_mem:8) | 120 | 412.91 ms  | 125.01 req/s |
 
-#### 콜드캐싱 테스트
+#### 콜드캐시 테스트
 
-- 각 동일 조건, APP,DB초기화, OS캐싱 제거 후 3회 중에 중앙값으로 진행
+- 각 동일 조건, (APP,DB)컨테이너 내린 후 재시작, OS캐시 제거 후 3회 중에 중앙값으로 기록
 
 | 항목                      | RPS | P95        | Throughtput |
 | ------------------------- | --- | ---------- | ----------- |
@@ -58,9 +58,7 @@
 
 (테스트 환경: 동일 조건 / APP·DB 초기화 / OS 캐시 제거 후 3회 중앙값 기준)
 
----
-
-### PostgreSQL work_mem 설명
+### 비교 전 PostgreSQL work_mem 설명
 
 - work_mem이란?
 
@@ -76,12 +74,15 @@
 
 - 이번 테스트에서 효과가 거의 없었던 이유
   - JPA Fetch 전략에 따른 차이는 **쿼리 패턴 및 왕복 횟수** 차이이지,
-    정렬 또는 해시 작업량 차이가 아니기 때문
+    정렬 또는 해시 작업량 차이가 아니기 때문이다.
   - 따라서 work_mem을 8MB→128MB로 늘려도 쿼리 플랜이나 I/O 패턴이 변하지 않아
     p95 개선이 관찰되지 않았다.
 
-```
-work_mem 8에서 PostgreSQL이 쿼리 수행 중 임시 디스크(temp) 를 사용했는지 확인하는 쿼리
+<details>
+<summary>📜 work_mem관련 디스크 스필 확인로그 (클릭하여 보기)</summary>
+
+```sql
+# work_mem 8에서 PostgreSQL이 쿼리 수행 중 임시 디스크(temp) 를 사용했는지 확인하는 쿼리
 trader=# SELECT datname,
 trader-# temp_files,
 trader-# temp_bytes,
@@ -97,9 +98,9 @@ template1 | 0 | 0 | 0.00
 template0 | 0 | 0 | 0.00
 (5 rows)
 
-temp_files:	DB 레벨에서 생성된 임시파일 개수 (work_mem 초과 시 발생)
-temp_bytes:	생성된 임시파일의 총 크기 (바이트 단위)
-temp_mb:	위를 MB로 환산한 계산 컬럼
+# temp_files:DB 레벨에서 생성된 임시파일 개수 (work_mem 초과 시 발생)
+# temp_bytes:생성된 임시파일의 총 크기 (바이트 단위)
+# temp_mb:위를 MB로 환산한 계산 컬럼
 
 trader=#
 trader=# SELECT queryid, calls, temp_blks_read, temp_blks_written,
@@ -113,11 +114,13 @@ queryid | calls | temp_blks_read | temp_blks_written | temp_mb | query
 ---------+-------+----------------+-------------------+---------+-------
 (0 rows)
 
-temp_blks_read:	임시파일에서 읽은 블록 수
-temp_blks_written:	임시파일에 쓴 블록 수 (work_mem 초과 시 기록됨)
-temp_mb:	8KB 블록을 MB로 환산
-query:	해당 SQL 쿼리
+# temp_blks_read:임시파일에서 읽은 블록 수
+# temp_blks_written:임시파일에 쓴 블록 수 (work_mem 초과 시 기록됨)
+# temp_mb:8KB 블록을 MB로 환산
+# query:해당 SQL 쿼리
 ```
+
+</details>
 
 ### 1️. Lazy Loading
 
@@ -131,6 +134,130 @@ query:	해당 SQL 쿼리
 엔티티를 지연로딩(Lazy)으로 가져올 때, 연관 엔티티 접근 시마다 추가 쿼리가 발생해 **N+1 문제**가 발생한다.
 단건은 상대적으로 덜하지만, 목록의 경우 **왕복 쿼리 횟수가 기하급수적으로 증가**하여 DB I/O 병목이 생긴다.
 work_mem 8→128로 변경 시 큰 차이가 없으며, 이는 병목이 정렬/해시가 아니라 **왕복 I/O**을 확인할 수 있다.
+
+<details>
+<summary>📜 Lazy목록 로그 결과 (클릭하여 보기)</summary>
+
+```
+# 쿼리 11번 노드 1번 + 링크 10번
+Hibernate:
+    /* select
+        n
+    from
+        Node n
+    where
+        n.page.id = :pageId
+    order by
+        n.id  */ select
+            n1_0.id,
+            n1_0.content,
+            n1_0.created_date,
+            n1_0.modified_date,
+            n1_0.page_id,
+            n1_0.record_date,
+            n1_0.subject,
+            n1_0.symb,
+            n1_0.x,
+            n1_0.y
+        from
+            node n1_0
+        where
+            n1_0.page_id=?
+        order by
+            n1_0.id
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id=?
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id=?
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id=?
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id=?
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id=?
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id=?
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id=?
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id=?
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id=?
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id=?
+```
+
+</details>
 
 #### ✅ 장점
 
@@ -161,6 +288,50 @@ work_mem 8→128로 변경 시 큰 차이가 없으며, 이는 병목이 정렬/
 
 `fetch join`으로 필요한 연관 엔티티를 한 번의 쿼리로 가져오면 **왕복 횟수가 최소화**되어 레이턴시가 급감한다.
 테스트 결과, 웜 상태에서 단건 조회는 목록 조회는 **874ms(p95)** 목록 조회는 **412ms(p95)** 로 Lazy의 약 **6배 이상 빠르다**.
+
+<details>
+<summary>📜 fetch목록 로그 결과 (클릭하여 보기)</summary>
+
+```
+#쿼리 1번
+Hibernate:
+    /* select
+        distinct n
+    from
+        Node n
+    left join
+
+    fetch
+        n.noteLinks l
+    where
+        n.page.id = :pageId
+    order by
+        n.id  */ select
+            distinct n1_0.id,
+            n1_0.content,
+            n1_0.created_date,
+            n1_0.modified_date,
+            nl1_0.node_id,
+            nl1_0.id,
+            nl1_0.note_id,
+            n1_0.page_id,
+            n1_0.record_date,
+            n1_0.subject,
+            n1_0.symb,
+            n1_0.x,
+            n1_0.y
+        from
+            node n1_0
+        left join
+            node_note_link nl1_0
+                on n1_0.id=nl1_0.node_id
+        where
+            n1_0.page_id=?
+        order by
+            n1_0.id
+```
+
+</details>
 
 #### ✅ 장점
 
@@ -237,6 +408,49 @@ List<Node> findAllWithLinksByIds(Collection<Long> ids);
 LazyLoading의 N+1 문제를 완화하기 위해 설정된 `default_batch_fetch_size`는
 연관 엔티티를 **IN 쿼리(batch)** 로 묶어 한 번에 가져온다.
 콜드에서는 효과 미미했지만, 웜캐시 목록에서 **2551→1888ms**로 개선되어 왕복 최소화 확인
+
+<details>
+<summary>📜 batch fetch목록 로그 결과 (클릭하여 보기)</summary>
+
+```
+#쿼리 2번 노드 + 링크배치
+Hibernate:
+    /* select
+        n
+    from
+        Node n
+    where
+        n.page.id = :pageId
+    order by
+        n.id  */ select
+            n1_0.id,
+            n1_0.content,
+            n1_0.created_date,
+            n1_0.modified_date,
+            n1_0.page_id,
+            n1_0.record_date,
+            n1_0.subject,
+            n1_0.symb,
+            n1_0.x,
+            n1_0.y
+        from
+            node n1_0
+        where
+            n1_0.page_id=?
+        order by
+            n1_0.id
+Hibernate:
+    select
+        nl1_0.node_id,
+        nl1_0.id,
+        nl1_0.note_id
+    from
+        node_note_link nl1_0
+    where
+        nl1_0.node_id = any (?)
+```
+
+</details>
 
 #### ✅ 장점
 
