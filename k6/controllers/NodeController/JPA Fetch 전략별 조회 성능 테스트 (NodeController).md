@@ -11,15 +11,17 @@
   - [2.3 Fetch Join](#2️-fetch-join)
   - [2.4 Batch Fetch](#3️-batch-fetch-hibernatedefault_batch_fetch_size)
 - [4. 종합 비교 및 결론](#📈-종합-비교-요약)
-- [5. 결론](#💬-결론)
-- [6. 🚀 2차 성능개선점 (Fetch Join 튜닝)](#🚀-2차-성능개선점)
+- [5. 1차 결론](#💬-1차-결론)
+- [6. 🚀 2차 성능개선점 (목록조회)](#sec-2nd-optim)
 
-  - [6.1 Redis 2차 캐시](#redis-2차-캐시)
-  - [6.2 인덱스 및 실행계획 튜닝](#인덱스-및-실행계획-튜닝)
-  - [6.3 쿼리 구조 최적화](#쿼리-구조-최적화)
-  - [6.4 개선 후 성능 비교 (p95/RPS)](#개선-후-성능-비교)
+  - [6.1 반환값 추가 요구사항](#반환값-추가-요구사항)
+  - [6.2 행 폭증 제거](#1행-폭증-제거)
+  - [6.3 부하테스트 결과(fetch join vs Native Query(Group By + JSON Aggregation)](#부하-테스트-결과노트까지-포함한-테스트)
+  - [6.4 스키마, 노드 조회 구조 변경점 및 예상이점](#2-스키마-변경-및-서비스내의-노드-조회-구조-변경점)
+  - [6.5.1 노드 컨텐츠 요약제공 테스트 결과(Explain)](#노드-컨텐츠-요약제공-explain-테스트-결과)
+  - [6.5.2 노드 컨텐츠 요약제공 테스트 결과(K6 부하테스트)](#노드-컨텐츠-요약제공-부하-테스트-결과)
 
-- EndPoint:/api/nodes/{id}
+- `EndPoint:/api/nodes/{id}`
 
 ## 테스트 환경
 
@@ -49,31 +51,31 @@
 
 - 각 동일 조건, (APP,DB)컨테이너 내린 후 재시작, OS캐시 제거 후 3회 중에 중앙값으로 기록
 
-| 항목                      | RPS | P95        | Throughtput  |
-| ------------------------- | --- | ---------- | ------------ |
-| Lazy단건(work_mem:8)      | 120 | 1348.48 ms | 127.23 req/s |
-| Lazy단건(work_mem:128)    | 120 | 1561.42 ms | 127.23 req/s |
-| Lazy목록(work_mem:8)      | 120 | 2551.14 ms | 125.01 req/s |
-| Lazy목록(work_mem:128)    | 120 | 2753.94 ms | 125.01 req/s |
-| 배치단건(work_mem:8)      | 120 | 1464.53 ms | 127.23 req/s |
-| 배치단건(work_mem:128)    | 120 | 1720.38 ms | 127.23 req/s |
-| 배치목록(work_mem:8)      | 120 | 1887.67 ms | 125.01 req/s |
-| 배치목록(work_mem:128)    | 120 | 2714.83 ms | 125.01 req/s |
-| FetchJoin단건(work_mem:8) | 120 | 874.27 ms  | 127.22 req/s |
-| FetchJoin목록(work_mem:8) | 120 | 412.91 ms  | 125.01 req/s |
+| 항목                      | RPS | P95        | Throughput (active) |
+| ------------------------- | --- | ---------- | ------------------- |
+| Lazy단건(work_mem:8)      | 120 | 1348.48 ms | 127.23 req/s        |
+| Lazy단건(work_mem:128)    | 120 | 1561.42 ms | 127.23 req/s        |
+| Lazy목록(work_mem:8)      | 120 | 2551.14 ms | 125.01 req/s        |
+| Lazy목록(work_mem:128)    | 120 | 2753.94 ms | 125.01 req/s        |
+| 배치단건(work_mem:8)      | 120 | 1464.53 ms | 127.23 req/s        |
+| 배치단건(work_mem:128)    | 120 | 1720.38 ms | 127.23 req/s        |
+| 배치목록(work_mem:8)      | 120 | 1887.67 ms | 125.01 req/s        |
+| 배치목록(work_mem:128)    | 120 | 2714.83 ms | 125.01 req/s        |
+| FetchJoin단건(work_mem:8) | 120 | 874.27 ms  | 127.22 req/s        |
+| FetchJoin목록(work_mem:8) | 120 | 412.91 ms  | 125.01 req/s        |
 
 ### 콜드캐시 테스트
 
 - 각 동일 조건, (APP,DB)컨테이너 내린 후 재시작, OS캐시 제거 후 3회 중에 중앙값으로 기록
 
-| 항목                      | RPS | P95        | Throughtput |
-| ------------------------- | --- | ---------- | ----------- |
-| Lazy단건(work_mem:8)      | 40  | 3362.82 ms | 46.70 req/s |
-| Lazy목록(work_mem:8)      | 40  | 6643.57 ms | 46.67 req/s |
-| 배치단건(work_mem:8)      | 40  | 7516.25 ms | 46.67 req/s |
-| 배치목록(work_mem:8)      | 40  | 7246.47 ms | 46.67 req/s |
-| FetchJoin단건(work_mem:8) | 40  | 3149.68 ms | 46.70 req/s |
-| FetchJoin목록(work_mem:8) | 40  | 4871.70 ms | 46.70 req/s |
+| 항목                      | RPS | P95        | Throughput (active) |
+| ------------------------- | --- | ---------- | ------------------- |
+| Lazy단건(work_mem:8)      | 40  | 3362.82 ms | 46.70 req/s         |
+| Lazy목록(work_mem:8)      | 40  | 6643.57 ms | 46.67 req/s         |
+| 배치단건(work_mem:8)      | 40  | 7516.25 ms | 46.67 req/s         |
+| 배치목록(work_mem:8)      | 40  | 7246.47 ms | 46.67 req/s         |
+| FetchJoin단건(work_mem:8) | 40  | 3149.68 ms | 46.70 req/s         |
+| FetchJoin목록(work_mem:8) | 40  | 4871.70 ms | 46.70 req/s         |
 
 ## JPA Fetch 전략별 성능 비교
 
@@ -378,8 +380,7 @@ Hibernate:
   order by n.id
   limit 5 offset 0;
   # (A,1),(A,2),(A,3),(A,4),(A,5),(B,1),(B,2),(B,3)...이런 구조로 펼쳐진다.
-  # 따라서 기존의 의도는 노드 A,B,C,D,E와 연관된 링크를 가져오는 것이 아닌
-  노드 A의 5개 링크만 가져오게 되는 결과가 발생한다.
+  # 따라서 기존의 의도는 노드 A,B,C,D,E와 연관된 링크를 가져오는 것이 아닌 LIMIT/OFFSET은 join 후 중복행에 적용되므로 노드 A의 5개 링크만 가져오게 되는 결과가 발생한다.
   ```
   - 해결방법 : 1.노드의 ID만 따로 페이징 -> 2. fetch join사용
   - MultipleBagFetchException문제
@@ -510,7 +511,7 @@ spring:
 
 ---
 
-## 💬 결론
+## 💬 1차 결론
 
 > 동일 환경에서 JPA의 세 가지 Fetch 전략을 비교한 결과,
 > **Fetch Join이 왕복 최소화로 가장 낮은 p95를 기록(412ms @120RPS)** 하였으며,
@@ -555,16 +556,54 @@ spring:
 ```
 
 <br><br><br>
+<a id="sec-2nd-optim"></a>
 
-# 🚀-2차-성능개선점
+# 🚀2차-성능개선점(목록조회)
 
-- 프로젝트 SLO 목표 : 가벼운 쿼리의 경우 600RPS, 무거운 쿼리의 경우 300RPS p95 ~= 300ms
-- 2차 튜닝 성능 목표 : 300RPS p95 ~= 300ms
+- **프로젝트 SLO 목표**
+
+  - 가벼운 쿼리: 600 RPS, p95 ≈ 300ms
+  - 무거운 쿼리: 300 RPS, p95 ≈ 300ms
+
+- **테스트 범위 조정 배경**
+
+  - 단건 조회는 실제 서비스 내에서 사용되지 않는다.
+  - 초기 페이지 렌더링 시, 페이지에 해당하는 모든 노드 목록을 한 번에 조회하여 프론트에 저장하고 이를 기반으로 화면을 구성한다.
+  - 따라서 단건 조회는 실사용 시나리오에 포함되지 않으며, 목록 조회만이 실질적인 성능 지표가 된다.
+
+- **1차 테스트 목적**
+
+  - 1차 테스트에서는 Fetch 전략(Lazy, Batch, Fetch Join)의 특성을 공정하게 비교하기 위해 **단건 조회와 목록 조회를 모두 포함**하였다.
+  - 이를 통해 Fetch 전략별로 쿼리 수, 행 폭증, 응답 지연의 차이를 명확히 분석하였다.
+
+- **2차 테스트 방향 및 목표**
+  - 실서비스 구조를 반영하여 **목록 조회만을 대상으로 성능 튜닝을 진행**한다.
+  - 2차 튜닝 목표: **목록 조회 기준 300 RPS에서 p95 ≈ 300ms 달성**.
+
+## 반환값 추가 요구사항
+
+- 기존 noteId만을 반환하는 API에서 note의 제목을 같이 반환하고자 한다.
+- 이를 위해 노트 테이블 또한 조회하여야 한다.
+
+## 1.행 폭증 제거
+
+- 1차 테스트의 목록 조회는 페이지당 10개의 노드를 불러오지만,  
+  JPA Fetch Join 구조상 노드와 링크가 조인되면서 **DB 단에서 실제 조회 행이 약 100행으로 폭증**하였다.  
+  (노드 10개 × 링크 10개)
+
+- 이러한 행 폭증(Row Explosion)은 네트워크 전송량과 ORM 매핑 오버헤드를 동시에 유발하였다.  
+  특히, Fetch Join은 컬렉션 조인 시 중복 데이터를 모두 읽은 뒤 애플리케이션 단에서 병합하므로  
+  쿼리 효율이 떨어지는 문제가 있었다.
+
+- 따라서 **2차 테스트에서는 Fetch Join 대신 Native Query(Group By + JSON Aggregation)** 를 사용하여  
+  행 폭증을 최소화하고, 한 번의 쿼리로 노드-노트 링크 정보를 JSON 형태로 묶어 반환하도록 변경하였다.
+
+- 아래는 psql로 행 폭증 감소 테스트를 진행한 결과다
 
 <details>
 <summary>📜 psql 로그 결과 (클릭하여 보기)</summary>
 
-⚙️ Before: Node × Note = 10 × 10 = 100 rows
+⚙️ Before: Node × Link = 10 × 10 = 100 rows
 
 - 노드당 10개의 행으로 폭증된다
 
@@ -628,7 +667,7 @@ trader-# ORDER BY n.id;
 <summary>📜 psql 로그 결과-행 수만 조회 (클릭하여 보기)</summary>
 
 - 10개의 노드에 대해서 각 100개 10개, 결과 행의 수가 10분의 1로 줄어들어 행 폭증이 사라진 모습이다.
-- ⚙️ Before: Node × Note = 10 × 10 = 100 rows
+- ⚙️ Before: Node × Link = 10 × 10 = 100 rows
 
 ```sql
 trader=# SELECT COUNT(*) AS row_count_before
@@ -644,20 +683,19 @@ trader-# WHERE n.page_id = 200125;
 
 ✅ After: Grouped by Node → 10 rows (notes aggregated as JSON array)
 
-```
-trader=# SELECT COUNT(\*) AS row_count_after
-trader-# FROM (
-trader(# SELECT n.id
-trader(# FROM node n
-trader(# LEFT JOIN node_note_link l ON l.node_id = n.id
-trader(# LEFT JOIN note no ON no.id = l.note_id
-trader(# WHERE n.page_id = 200125
-trader(# GROUP BY n.id
-trader(# ) t;
+```sql
+SELECT COUNT(*) AS row_count_after
+FROM (
+  SELECT n.id
+  FROM node n
+  LEFT JOIN node_note_link l ON l.node_id = n.id
+  LEFT JOIN note no ON no.id = l.note_id
+  WHERE n.page_id = 200125
+  GROUP BY n.id
+) t;
+
 row_count_after
-
 ---
-
               10
 
 (1개 행)
@@ -667,18 +705,201 @@ row_count_after
 </details>
 
 - 결과적으로, json_agg와 GROUP BY를 이용하여  
-  10배에 달하던 행 폭증이 제거되고,  
-  각 노드가 단일 행으로 압축되어 조회 효율이 극적으로 개선되었다.
+  10배에 달하던 행 폭증이 제거
 
-## 2. DTO 집계 1쿼리로 전환
+### 부하 테스트 결과(노트까지 포함한 테스트)
 
-## 3. 페이로드 다이어트
+> ① **1차 = Fetch Join (행 폭증 발생)**: Node×Link 조인으로 결과 행 수 증가(중복 병합은 애플리케이션에서 처리)  
+> ② **2차 = JSON 집계 (행 폭증 미발생)**: DB에서 `json_agg`로 그룹화·집계하여 행 수 축소(집계 CPU 비용↑)
 
-## 4. 드라이버/풀 자잘한 팁
+| 구분                              | 시나리오 | P95 (ms) | Throughput(active) | Fail Rate |
+| --------------------------------- | -------- | -------- | ------------------ | --------- |
+| **1차=Fetch Join(행 폭증 발생)**  | Case 1   | 4344.17  | 124.99             | 0.00%     |
+|                                   | Case 2   | 2572.21  | 125.00             | 0.00%     |
+|                                   | Case 3   | 2783.97  | 125.00             | 0.00%     |
+| **2차=JSON 집계(행 폭증 미발생)** | Case 1   | 5212.05  | 123.62             | 0.00%     |
+|                                   | Case 2   | 5355.46  | 124.83             | 0.00%     |
+|                                   | Case 3   | 3961.93  | 125.01             | 0.00%     |
 
-- PG JDBC prepareThreshold 기본값 권장(운영에선 서버사이드 PS 이점 큼)
-- 기존은 0으로 진행
+**해석 요약**
+
+- ②는 **행 수는 줄었지만** `json_agg`/정렬(ORDER BY)/그룹화 비용이 커서 p95가 더 높게 측정됨.
+- ①은 행 폭증으로 네트워크/매핑 오버헤드는 있지만, **조인 자체의 CPU 비용이 상대적으로 낮아** 케이스에 따라 p95가 더 낮게 나옴.
+
+- 따라서 3차 설계에서는 노트 본문을 집계하지 않고 링크 테이블만 반환하도록 구조를 단순화하였다.
+
+- 단 기존의 노드목록조회에 노트ID와 제목이 필요하다는 점을 고려하여 링크 테이블의 스키마를 추가할 예정이다.
+
+## 2. 스키마 변경 및 서비스내의 노드 조회 구조 변경점
+
+- 기존에는 노드 목록 조회로 모든 데이터를 선조회 후 개별조회 기능은 사용하지 않았다.
+- 하지만 NativeQuery의 성능이 예상과 다르게 좋지 않고 fetch join또한 3개의 테이블을 조인해야 하기에 링크 테이블 스키마에 연결된 노트 제목을 추가하는 방향으로 가고자 한다.
+
+```sql
+#스키마 변경
+ALTER TABLE node_note_link
+ADD COLUMN note_subject VARCHAR(255);
+#기존 데이터 복사
+UPDATE node_note_link l
+SET note_subject = n.subject
+FROM note n
+WHERE n.id = l.note_id;
+#조회 예시
+trader=# SELECT id, node_id, note_id, note_subject
+trader-# FROM node_note_link
+trader-# LIMIT 10;
+  id   | node_id | note_id | note_subject
+-------+---------+---------+--------------
+ 30129 | 1280185 |   15090 | note_21790
+ 30142 | 1410185 |   15063 | note_21763
+ 30147 | 1460185 |   15131 | note_21831
+ 30151 | 1500185 |   15089 | note_21789
+ 30160 | 1590185 |   15053 | note_21753
+ 30161 | 1600185 |   15038 | note_21738
+ 30181 | 1800185 |   15109 | note_21809
+ 30187 | 1860185 |   15132 | note_21832
+ 30213 |  120186 |   15203 | note_21903
+ 30221 |  200186 |   15191 | note_21891
+(10 rows)
+
+#노트 제목 변경시 자동 동기화 트리거, 해당 트리거로 애플리케이션 레벨 로직 수정X
+#CASCADE로 노드,노트 삭제시에 링크도 삭제되기 때문에 insert, delete 는 제외
+CREATE OR REPLACE FUNCTION trg_sync_note_subject()
+RETURNS trigger AS $$
+BEGIN
+  UPDATE node_note_link
+  SET note_subject = NEW.subject
+  WHERE note_id = NEW.id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER sync_note_subject_after_update
+AFTER UPDATE OF subject ON note
+FOR EACH ROW
+EXECUTE FUNCTION trg_sync_note_subject();
+
+
+#노트 제목 변경 및 결과
+trader=# UPDATE note
+trader-# SET subject = 'updated_note_subject'
+trader-# WHERE id = 15090;
+
+trader=# SELECT id, node_id, note_id, note_subject
+FROM node_note_link where note_id='15090';
+  id   | node_id | note_id |     note_subject
+-------+---------+---------+----------------------
+ 30029 |  280185 |   15090 | updated_note_subject
+ 30129 | 1280185 |   15090 | updated_note_subject
+(2 rows)
+
 
 ```
 
+### 스키마 변경안
+
+- 기존 : 노드*노트*링크 테이블
+  - 필드 : id, node_id, note_id
+- 수정 : 노드*노트*링크 테이블
+  - 필드 : id, node_id, note_id , note_subject
+
+### 로직 변경안
+
+- 기존
+  1. 노드 목록 조회 API 1회(단건 노드 조회 사용X)
+  2. 상세보기한 노드의 노트 목록에서 노트 상세보기가 진행될 경우 단건 노트 API로 반환
+- 수정
+  1. 노드 목록 조회 API 1회(단건 노드 조회 사용O & 컨텐츠 내용의 경우 20자만 잘라서 조회 DB레벨) -> PostgreSQL에 컨텐츠 내용을 줄인 뷰 추가, 해당 뷰로 목록 조회(SQL 재사용 측면, 성능 이점X)
+  2. 노드를 클릭시 상세 보기 API 1회 요청
+  3. 상세보기한 노드의 노트 목록에서 노트 상세보기가 진행될 경우 단건 노트 API로 반환
+
+#### 예상되는 이점
+
+- 네트워크 페이로드 ↓
+- 직렬화/역직렬화 비용 ↓
+- 렌더링 시간 ↓
+- p95 안정화 ↑
+
+#### 노드 컨텐츠 요약제공 Explain 테스트 결과
+
+<details>
+<summary>📜 500자vs20자 Explain결과(콜드캐시) (클릭하여 보기)</summary>
+
+```sql
+# 500자 content
+trader=# EXPLAIN (ANALYZE, BUFFERS)
+trader-# SELECT id, x, y, subject, content, page_id
+trader-# FROM node
+trader-# WHERE page_id = 200125
+trader-# ORDER BY id;
+QUERY PLAN
+
+---
+
+Index Scan using ix_node_page_id_id on node (cost=0.43..12.65 rows=10 width=81) (actual time=0.619..0.625 rows=10 loops=1)
+Index Cond: (page_id = 200125)
+Buffers: shared hit=3 read=4
+I/O Timings: shared read=0.513
+Planning:
+Buffers: shared hit=521 read=59
+I/O Timings: shared read=11.658
+Planning Time: 18.548 ms
+Execution Time: 0.895 ms
+(9 rows)
+
+# 20자 content_preview
+trader=# EXPLAIN (ANALYZE, BUFFERS)
+trader-# SELECT id, x, y, subject, content_preview, page_id
+trader-# FROM v_node_preview
+trader-# WHERE page_id = 200125
+trader-# ORDER BY id;
+QUERY PLAN
+
+---
+
+Index Scan using ix_node_page_id_id on node (cost=0.43..12.67 rows=10 width=81) (actual time=1.380..1.422 rows=10 loops=1)
+Index Cond: (page_id = 200125)
+Buffers: shared hit=3 read=4
+I/O Timings: shared read=1.112
+Planning:
+Buffers: shared hit=529 read=58
+I/O Timings: shared read=13.873
+Planning Time: 22.463 ms
+Execution Time: 2.000 ms
+(9 rows)
+
 ```
+
+</details>
+
+- 결과 : 뷰를 사용할때 시간이 살짝 더 높게 나옴
+
+#### 노드 컨텐츠 요약제공 부하 테스트 결과
+
+- 테스트 결과 요약 콜드캐시 RPS 40, 30초로 진행
+
+| 구분                    | 내용                                 | P95 (ms)                    | Throughput(active) | Fail Rate |
+| ----------------------- | ------------------------------------ | --------------------------- | ------------------ | --------- |
+| **500자 원문 조회**     | 전체 content 반환 (평균 약 500자)    | 5116.33 → 5360.66 → 5154.81 | 46.67              | 0.00%     |
+| **20자 프리뷰 뷰 조회** | `LEFT(content, 20)` 적용 (평균 20자) | 2615.64 → 3262.22 → 4156.27 | 46.70              | 0.00%     |
+
+#### 분석
+
+- 쿼리 실행 자체는 거의 동일. I/O와 인덱스 스캔이 같기 때문에 DB 관점에서는 큰 차이 없음.
+- 네트워크 전송량 ↓ : content 길이가 500자 → 20자로 줄어듦 → 전체 응답 JSON 크기가 약 20~25배 축소.
+- 직렬화/역직렬화 비용 ↓ : Spring + Jackson JSON 변환 단계에서 문자열 처리·GC 부하 감소.
+- k6 부하 구간에서 CPU 스케줄링 효율 ↑ : 애플리케이션이 빠르게 응답 완료하므로, 같은 RPS에서도 스레드 점유 시간이 짧아져 p95가 안정화됨.
+- GC pause 감소 효과 : 특히 다수의 VUs가 동시에 긴 문자열(JSON) 처리 시, Eden 영역이 빨리 차서 Minor GC가 자주 발생. → 짧은 문자열로 GC 빈도 감소.
+
+### 2차 요약 및 결과
+
+1. 초기 목록 렌더링시에 노트의 제목도 필요한 상황 발생
+   - Note테이블도 조회를 하여야 하며 행 폭증을 줄일 수 있는 방법을 고안
+   - Native Query(Group By + JSON Aggregation)를 사용하여 행 폭증을 줄였지만 오히려 오버헤드가 발생하여 fetch join보다 성능이 악화됨
+2. DB레벨의 스키마를 변경하기로 함
+   - 노트와 노드의 다대다 링크 테이블에 note_subject를 추가하고 데이터를 복사하여 가져옴
+3. 서비스에서 제공하는 그래프 화면에 노드의 콘텐츠가 전부 보이면 가독성 및 지저분해질 수 있다고 생각하여 목록조회에서는 요약본만 제공하기로 함
+   - 요약본 제공을 위한 목록 조회시에 전체 데이터를 반환하기보다 뷰로 sql 재사용성으로 올리는 방안을 고안
+   - 또한 사용자의 경우 모든 노드를 상세히 보는 것이 아닌 제목과 요약본으로 필요한 노드만 상세히 보기 때문에 위와 같은 방법의 효율이 좋을 경우 도입하는 것이 맞다고 판단.
+   - Explain 테스트 결과: I/O와 인덱스 스캔이 같기 때문에 DB 관점에서는 큰 차이 없음.
+   - 부하 테스트 결과 성능 40~50프로 향상되었음
