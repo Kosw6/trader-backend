@@ -2,16 +2,24 @@
 
 ### 테스트 환경
 
-| 항목           | 설정                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------- |
-| 서버 사양      | 4 Core / 16GB / SSD                                                                   |
-| DB             | PostgreSQL 17 + TimescaleDB                                                           |
-| 커넥션 풀      | HikariCP max=150,idle=80                                                              |
-| Redis          | max-active=128                                                                        |
-| 테스트 도구    | k6 v0.52                                                                              |
-| 초기 부하 유형 | ramping-arrival 20RPS 시작으로도 과부하 -><br>매우 낮은 constant-arrival-rate(5~7RPS) |
-| 네트워크       | 내부 브릿지 (Docker Compose 환경)                                                     |
-| 데이터 구성    | 약 2,600만 행 규모의 OHLCV 시계열 데이터. PostgreSQL 17 + TimescaleDB로 확장하여 운용 |
+| 항목                 | 설정                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------- |
+| 서버 사양            | 4 Core / 16GB / SSD                                                                   |
+| DB                   | PostgreSQL 17 + TimescaleDB                                                           |
+| 커넥션 풀            | HikariCP max=150,idle=80                                                              |
+| Redis                | max-active=128                                                                        |
+| 테스트 도구          | k6 v0.52                                                                              |
+| 초기 부하 유형       | ramping-arrival 20RPS 시작으로도 과부하 -><br>매우 낮은 constant-arrival-rate(5~7RPS) |
+| 네트워크             | 내부 브릿지 (Docker Compose 환경)                                                     |
+| 데이터 구성          | 약 2,600만 행 규모의 OHLCV 시계열 데이터. PostgreSQL 17 + TimescaleDB로 확장하여 운용 |
+| GC 지표 정의         | sum(rate(jvm_gc_pause_seconds_sum[5m]))                                               |
+| JVM                  | OpenJDK Temurin 17 (64bit)                                                            |
+| GC 종류              | G1GC (Garbage-First)                                                                  |
+| 힙 초기/최대 크기    | Xms=248MB / Xmx=3942MB (컨테이너 자동 설정)                                           |
+| Heap Region Size     | 2MB                                                                                   |
+| Parallel Workers     | 4                                                                                     |
+| Max Pause Target     | 200ms (기본값, G1 MaxGCPauseMillis)                                                   |
+| String Deduplication | **Disabled** (명시 옵션 미사용)                                                       |
 
 #### 1차 테스트 결과
 
@@ -78,7 +86,7 @@ ORDER BY timestamp ASC;
 ...
 ```
 
-> 💬 **Warm cache** 구간에서는 planner 재사용과 buffer hit으로 인해  
+> **Warm cache** 구간에서는 planner 재사용과 buffer hit으로 인해  
 > 실제 차이가 0.1–0.2 ms 이내로 수렴하여 동일한 값으로 표기하였다.  
 > **Cold/Warm execution time** 또한 동일한 인덱스 경로를 사용하므로  
 > 측정값의 변동이 미미하며 근사치로 동일한 값으로 표기하였다.
