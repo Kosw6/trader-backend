@@ -44,9 +44,86 @@
 | Max Pause Target     | 200ms (기본값, G1 MaxGCPauseMillis)                                                                        |
 | String Deduplication | **Disabled** (명시 옵션 미사용)                                                                            |
 
-## 서론,요약
+---
 
--
+## 서론 · 전체 요약
+
+### 1차 테스트
+
+처음엔 EdgeController에 비해 NodeController의 처리량이 유독 낮게 나왔다.
+같은 조건인데 RPS가 절반 수준(데이터 양 : Edge 약 400만 → Node 약 200만 정도)이라 이상해서 로그를 확인했더니,
+`node_note_link` 테이블을 **Lazy 로딩**으로 긁어오면서 N+1 쿼리가 쏟아지고 있었다.
+
+그래서 JPA에서 흔히 쓰는 세 가지 접근 — **Lazy / Batch Fetch / Fetch Join** — 을 전부 돌려보기로 했다.
+각 전략을 동일 부하(120RPS, seed=777)로 3회씩 테스트했고,
+결국 **Fetch Join**이 왕복 쿼리를 최소화하면서 p95가 가장 낮게 나왔다.
+
+추가로 PostgreSQL의 **`work_mem`** 값(8MB → 128MB)을 조정해봤는데,
+생각보다 영향이 없었다. 해시나 정렬이 아니라 쿼리 패턴 자체가 병목이라
+디스크 스필도 DB레벨에서 확인결과 안 생겼고, 단순히 왕복 횟수가 성능을 결정하고 있었다.
+
+---
+
+### 2차 테스트
+
+1차에서 성능은 잡혔지만, UI 쪽 요구가 생겼다.
+노드 목록에서 이제는 `noteId`만이 아니라 **`noteSubject`(제목)** 도 같이 내려줘야 했다.
+이때 “행 폭증” 문제가 눈에 들어왔다. Node 10개에 링크 10개씩만 붙어도
+조인 결과가 100행이 되는 구조였다.
+
+그래서 **JSON Aggregation (`json_agg` + `GROUP BY`)** 을 써서
+DB 단에서 한 번에 묶는 방식을 시도했다.
+`EXPLAIN (ANALYZE)` 로 봤을 땐 잘 돌아갔고, 행 수도 확실히 줄었지만
+막상 k6 부하를 걸어보니 p95가 오히려 더 늘었다.
+집계·정렬·직렬화 CPU가 무거운걸로 확인했다.
+
+결국 이 방법 대신에, 아예 **스키마 쪽을 손보는 방향으로 전환**했다.
+
+---
+
+### 3차 테스트
+
+이번엔 근본적으로 구조를 바꿨다.
+다대다 매핑 테이블(`node_note_link`)에 `note_subject` 컬럼을 직접 추가하고,
+`note.subject`가 바뀔 때 자동으로 싱크되도록 **DB 트리거**를 달았다.
+이렇게 하면 애플리케이션 쪽 코드를 거의 안 건드리고도 제목을 바로 조회할 수 있다.
+
+또 하나 떠올랐던 아이디어가 “본문을 짧게 잘라서 보내면 더 빨라지지 않을까?”였다.
+서비스 상 노드 본문은 어차피 화면에서 짧게 보여주니까,
+서버에서 미리 **`substring(content, 1, 20)`** 으로 자른 프리뷰만 내려주는 테스트를 추가했다.
+
+여기서부터는 조회 방식도 나눴다.
+엔티티를 그대로 조립하는 **Fetch Join**,
+필요한 필드만 딱 받는 **Projection**,
+그리고 이전에 썼던 **Native + JSON Aggregation**.
+총 네 가지 조합으로 돌렸다.
+
+| 테스트 조합                         | 설명                     |
+| ----------------------------------- | ------------------------ |
+| 1. 500자\_3테이블\_JSON Aggregation | DB에서 json_agg로 묶음   |
+| 2. 500자\_2테이블\_Projection       | DTO 형태로 필요한 필드만 |
+| 3. 20자\_2테이블\_Projection        | 프리뷰 버전              |
+| 4. 500자\_2테이블\_Fetch Join       | 기존 방식 개선판         |
+
+원래는 “엔티티가 아닌 DTO Projection이 더 빠르겠지”라고 예상했는데,
+결과는 반대로 나왔다.
+
+**JSON Aggregation ≪ 500자 Projection ≪ 20자 Projection ≪ 500자 Fetch Join**
+순으로 성능이 좋았다. Projection이 Fetch Join보다 느린 이유가 궁금해서
+GC·스레드·커넥션·p95/p99를 전부 모니터링하면서 분석했다.
+
+결론적으로, 둘 다 DB에서는 100행을 읽지만
+**Fetch Join은 Hibernate가 1차 캐시 기준으로 부모(노드)를 Deduplicate** 한다.
+즉, 같은 부모 엔티티가 여러 번 나와도 새로 객체를 안 만들고,
+자식(링크)만 컬렉션에 추가한다.
+반면 Projection은 **DTO 100개를 전부 새로 만든다.**
+
+결과적으로 힙에 올라가는 객체 수가 10배 차이 나고,
+GC에서 **Fetch Join의 Pause가 평균 5ms**, Projection은 **6ms** 정도였다.
+이 차이가 결국 p95까지 이어졌다.
+요약하면, 행 폭증 상황에서는 **Fetch Join이 메모리 효율과 GC 안정성 면에서 더 낫다**는 걸 확인했다.
+
+추가로 20자 반환, 500자 반환 Projection의 경우 GC의 영향은 동일하였으며 부하테스트를 통한 20자에서 P95성능이 좋은 원인은 JSON직렬화/역직렬화임을 확인하게 되었다.
 
 ## 결정 로그
 
@@ -55,6 +132,22 @@
 - 11/03: JSON 집계 시도 → 행 수 감소는 성공, p95↑(집계 CPU) → 보류
 - 11/08: 20자 프리뷰로 JSON 크기 축소 → p95 개선은 있으나 Fetch Join 대비 여전히 열세
 - 11/12: 링크 테이블에 note_subject 물리화 + 트리거 동기화 → 애플리케이션 변경 최소화로 확정
+
+## 재현 방법
+
+```
+# 1) 캐시 리셋(컨테이너 재시작 후 OS 페이지캐시 드롭)
+# (리눅스) root 권한에서
+sudo sync && sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+
+docker compose down && docker compose up -d
+
+
+# 2) 웜업 → 본부하 (seed 고정)
+ k6 run -e BASE_URL=http://172.30.1.78:8080 -e CONTROLLERS=NodeController -e ENDPOINTS=list -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
+```
+
+## 1차 테스트
 
 ### 성능저하 문제파악
 
@@ -98,11 +191,7 @@
 | FetchJoin단건(work_mem:8) | 40  | 3149.68 ms | 46.70 req/s         |
 | FetchJoin목록(work_mem:8) | 40  | 4871.70 ms | 46.70 req/s         |
 
-## JPA Fetch 전략별 성능 비교
-
-(테스트 환경: 동일 조건 / APP·DB 초기화 / OS 캐시 제거 후 3회 중앙값 기준)
-
-### 비교 전 PostgreSQL work_mem 설명
+### 비교, 분석 전 PostgreSQL work_mem 설명
 
 - work_mem이란?
 
@@ -165,6 +254,8 @@ queryid | calls | temp_blks_read | temp_blks_written | temp_mb | query
 ```
 
 </details>
+
+## JPA Fetch 전략별 성능 비교
 
 ### 1️. Lazy Loading
 
@@ -973,9 +1064,9 @@ FROM node_note_link where note_id='15090';
 
 2. 500자 2단계 조회 `프로젝션`
 
-![500 Projection](../../../image/500_projection_2table.png) 3. 500자 2단계 테이블 조회 `Fetch Join`
+![500 Projection](../../../image/500_projection_2table.png)
 
-3. 500자 2단계 조회 `fetch join`
+3. 500자 2단계 테이블 조회 `Fetch Join`
 
 ![500 Fetch Join](../../../image/fetch_join_2table.png)
 
@@ -1004,26 +1095,26 @@ FROM node_note_link where note_id='15090';
 - **Projection (2-Table, DTO)**
 
   - 직렬화 없이 **ResultSet → DTO 매핑**만 수행.
-  - 다만 **조인으로 인한 행 폭증 = DTO 개수 폭증**으로 **Eden 포화 → GC 발생**.
-  - Pause 자체는 짧고 **안정화가 빠름**.
+  - 다만 **조인으로 인한 행 폭증 -> DTO 개수 폭증**으로 **Eden 포화 → GC 발생**.
+  - GC Pause 자체는 짧고 **안정화가 빠르다**.
 
 - **Fetch Join (2-Table, 엔티티 그래프)**
 
   - DB 결과는 Projection과 동일하게 **행 폭증**이지만,
-  - 하이버네이트가 **1차 캐시로 부모 엔티티를 Dedup**(ID 기준) → **부모 10개 + 링크 100개** 형태로 물질화.
+  - 하이버네이트가 **1차 캐시로 부모 엔티티를 Deduplicate**(ID 기준) → **부모 10개 + 링크 100개** 형태로 변환한다.
   - **큰 본문(content)** 은 부모당 1회만 할당되어 **중복 문자열 생성이 없음** → **STW 영향 최소**.
 
 > **왜 이번 테스트에선 Fetch Join의 GC Pause가 더 낮았나?**
 > Projection은 **행 수만큼 DTO + 문자열(500자)** 이 반복 생성되어 **총 객체 수가 더 많고**,
-> Fetch Join은 **부모 Dedup + 컬렉션 누적**으로 **힙 객체 수가 줄었기 때문.**
+> Fetch Join은 **부모 Deduplicate + 컬렉션 누적**으로 **힙 객체 수가 줄었기 때문.**
 
 ### 500자 vs 20자 (Projection)
 
-- **GC Pause는 거의 동일** → GC 부하는 **문자열 길이보다 “객체 개수(행 폭증)”**에 좌우됨.
-- 차이는 **p95 응답시간**에서 나타남 → 본문을 줄이면 **JSON 변환 비용**(네이티브/응답 직렬화)이 줄어들어 응답 분포가 개선.
+- **GC Pause는 거의 동일** → GC 부하는 **문자열 길이보다 “객체 개수(행 폭증)”**에 좌우된다는 것을 확인하였다.
+- 차이는 **p95 응답시간**에서 나타남 → 본문을 줄이면 **JSON 변환 비용**(네이티브/응답 직렬화)이 줄어들어 응답 분포가 개선되었다.
 
 > **Stop-the-World(STW)**: GC 실행 시 JVM이 애플리케이션 스레드를 **일시 정지**하는 구간.
-> STW가 길수록 p95/p99 스파이크, Busy thread 확대, 커넥션 반환 지연이 발생.
+> STW가 길수록 p95/p99 스파이크, Busy thread 확대, 커넥션 반환 지연이 발생한다.
 
 ---
 
@@ -1046,7 +1137,7 @@ FROM node_note_link where note_id='15090';
 ## 결론
 
 - **행 폭증이 있는 조회라면** GC 관점에서
-  **Fetch Join(부모 Dedup + 컬렉션 누적) ≤ Projection(DTO 폭증) ≪ JSON Aggregation(직렬화/파싱 폭증)**
+  **Fetch Join(부모 Deduplicate + 컬렉션 누적) ≤ Projection(DTO 폭증) ≪ JSON Aggregation(직렬화/파싱 폭증)**
   순으로 유리했다.
 - **JSON 집계**는 행 수는 줄이나 집계/정렬/직렬화 비용으로 인해 **CPU 바운드 + GC 압력이 커져** p95가 높아졌다.
 - **본문 길이 축소(500→20자)** 는 **GC Pause에는 미미**, **JSON 변환 비용(p95)** 에서 체감 개선.
@@ -1062,4 +1153,4 @@ FROM node_note_link where note_id='15090';
 | 한 번에 화면 완결, 페이징 불필요 | **Fetch Join + 2단계(ID→fetch)**                       | 왕복 최소화(p95 유리), 컬렉션 페이징은 분리          |
 | 행 폭증 매우 큼, CPU 여유        | **JSON Aggregation**                                   | 네트워크/행 수 감소, 대신 집계/정렬 CPU 및 GC 압력 ↑ |
 | 대용량 본문 포함                 | **Projection(프리뷰 20자) + 상세 개별 조회**           | 응답 JSON 축소로 p95 안정                            |
-| p95·GC 민감                      | **Fetch Join(부모 Dedup 유리)**                        | 객체 수/중복 감소로 STW 영향 최소화                  |
+| p95·GC 민감                      | **Fetch Join(부모 Deduplicate 유리)**                  | 객체 수/중복 감소로 STW 영향 최소화                  |
