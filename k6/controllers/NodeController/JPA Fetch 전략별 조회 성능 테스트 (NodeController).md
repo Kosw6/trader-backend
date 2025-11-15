@@ -1152,3 +1152,233 @@ FROM node_note_link where note_id='15090';
 | 행 폭증 매우 큼, CPU 여유        | **JSON Aggregation**                                   | 네트워크/행 수 감소, 대신 집계/정렬 CPU 및 GC 압력 ↑ |
 | 대용량 본문 포함                 | **Projection(프리뷰 20자) + 상세 개별 조회**           | 응답 JSON 축소로 p95 안정                            |
 | p95·GC 민감                      | **Fetch Join(부모 Deduplicate 유리)**                  | 객체 수/중복 감소로 STW 영향 최소화                  |
+
+## 4차 테스트(fetch join + 노드 콘텐츠 20자)
+
+- 같은 행 폭증 상황일때 DTO Projectione대신 엔티티 Fetch Join이 성능이 좋음
+- fetch join으로 가되 노드 컨텐츠를 20자로 줄여 반환시 JSON 직렬화/역직렬화의 오버헤드를 줄이고자 함
+
+### 해결방법
+
+- DB에서 가져올 때에 콘텐츠 대신 20자로 줄인 데이터를 가져와야 함
+
+  1. 목록 조회에서는 콘텐츠 원본을 가져오지 않고 단건 상세조회에서 반환하도록 함
+  2. 목록 조회에서 콘텐츠 수정본을 가져오는 방식
+
+  - 링크 테이블처럼 추가 스키마를 넣는 방식은 이미 콘텐츠가 존재하기에 불필요하다고 생각
+  - 뷰를 생성하고 해당 뷰로 fetch join하는 방식을 생각
+
+- 찾아보니 따로 뷰를 생성하지 않고 `@Formula("substring(content, 1, 20)")` 해당 방식으로 조회 할 수 있다는 것을 확인했다.
+
+#### @Formula()란
+
+- DB가 매번 계산해서 돌려주는 읽기 전용 가상 컬럼으로 엔티티를 로드할 때에 하이버네이트가 SELECT절에 끼워서 보낸다.
+
+- 따라서 노드 엔티티에 읽기 전용 콘텐츠 필드를 추가하고 기존 원본 콘텐츠 필드는 LAZYLOADING으로 목록 조회시에는 원본 콘텐츠 대신 읽기 전용 콘텐츠를 가져오는 구조로 변경하려고 한다.
+
+<details>
+   <summary>📜 코드보기 (클릭하여 보기)</summary>
+   
+```java
+    //LazyLoading적용 테스트를 위한 all.get(0).getContent(); 추가
+    @Transactional(readOnly = true)
+    public List<ResponseNodeDto> findAllByPageId(Long pageId) {
+        List<Node> all = nodeRepository.findAllFetchByPageId(pageId);
+        List<ResponseNodeDto> list = all.stream().map(ResponseNodeDto::toResponseDtoList).collect(Collectors.toList());
+        all.get(0).getContent(); // 이 시점에 2차 SELECT 발생해야 정상
+        return list;
+    }
+
+    //dto변환 메서드 변경 -> node에서 content대신 ContentPreview를 담으면서 Content 미접근
+    public static ResponseNodeDto toResponseDtoList(Node node) {
+        Long pageId = (node.getPage() != null) ? node.getPage().getId() : null;
+
+        Map<Long, String> notes = node.getNoteLinks().stream()
+                .filter(link -> link.getNote() != null)
+                .collect(Collectors.toMap(
+                        link -> link.getNoteId(),
+                        link -> link.getNoteSubject()
+                ));
+
+        return ResponseNodeDto.builder()
+                .id(node.getId())
+                .x(node.getX())
+                .y(node.getY())
+                .subject(node.getSubject())
+                .content(node.getContentPreview())
+                .symb(node.getSymb())
+                .recordDate(node.getRecordDate())
+                .createdAt(node.getCreatedDate())
+                .modifiedAt(node.getModifiedDate())
+                .pageId(pageId)
+                .notes(notes)
+                .build();
+    }
+
+````
+
+```sql
+#20자 반환 및 LazyLoading 결과
+Hibernate:
+    /* select
+        distinct n
+    from
+        Node n
+    left join
+
+    fetch
+        n.noteLinks l
+    where
+        n.page.id = :pageId
+    order by
+        n.id  */ select
+            distinct n1_0.id,
+            substring(n1_0.content, 1, 20)::text,
+            n1_0.created_date,
+            n1_0.modified_date,
+            nl1_0.node_id,
+            nl1_0.id,
+            nl1_0.note_id,
+            nl1_0.note_subject,
+            n1_0.page_id,
+            n1_0.record_date,
+            n1_0.subject,
+            n1_0.symb,
+            n1_0.x,
+            n1_0.y
+        from
+            node n1_0
+        left join
+            node_note_link nl1_0
+                on n1_0.id=nl1_0.node_id
+        where
+            n1_0.page_id=?
+        order by
+            n1_0.id
+Hibernate: <--content LazyLoading 적용되는 것 확인
+    select
+        n1_0.content
+    from
+        node n1_0
+    where
+        n1_0.id=?
+
+````
+
+</details>
+
+## 추가 실험
+
+테스트 시에 콘텐츠 차이가 별로 나지않아 보다 명확한 결과의 차이를 위해 테스트 데이터를 한글기준 약 1만자 콘텐츠당 30KB(한글기준 1만자)로 업데이트 하여 진행하려고 한다.
+
+<details>
+   <summary>📜 변경 쿼리,확인 (클릭하여 보기)</summary>
+
+```sql
+--변경에 사용한 쿼리
+trader=# UPDATE node
+trader-# SET content = repeat('가', 10240)  -- 한글 1자(3byte) × 10240 = 30720 byte
+trader-# WHERE page_id IN (
+trader(#   200125, 210125, 370125, 380125, 390125,
+trader(#   200126, 210126, 370126, 380126, 390126,
+trader(#   200127, 210127, 370127, 380127, 390127,
+trader(#   200128, 210128, 370128, 380128, 390128,
+trader(#   200129, 360129, 370129, 380129, 390129
+trader(# );
+UPDATE 250
+
+--확인용 쿼리
+trader=# SELECT
+trader-#   page_id,
+trader-#   octet_length(content) AS bytes,
+trader-#   char_length(content)  AS chars
+trader-# FROM node
+trader-# WHERE page_id IN (
+trader(#   200125, 210125, 370125, 380125, 390125,
+trader(#   200126, 210126, 370126, 380126, 390126,
+trader(#   200127, 210127, 370127, 380127, 390127,
+trader(#   200128, 210128, 370128, 380128, 390128,
+trader(#   200129, 360129, 370129, 380129, 390129
+trader(# )
+trader-# LIMIT 20;
+ page_id | bytes | chars
+---------+-------+-------
+  200125 | 30720 | 10240
+  200125 | 30720 | 10240
+  200125 | 30720 | 10240
+  200125 | 30720 | 10240
+  200125 | 30720 | 10240
+  200125 | 30720 | 10240
+  200125 | 30720 | 10240
+  200125 | 30720 | 10240
+  200125 | 30720 | 10240
+  200125 | 30720 | 10240
+  200126 | 30720 | 10240
+  200126 | 30720 | 10240
+  200126 | 30720 | 10240
+  200126 | 30720 | 10240
+  200126 | 30720 | 10240
+  200126 | 30720 | 10240
+  200126 | 30720 | 10240
+  200126 | 30720 | 10240
+  200126 | 30720 | 10240
+  200126 | 30720 | 10240
+(20 rows)
+
+```
+
+</details>
+
+#### 4차 테스트 결과
+
+| 구분                                       | RPS    | P95(ms)           | 평균 처리량(req/s, 3회 평균) | 실패율 |
+| ------------------------------------------ | ------ | ----------------- | ---------------------------- | ------ |
+| **1만자 콘텐츠 -> 20자 프리뷰 Fetch Join** | 30→120 | 1365.06 → 1393.74 |                              | 0.00%  |
+| **1만자 콘텐츠 Fetch Join(25RPS)**         | 8->25  | 3794.46 → 4516.73 | **30.00**                    | 0.00%  |
+| **1만자 콘텐츠 Fetch Join(24RPS)**         | 8->24  | 376.76 → 1771.19  | **29.00**                    | 0.00%  |
+
+#### 모니터링 이미지
+
+#### GC 및 쓰레드에 관한 공식 문서
+
+[링크-SafePoint단락 확인](https://openjdk.org/groups/hotspot/docs/HotSpotGlossary.html#SAFEPOINT)
+
+- 위 링크의 GC와 쓰레드에 대한 설명 문단(Ctrl + F => SafePoint)
+
+#### 요약 및 해석
+
+- 분석을 위해 찾은 단락 번역내용
+
+> 세이프포인트는 프로그램 실행 중 모든 GC 루트가 알려지고 모든 힙 객체 내용이 일관되는 ​​지점으로<br>
+> GC가 실행하기 전에 모든 쓰레드는 세이프포인트에서 차단되어야 합니다.
+> -->즉 GC가 실행되는 구간에서 쓰레드는 작업을 하고 있지 않다.
+
+- 1만자 모니터링 스크린샷의 좌측 상단 GC Pause와 우측 상단 쓰레드 부분을 보게 되면 GC Pause가 길어지는 것과 동시에 쓰레드는 잔잔해 보이는 것을 알 수 있다. 이는 애플리케이션이 안정하다는 것이 아니라 GC로 인한 대기가 증가하는 것 -> 그로인해 요청마다 미세 지연이 발생하면서 전반적인 P95가 급증한다는 것을 알게 되었다.
+
+- 특히 24RPS -> 25RPS로 넘어가면서 P95가 급격하게 증가하였는데 이는 임계치를 넘어 큐잉 발생 -> 꼬리지연 폭발하는 결과로 분석할 수 있다.
+
+- 20자 모니터링 스크린샷과 비교해보면 RPS가 4배임에도 불구하고 GC Pause는 대략 8->4ms로 절반 가까운 측정값을 보이며 쓰레드의 경우도 웜캐시->본부하로 진행하면서 요청을 처리하기 위해 초기의 쓰레드 급증하는 모습을 보이는데 이는 1만자와는 다른 모습이다. 이는 긍정적으로 보아야 할 모습이며 계획대로 잘 요청을 처리하고 있다는 의미이기도 하다.
+
+- HikariConnection의 양은 안정적인 것으로 보아 부하는 애플리케이션의 병목이 주된 원인이며 이는 아래와 같은 분석으로 귀결된다.
+
+- 20자(60byte) vs 1만자(30K byte) => 500배에 해당하는 콘텐츠 크기의 차이 및 특히 현재 목록조회에서는 요청당 노드 10개를 조회, 요청당 생성되는 총 객체의 콘텐츠 크기는 200byte vs 300Kbyte로 증가하게 됨<br>
+  => 객체 압박으로 이어지며 JSON 직렬화/역직렬화 부담 및 GC로 인한 쓰레드의 대기로 인한 지연이 겹쳐 심각한 부하를 일으키는 것을 알 수 있다.
+
+- 기존의 모니터링은 쓰레드와 히카리 풀을 우선적으로 보았다면
+  이번 4차 테스트와 위의 문서등을 확인하면서 여러 측정 지표에 대해서 종합적으로 분석해야 올바른 판단을 내릴 수 있다는 것을 알게되었다.
+
+## 테스트 분석을 통한 최종 선택
+
+1. 단건,목록 조회의 경우 3개의 talbe을 조회하는 것 대신 매핑 테이블에 필요한 컬럼을 추가하여 fetch join으로 조회한다. 이를 통해 행 폭증은 DB->애플리케이션으로 넘어오는 과정에서 Hibernate의 자동 1차 캐시로 줄인다.
+
+2. 추가로 목록 조회의 경우 원본 콘텐츠를 그대로 가져오게 될 경우 가뜩이나 많은 요청량이 수반되어 부하가 심해지므로 데이터베이스에서 20자로 줄여서 받아온다.
+
+3. 기존 Content필드는 LazyLoading으로 수정하여 단건 조회시에 추가 조회 쿼리를 날려 반환하는 방식으로 오베헤드를 줄인다.
+
+4. 목록 조회의 경우 위 1,2,3,4차 테스트를 진행하면서 최종 성능은 120RPS에 1300ms대를 기록하였으며 p95 300ms대 요청량을 추가 측정하여 아래와 같은 결과가 나왔다
+
+| 구분                     | RPS   | P95(ms) | 평균 처리량(req/s, 3회 평균) | 실패율 |
+| ------------------------ | ----- | ------- | ---------------------------- | ------ |
+| 20자 프리뷰 + fetch join | 25→80 | 267.15  | 85.01                        | 0.00%  |
+
+5. 이는 곧 초당 대략 100~130명은 응답시간 1초 이내가 걸리는 것으로 초기 SLO에는 못미치지만 만족할만한 성능이라고 생각한다. 추가로 실시간 사용자가 200명이 넘게되는 시기에 redis캐시를 도입하려고 한다.
