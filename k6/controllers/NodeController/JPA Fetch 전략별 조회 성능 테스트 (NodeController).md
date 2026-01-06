@@ -36,7 +36,7 @@
 | 네트워크             | 내부 브릿지 (Docker Compose 환경)                                                                          |
 | 고정 테스트 부하,RPS | 웜캐시로 진행 30RPS 2m -> 메인 테스트 120RPS 90s 시드값 777로 고정,메인 테스트만 포함하여 측정             |
 | GC 지표 정의         | sum(rate(jvm_gc_pause_seconds_sum[5m]))                                                                    |
-| JVM                  | OpenJDK Temurin 17 (64bit)                                                                                 |
+| JVM                  | OpenJDK Temurin 17 (64bit,JRE-only)                                                                        |
 | GC 종류              | G1GC (Garbage-First)                                                                                       |
 | 힙 초기/최대 크기    | Xms=248MB / Xmx=3942MB (컨테이너 자동 설정)                                                                |
 | Heap Region Size     | 2MB                                                                                                        |
@@ -48,7 +48,7 @@
 
 ## 서론 · 전체 요약
 
-### 1차 테스트
+### 1차 테스트(Node,Node_Note_link)
 
 처음엔 EdgeController에 비해 NodeController의 처리량이 유독 낮게 나왔다.
 같은 조건인데 RPS가 절반 수준(데이터 양 : Edge 약 400만 → Node 약 200만 정도)이라 이상해서 로그를 확인했더니,
@@ -64,7 +64,7 @@
 
 ---
 
-### 2차 테스트
+### 2차 테스트(Node,Node_Note_link,Note)
 
 1차에서 성능은 잡혔지만, UI 쪽 요구가 생겼다.
 노드 목록에서 이제는 `noteId`만이 아니라 **`noteSubject`(제목)** 도 같이 내려줘야 했다.
@@ -81,7 +81,7 @@ DB 단에서 한 번에 묶는 방식을 시도했다.
 
 ---
 
-### 3차 테스트
+### 3차 테스트(Node,Node_Note_link)
 
 이번엔 근본적으로 구조를 바꿨다.
 다대다 매핑 테이블(`node_note_link`)에 `note_subject` 컬럼을 직접 추가하고,
@@ -98,7 +98,7 @@ DB 단에서 한 번에 묶는 방식을 시도했다.
 그리고 이전에 썼던 **Native + JSON Aggregation**.
 총 네 가지 조합으로 돌렸다.
 
-| 테스트 조합                         | 설명                     |
+| 테스트 구조                         | 설명                     |
 | ----------------------------------- | ------------------------ |
 | 1. 500자\_3테이블\_JSON Aggregation | DB에서 json_agg로 묶음   |
 | 2. 500자\_2테이블\_Projection       | DTO 형태로 필요한 필드만 |
@@ -123,7 +123,49 @@ GC에서 **Fetch Join의 Pause가 평균 5ms**, Projection은 **6ms** 정도였�
 이 차이가 결국 p95까지 이어졌다.
 요약하면, 행 폭증 상황에서는 **Fetch Join이 메모리 효율과 GC 안정성 면에서 더 낫다**는 걸 확인했다.
 
-추가로 20자 반환, 500자 반환 Projection의 경우 GC의 영향은 동일하였으며 부하테스트를 통한 20자에서 P95성능이 좋은 원인은 JSON직렬화/역직렬화임을 확인하게 되었다.
+추가로 20자 반환, 500자 반환 Projection의 경우 GC의 영향은 동일하였으며 부하테스트를 통한 20자에서 P95성능이 좋은 원인은 GC, JSON직렬화/역직렬화가 줄었음을 확인하게 되었다.
+
+### 4차 테스트(Node, Node_Note_Link, Note)
+
+3차 테스트를 통해 목록 조회 시 Fetch Join 기반 조회가 가장 낮은 p95를 보인다는 것을 확인했다.
+다만 500자/20자 Projection 비교에서 GC Pause 차이는 크지 않았고, 오히려 p95 차이는 직렬화·페이로드 처리 비용의 영향일 가능성이 있다고 판단했다.
+이에 본문(content) 크기가 GC·스레드·tail latency에 미치는 영향을 명확히 보기 위해, 노드 content를 `한글 기준 약 1만자(≈30KB)`로 확대한 뒤 추가 비교 실험을 진행했다.
+
+테스트 목적
+
+- GC(할당/수집) 영향과 JSON 직렬화 비용 중 어떤 요소가 병목을 크게 만드는지 분리해 확인한다.
+
+비교 케이스
+
+동일한 Fetch Join 기반 조회 흐름에서, content 처리 위치만 달리하여 3가지 케이스로 비교했다.
+
+| 테스트 구조         | 설명                                                        |
+| ------------------- | ----------------------------------------------------------- |
+| 1. DB 레벨 프리뷰   | DB에서 substring(content, 1, 20)로 20자만 조회/반환         |
+| 2. 원문 그대로 반환 | DB에서 1만자를 그대로 조회하여 응답으로 반환                |
+| 3. APP 레벨 프리뷰  | DB에서 1만자를 조회한 뒤, 애플리케이션에서 20자로 잘라 반환 |
+
+결과 요약
+
+- content 원문(1만자)을 애플리케이션 레벨로 가져오는 케이스(2,3) 에서는
+  할당량 증가 → GC Pause 누적 → 스레드 정지(STW) 증가 → 처리율 하락/큐잉 발생으로 이어지며,
+  동일한 p95 구간에서 유지 가능한 RPS가 DB 레벨 프리뷰(1) 대비 약 5배 낮게 나타났다.
+
+- 특히 원문을 그대로 반환하는 케이스는 특정 RPS 구간에서 GC Pause가 크게 증가하며 p95가 급격히 붕괴하는 현상이 관찰되었다.
+
+- 반면 APP 레벨 프리뷰(3)는 원문 그대로 반환(2) 대비, 동일 RPS(예: 26 RPS)에서 붕괴가 발생하더라도
+  붕괴 빈도가 낮고 상대적으로 더 안정적인 패턴을 보였다.
+  이는 본 테스트에서 지배적인 원인은 GC/할당 압력이지만, 동시에 응답 JSON 직렬화 비용 역시 tail latency에 유의미한 영향을 준다는 근거로 해석할 수 있다.
+
+해석 및 결론
+
+해당 실험을 통해 목록 조회처럼 요청 수가 많은 구간에서 대용량 본문을 애플리케이션으로 가져오는 것은
+GC(STW)와 스레드 지연을 유발하여 tail latency(p95)를 빠르게 붕괴시키는 주요 원인임을 확인했다.
+
+따라서 최종적으로 목록 조회에서는 DB 레벨에서 프리뷰(20자)를 생성해 전달하고,
+원문은 상세 조회에서만 Lazy Loading으로 분리하는 구조가 가장 합리적인 선택이라고 결론 내렸다.
+
+또한 APP 레벨 프리뷰가 일부 안정성을 보인 점을 통해, GC 영향이 더 크지만 JSON 직렬화 비용도 무시할 수 없다는 점을 함께 확인했다.
 
 ## 결정 로그
 
@@ -144,8 +186,23 @@ docker compose down && docker compose up -d
 
 
 # 2) 웜업 → 본부하 (seed 고정)
- k6 run -e BASE_URL=http://172.30.1.78:8080 -e CONTROLLERS=NodeController -e ENDPOINTS=list -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
+k6 run -e BASE_URL=http://172.30.1.78:8080 -e CONTROLLERS=NodeController -e ENDPOINTS=list -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
 ```
+
+### 테스트 시 동일 본부하 시드에서의 편차
+
+본 테스트는 본부하 단계의 시드를 고정하여 요청 순서를 동일하게 유지했으나,
+웜업 단계는 랜덤으로 수행되어 실행마다 캐시 상태(DB shared_buffers, OS page cache 등)가 달라질 수 있다.
+
+또한 p95는 tail latency 지표로, GC STW, 스케줄링 지연, 캐시 미스와 같은 일시적 이벤트에 민감하여
+동일 조건에서도 수백 ms 수준의 변동이 발생할 수 있다.
+
+다만 공정성을 위해 각 테스트는 2~3회 반복 수행하여 표에 기재하였다.
+
+특히 1차 테스트의 경우 비교 대상 항목 수가 많아,
+모든 결과를 개별적으로 기재할 경우 문서의 가독성이 저하될 수 있다고 판단하였다.
+이에 따라 개별 변동에 따른 왜곡을 줄이면서도 대표성을 유지하기 위해
+중앙값을 기준으로 정리하였다.
 
 ## 1차 테스트
 
@@ -157,7 +214,7 @@ docker compose down && docker compose up -d
 
 - 초기 테스트 구조 노드 1대 링크매핑테이블 1로 테스트 진행 Lazy로딩만 사용하였다.
 
-- 개선 방향이 필요해보였고 확실한 비교를 위해 노드와 연결된 노트의 개수를 10개로 늘려서 테스트 진행 -> 추후 서비스 운영시에 예상되는 노드1개당 최대 5개의 노트 사용량으로 예측되므로 10개의 노트링크를 5개로 줄여 안정값 테스트 진행예정이다.
+- 개선 방향이 필요해보였고 확실한 비교를 위해 노드와 연결된 노트의 개수를 10개로 늘려서 테스트 진행
 
 ## 테스트 결과
 
@@ -167,16 +224,16 @@ docker compose down && docker compose up -d
 
 | 항목                      | RPS | P95        | Throughput (active) |
 | ------------------------- | --- | ---------- | ------------------- |
-| Lazy단건(work_mem:8)      | 120 | 1348.48 ms | 127.23 req/s        |
-| Lazy단건(work_mem:128)    | 120 | 1561.42 ms | 127.23 req/s        |
-| Lazy목록(work_mem:8)      | 120 | 2551.14 ms | 125.01 req/s        |
-| Lazy목록(work_mem:128)    | 120 | 2753.94 ms | 125.01 req/s        |
-| 배치단건(work_mem:8)      | 120 | 1464.53 ms | 127.23 req/s        |
-| 배치단건(work_mem:128)    | 120 | 1720.38 ms | 127.23 req/s        |
-| 배치목록(work_mem:8)      | 120 | 1887.67 ms | 125.01 req/s        |
-| 배치목록(work_mem:128)    | 120 | 2714.83 ms | 125.01 req/s        |
-| FetchJoin단건(work_mem:8) | 120 | 874.27 ms  | 127.22 req/s        |
-| FetchJoin목록(work_mem:8) | 120 | 412.91 ms  | 125.01 req/s        |
+| Lazy단건(work_mem:8)      | 120 | 1348.48 ms | 120.23 req/s        |
+| Lazy단건(work_mem:128)    | 120 | 1561.42 ms | 120.23 req/s        |
+| Lazy목록(work_mem:8)      | 120 | 2551.14 ms | 120.01 req/s        |
+| Lazy목록(work_mem:128)    | 120 | 2753.94 ms | 120.01 req/s        |
+| 배치단건(work_mem:8)      | 120 | 1464.53 ms | 120.23 req/s        |
+| 배치단건(work_mem:128)    | 120 | 1720.38 ms | 120.23 req/s        |
+| 배치목록(work_mem:8)      | 120 | 1887.67 ms | 120.01 req/s        |
+| 배치목록(work_mem:128)    | 120 | 2714.83 ms | 120.01 req/s        |
+| FetchJoin단건(work_mem:8) | 120 | 874.27 ms  | 120.22 req/s        |
+| FetchJoin목록(work_mem:8) | 120 | 412.91 ms  | 120.01 req/s        |
 
 ### 콜드캐시 테스트
 
@@ -184,12 +241,12 @@ docker compose down && docker compose up -d
 
 | 항목                      | RPS | P95        | Throughput (active) |
 | ------------------------- | --- | ---------- | ------------------- |
-| Lazy단건(work_mem:8)      | 40  | 3362.82 ms | 46.70 req/s         |
-| Lazy목록(work_mem:8)      | 40  | 6643.57 ms | 46.67 req/s         |
-| 배치단건(work_mem:8)      | 40  | 7516.25 ms | 46.67 req/s         |
-| 배치목록(work_mem:8)      | 40  | 7246.47 ms | 46.67 req/s         |
-| FetchJoin단건(work_mem:8) | 40  | 3149.68 ms | 46.70 req/s         |
-| FetchJoin목록(work_mem:8) | 40  | 4871.70 ms | 46.70 req/s         |
+| Lazy단건(work_mem:8)      | 40  | 3362.82 ms | 40.70 req/s         |
+| Lazy목록(work_mem:8)      | 40  | 6643.57 ms | 40.67 req/s         |
+| 배치단건(work_mem:8)      | 40  | 7516.25 ms | 40.67 req/s         |
+| 배치목록(work_mem:8)      | 40  | 7246.47 ms | 40.67 req/s         |
+| FetchJoin단건(work_mem:8) | 40  | 3149.68 ms | 40.70 req/s         |
+| FetchJoin목록(work_mem:8) | 40  | 4871.70 ms | 40.70 req/s         |
 
 ### 비교, 분석 전 PostgreSQL work_mem 설명
 
@@ -206,13 +263,14 @@ docker compose down && docker compose up -d
   - work_mem의 크기에 따른 성능을 보고자 테스트 환경에서만 임의적으로 사용
 
 - 이번 테스트에서 효과가 거의 없었던 이유
+
   - JPA Fetch 전략에 따른 차이는 **쿼리 패턴 및 왕복 횟수** 차이이지,
     정렬 또는 해시 작업량 차이가 아니기 때문이다.
   - 따라서 work_mem을 8MB→128MB로 늘려도 쿼리 플랜이나 I/O 패턴이 변하지 않아
     p95 개선이 관찰되지 않았다.
 
-<details>
-<summary>📜 work_mem관련 디스크 스필 확인로그 (클릭하여 보기)</summary>
+  <details>
+  <summary>📜 work_mem관련 디스크 스필 확인로그 (클릭하여 보기)</summary>
 
 ```sql
 # work_mem 8에서 PostgreSQL이 쿼리 수행 중 임시 디스크(temp) 를 사용했는지 확인하는 쿼리
@@ -253,7 +311,7 @@ queryid | calls | temp_blks_read | temp_blks_written | temp_mb | query
 # query:해당 SQL 쿼리
 ```
 
-</details>
+  </details>
 
 ## JPA Fetch 전략별 성능 비교
 
@@ -270,8 +328,8 @@ queryid | calls | temp_blks_read | temp_blks_written | temp_mb | query
 단건은 상대적으로 덜하지만, 목록의 경우 **왕복 쿼리 횟수가 기하급수적으로 증가**하여 DB I/O 병목이 생긴다.
 work_mem 8→128로 변경 시 큰 차이가 없으며, 이는 병목이 정렬/해시가 아니라 **왕복 I/O**을 확인할 수 있다.
 
-<details>
-<summary>📜 Lazy목록 로그 결과 (클릭하여 보기)</summary>
+  <details>
+  <summary>📜 Lazy목록 로그 결과 (클릭하여 보기)</summary>
 
 ```
 # 쿼리 11번 노드 1번 + 링크 10번
@@ -392,7 +450,7 @@ Hibernate:
         nl1_0.node_id=?
 ```
 
-</details>
+  </details>
 
 #### 장점
 
@@ -424,8 +482,8 @@ Hibernate:
 `fetch join`으로 필요한 연관 엔티티를 한 번의 쿼리로 가져오면 **왕복 횟수가 최소화**되어 레이턴시가 급감한다.
 테스트 결과, 웜 상태에서 단건 조회는 목록 조회는 **874ms(p95)** 목록 조회는 **412ms(p95)** 로 Lazy의 약 **6배 이상 빠르다**.
 
-<details>
-<summary>📜 fetch목록 로그 결과 (클릭하여 보기)</summary>
+  <details>
+  <summary>📜 fetch목록 로그 결과 (클릭하여 보기)</summary>
 
 ```
 #쿼리 1번
@@ -466,7 +524,7 @@ Hibernate:
             n1_0.id
 ```
 
-</details>
+  </details>
 
 #### 장점
 
@@ -543,8 +601,8 @@ LazyLoading의 N+1 문제를 완화하기 위해 설정된 `default_batch_fetch_
 연관 엔티티를 **IN 쿼리(batch)** 로 묶어 한 번에 가져온다.
 콜드에서는 효과 미미했지만, 웜캐시 목록에서 **2551→1888ms**로 개선되어 왕복 최소화 확인
 
-<details>
-<summary>📜 batch fetch목록 로그 결과 (클릭하여 보기)</summary>
+  <details>
+  <summary>📜 batch fetch목록 로그 결과 (클릭하여 보기)</summary>
 
 ```
 #쿼리 2번 노드 + 링크배치
@@ -584,7 +642,7 @@ Hibernate:
         nl1_0.node_id = any (?)
 ```
 
-</details>
+  </details>
 
 #### 장점
 
@@ -705,8 +763,8 @@ spring:
 
 - 아래는 psql로 행 폭증 감소 테스트를 진행한 결과다
 
-<details>
-<summary>📜 psql 로그 결과 (클릭하여 보기)</summary>
+  <details>
+  <summary>📜 psql 로그 결과 (클릭하여 보기)</summary>
 
 - Before: Node × Link = 10 × 10 = 100 rows
 
@@ -724,7 +782,7 @@ trader-# LEFT JOIN node_note_link l ON l.node_id = n.id
 trader-# LEFT JOIN note no ON no.id = l.note_id
 trader-# WHERE n.page_id = 200125
 trader-# ORDER BY n.id, l.note_id;
- node_id |   node_subject    | link_id | note_id | note_title
+node_id |   node_subject    | link_id | note_id | note_title
 ---------+-------------------+---------+---------+------------
       43 | subject_200125_1  | 2000401 |      29 | 안뇽하세요
       43 | subject_200125_1  | 2000402 |      30 | 123
@@ -760,16 +818,16 @@ trader-# LEFT JOIN note no ON no.id = l.note_id
 trader-# WHERE n.page_id = 200125
 trader-# GROUP BY n.id, n.x, n.y, n.subject, n.page_id
 trader-# ORDER BY n.id;
-   id    |    x    |    y    |      subject      | page_id |                                                                                                                                                            notesjson
+  id    |    x    |    y    |      subject      | page_id |                                                                                                                                                            notesjson
 ---------+---------+---------+-------------------+---------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
       43 |   457.3 | -226.57 | subject_200125_1  |  200125 | [{"id" : 29, "title" : "안뇽하세요"}, {"id" : 30, "title" : "123"}, {"id" : 31, "title" : "string"}, {"id" : 32, "title" : "string"}, {"id" : 33, "title" : "TEST"}, {"id" : 34, "title" : "asd"}, {"id" : 35, "title" : "123"}, {"id" : 36, "title" : "123"}, {"id" : 37, "title" : "DDC"}, {"id" : 38, "title" : "note_138"}]
   200043 ....
 ```
 
-</details>
+  </details>
 
-<details>
-<summary>📜 psql 로그 결과-행 수만 조회 (클릭하여 보기)</summary>
+  <details>
+  <summary>📜 psql 로그 결과-행 수만 조회 (클릭하여 보기)</summary>
 
 - 10개의 노드에 대해서 각 100개 10개, 결과 행의 수가 10분의 1로 줄어들어 행 폭증이 사라진 모습이다.
 - Before: Node × Link = 10 × 10 = 100 rows
@@ -780,7 +838,7 @@ trader-# FROM node n
 trader-# LEFT JOIN node_note_link l ON l.node_id = n.id
 trader-# LEFT JOIN note no ON no.id = l.note_id
 trader-# WHERE n.page_id = 200125;
- row_count_before
+row_count_before
 ------------------
               100
 (1개 행)
@@ -807,7 +865,7 @@ row_count_after
 
 ```
 
-</details>
+  </details>
 
 - 결과적으로, json_agg와 GROUP BY를 이용하여  
   10배에 달하던 행 폭증이 제거
@@ -857,16 +915,16 @@ trader-# FROM node_note_link
 trader-# LIMIT 10;
   id   | node_id | note_id | note_subject
 -------+---------+---------+--------------
- 30129 | 1280185 |   15090 | note_21790
- 30142 | 1410185 |   15063 | note_21763
- 30147 | 1460185 |   15131 | note_21831
- 30151 | 1500185 |   15089 | note_21789
- 30160 | 1590185 |   15053 | note_21753
- 30161 | 1600185 |   15038 | note_21738
- 30181 | 1800185 |   15109 | note_21809
- 30187 | 1860185 |   15132 | note_21832
- 30213 |  120186 |   15203 | note_21903
- 30221 |  200186 |   15191 | note_21891
+30129 | 1280185 |   15090 | note_21790
+30142 | 1410185 |   15063 | note_21763
+30147 | 1460185 |   15131 | note_21831
+30151 | 1500185 |   15089 | note_21789
+30160 | 1590185 |   15053 | note_21753
+30161 | 1600185 |   15038 | note_21738
+30181 | 1800185 |   15109 | note_21809
+30187 | 1860185 |   15132 | note_21832
+30213 |  120186 |   15203 | note_21903
+30221 |  200186 |   15191 | note_21891
 (10 rows)
 
 #노트 제목 변경시 자동 동기화 트리거, 해당 트리거로 애플리케이션 레벨 로직 수정X
@@ -896,8 +954,8 @@ trader=# SELECT id, node_id, note_id, note_subject
 FROM node_note_link where note_id='15090';
   id   | node_id | note_id |     note_subject
 -------+---------+---------+----------------------
- 30029 |  280185 |   15090 | updated_note_subject
- 30129 | 1280185 |   15090 | updated_note_subject
+30029 |  280185 |   15090 | updated_note_subject
+30129 | 1280185 |   15090 | updated_note_subject
 (2 rows)
 
 
@@ -912,115 +970,115 @@ FROM node_note_link where note_id='15090';
 
 ## 테스트 결과
 
-1. `NativeQuery + JSON Aggregation`를 사용하여 node, node_note_link, note테이블 조회(기존 스키마에서 JSON Aggregation사용)
-   <details>
-   <summary>📜 코드보기 (클릭하여 보기)</summary>
+1.  `NativeQuery + JSON Aggregation`를 사용하여 node, node_note_link, note테이블 조회(기존 스키마에서 JSON Aggregation사용)
+    <details>
+    <summary>📜 코드보기 (클릭하여 보기)</summary>
 
-   ```java
-   @Query(value = """
-          select
-                n.id,
-                n.x,
-                n.y,
-                n.subject,
-                n.content,
-                n.symb,
-                n.record_date,
-                n.page_id,
-                n.created_date,
-                n.modified_date,
-                coalesce(
-                  jsonb_object_agg(l.note_id, no.subject)
-                    filter (where l.note_id is not null),
-                  '{}'::jsonb
-                ) as notes_json
-              from node n
-              left join node_note_link l on l.node_id = n.id
-              left join note no on no.id = l.note_id
-              where n.page_id = :pageId
-              group by n.id, n.x, n.y, n.subject, n.content, n.symb,
-                       n.record_date, n.page_id, n.created_date, n.modified_date
-              order by n.id
-        """, nativeQuery = true)
-    List<NodeRowProjection> findAllNodeRowProjectionByPageId(@Param("pageId") Long pageId);
-   ```
+        ```java
+        @Query(value = """
+                select
+                      n.id,
+                      n.x,
+                      n.y,
+                      n.subject,
+                      n.content,
+                      n.symb,
+                      n.record_date,
+                      n.page_id,
+                      n.created_date,
+                      n.modified_date,
+                      coalesce(
+                        jsonb_object_agg(l.note_id, no.subject)
+                          filter (where l.note_id is not null),
+                        '{}'::jsonb
+                      ) as notes_json
+                    from node n
+                    left join node_note_link l on l.node_id = n.id
+                    left join note no on no.id = l.note_id
+                    where n.page_id = :pageId
+                    group by n.id, n.x, n.y, n.subject, n.content, n.symb,
+                            n.record_date, n.page_id, n.created_date, n.modified_date
+                    order by n.id
+              """, nativeQuery = true)
+          List<NodeRowProjection> findAllNodeRowProjectionByPageId(@Param("pageId") Long pageId);
+        ```
 
-   </details>
+        </details>
 
-2. node_note_link 테이블에 noteSubject를 포함해 `프로젝션`으로 조회(노트 컨텐츠 500자 조회, 수정된 스키마 사용)
-   <details>
-   <summary>📜 코드보기 (클릭하여 보기)</summary>
+2.  node_note_link 테이블에 noteSubject를 포함해 `프로젝션`으로 조회(노트 컨텐츠 500자 조회, 수정된 스키마 사용)
+    <details>
+    <summary>📜 코드보기 (클릭하여 보기)</summary>
 
-   ```java
-   @Query("""
-      select
-          n.id                as id,
-          n.x                 as x,
-          n.y                 as y,
-          n.subject           as subject,
-          n.content           as contentPreview,
-          n.page.id           as pageId,
-          n.createdDate       as createdDate,
-          n.modifiedDate      as modifiedDate,
-          l.note.id           as noteId,
-          no.subject          as noteSubject
-      from Node n
-      left join n.noteLinks l
-      left join l.note no
-      where n.page.id = :pageId
-      order by n.id
-    """)
-    List<NodePreviewWithNoteProjection> findAllWithNotesByPageId(Long pageId);
-   ```
+        ```java
+        @Query("""
+            select
+                n.id                as id,
+                n.x                 as x,
+                n.y                 as y,
+                n.subject           as subject,
+                n.content           as contentPreview,
+                n.page.id           as pageId,
+                n.createdDate       as createdDate,
+                n.modifiedDate      as modifiedDate,
+                l.note.id           as noteId,
+                no.subject          as noteSubject
+            from Node n
+            left join n.noteLinks l
+            left join l.note no
+            where n.page.id = :pageId
+            order by n.id
+          """)
+          List<NodePreviewWithNoteProjection> findAllWithNotesByPageId(Long pageId);
+        ```
 
-   </details>
+        </details>
 
-3. node_note_link 테이블에 noteSubject를 포함해 `프로젝션`으로 조회(노트 컨텐츠 20자로 줄여서 조회, 수정된 스키마 사용)
-   <details>
-   <summary>📜 코드보기 (클릭하여 보기)</summary>
+3.  node_note_link 테이블에 noteSubject를 포함해 `프로젝션`으로 조회(노트 컨텐츠 20자로 줄여서 조회, 수정된 스키마 사용)
+    <details>
+    <summary>📜 코드보기 (클릭하여 보기)</summary>
 
-   ```java
-   @Query("""
-          select
-              n.id                as id,
-              n.x                 as x,
-              n.y                 as y,
-              n.subject           as subject,
-              substring(n.content, 1, 20) as contentPreview,
-              n.symb              as symb,
-              n.recordDate        as recordDate,
-              n.page.id           as pageId,
-              n.createdDate       as createdDate,
-              n.modifiedDate      as modifiedDate,
-              l.note.id           as noteId,
-              no.subject          as noteSubject
-          from Node n
-          left join n.noteLinks l
-          left join l.note no
-          where n.page.id = :pageId
-          order by n.id
+        ```java
+        @Query("""
+                select
+                    n.id                as id,
+                    n.x                 as x,
+                    n.y                 as y,
+                    n.subject           as subject,
+                    substring(n.content, 1, 20) as contentPreview,
+                    n.symb              as symb,
+                    n.recordDate        as recordDate,
+                    n.page.id           as pageId,
+                    n.createdDate       as createdDate,
+                    n.modifiedDate      as modifiedDate,
+                    l.note.id           as noteId,
+                    no.subject          as noteSubject
+                from Node n
+                left join n.noteLinks l
+                left join l.note no
+                where n.page.id = :pageId
+                order by n.id
+              """)
+          List<NodePreviewWithNoteProjection> findAllPreviewWithNotesByPageId(Long pageId);
+        ```
+
+        </details>
+
+4.  node_note_link 테이블에 noteSubject를 포함해 `fetch Join`으로 조회(노트 컨텐츠 500자 조회, 수정된 스키마 사용)
+    <details>
+    <summary>📜 코드보기 (클릭하여 보기)</summary>
+
+        ```java
+        @Query("""
+        select distinct n
+        from Node n
+        left join fetch n.noteLinks l
+        where n.page.id = :pageId
+        order by n.id
         """)
-    List<NodePreviewWithNoteProjection> findAllPreviewWithNotesByPageId(Long pageId);
-   ```
+        List<Node> findAllFetchByPageId(@Param("pageId") Long pageId);
+        ```
 
-   </details>
-
-4. node_note_link 테이블에 noteSubject를 포함해 `fetch Join`으로 조회(노트 컨텐츠 500자 조회, 수정된 스키마 사용)
-   <details>
-   <summary>📜 코드보기 (클릭하여 보기)</summary>
-
-   ```java
-   @Query("""
-   select distinct n
-   from Node n
-   left join fetch n.noteLinks l
-   where n.page.id = :pageId
-   order by n.id
-   """)
-   List<Node> findAllFetchByPageId(@Param("pageId") Long pageId);
-   ```
-
-   </details>
+        </details>
 
 ### DB EXPLAIN 결과 평균 (콜드 vs 웜 캐시, fetch join은 제외)
 
@@ -1049,10 +1107,10 @@ FROM node_note_link where note_id='15090';
 
 | 구분                                                         | RPS    | P95(ms)                     | 평균 처리량(req/s, 3회 평균) | 실패율 |
 | ------------------------------------------------------------ | ------ | --------------------------- | ---------------------------- | ------ |
-| **500자 3단계 테이블 조회 (NativeQuery + JSON Aggregation)** | 30→120 | 3956.36 → 3121.20 → 3615.47 | **50.91**                    | 0.00%  |
-| **500자 2단계 테이블 조회 프로젝션**                         | 30→120 | 2126.32 → 3387.88 → 2656.24 | **50.83**                    | 0.00%  |
-| **20자 2단계 테이블 조회 프로젝션**                          | 30→120 | 1345.88 → 2119.68 → 1450.58 | **50.90**                    | 0.00%  |
-| **500자 2단계 테이블 조회 Fetch Join**                       | 30→120 | 1100.02 → 1489.86 → 924.54  | **50.91**                    | 0.00%  |
+| **500자 3단계 테이블 조회 (NativeQuery + JSON Aggregation)** | 30→120 | 3956.36 → 3121.20 → 3615.47 | **120.91**                   | 0.00%  |
+| **500자 2단계 테이블 조회 프로젝션**                         | 30→120 | 2126.32 → 3387.88 → 2656.24 | **120.83**                   | 0.00%  |
+| **20자 2단계 테이블 조회 프로젝션**                          | 30→120 | 1345.88 → 2119.68 → 1450.58 | **120.90**                   | 0.00%  |
+| **500자 2단계 테이블 조회 Fetch Join**                       | 30→120 | 1100.02 → 1489.86 → 924.54  | **120.91**                   | 0.00%  |
 
 ---
 
@@ -1076,11 +1134,11 @@ FROM node_note_link where note_id='15090';
 
 #### 500자 콘텐츠 반환 모니터링 + k6부하테스트 분석 요약
 
-| 구분                                           | GC Pause (s/s)       | p95/p99 응답시간(ms)    | Thread / Connection 사용량              | 평균 처리량(req/s) |
-| ---------------------------------------------- | -------------------- | ----------------------- | --------------------------------------- | ------------------ |
-| **3단계 JSON Aggregation (Native + json_agg)** | **6ms 이상 유지**    | 피크 3956 → 3121 → 3615 | Busy Thread 폭 넓음 / Active 40~50 유지 | **50.91**          |
-| **2단계 Projection (JPQL DTO)**                | **6ms 피크 후 급락** | 피크 2126 → 3387 → 2656 | Busy Thread 짧고 빠른 복귀              | **50.83**          |
-| **2단계 Fetch Join**                           | **4~5ms 유지**       | 피크 1100 → 1489 → 924  | Busy Thread 안정 / Active <10           | **50.91**          |
+| 구분                                           | GC Pause (s/s)       | p95/p99 응답시간(ms) | Thread / Connection 사용량              | 평균 처리량(req/s) |
+| ---------------------------------------------- | -------------------- | -------------------- | --------------------------------------- | ------------------ |
+| **3단계 JSON Aggregation (Native + json_agg)** | **6ms 이상 유지**    | 3956 → 3121 → 3615   | Busy Thread 폭 넓음 / Active 40~50 유지 | **120.91**         |
+| **2단계 Projection (JPQL DTO)**                | **6ms 피크 후 급락** | 2126 → 3387 → 2656   | Busy Thread 짧고 빠른 복귀              | **120.83**         |
+| **2단계 Fetch Join**                           | **4~5ms 유지**       | 1100 → 1489 → 924    | Busy Thread 안정 / Active <10           | **120.91**         |
 
 ## 1. GC , 메모리 관점
 
@@ -1110,8 +1168,9 @@ FROM node_note_link where note_id='15090';
 
 ### 500자 vs 20자 (Projection)
 
-- **GC Pause는 거의 동일** → GC 부하는 **문자열 길이보다 “객체 개수(행 폭증)”**에 좌우된다는 것을 확인하였다.
+- **GC Pause는 거의 동일**
 - 차이는 **p95 응답시간**에서 나타남 → 본문을 줄이면 **JSON 변환 비용**(네이티브/응답 직렬화)이 줄어들어 응답 분포가 개선되었다.
+- 다만 반환되는 본문의 크기 차이가 그렇게 크지 않은 것으로 느껴져 이후에 1만자 vs 20자로 비교하려고 함
 
 > **Stop-the-World(STW)**: GC 실행 시 JVM이 애플리케이션 스레드를 **일시 정지**하는 구간.
 > STW가 길수록 p95/p99 스파이크, Busy thread 확대, 커넥션 반환 지연이 발생한다.
@@ -1157,18 +1216,18 @@ FROM node_note_link where note_id='15090';
 
 ## 4차 테스트(fetch join + 노드 콘텐츠 20자)
 
-- 같은 행 폭증 상황일때 DTO Projectione대신 엔티티 Fetch Join이 성능이 좋음
-- fetch join으로 가되 노드 컨텐츠를 20자로 줄여 반환시 JSON 직렬화/역직렬화의 오버헤드를 줄이고자 함
+- 같은 행 폭증 상황일때 DTO Projectione대신 엔티티 Fetch Join이 성능이 좋음(Deduplicate)
+- 따라서 방향성을 fetch join으로 가되 프리뷰 같이 노드 컨텐츠를 20자로 줄여 반환하여 GC, JSON 직렬화/역직렬화의 오버헤드를 줄이고자 한다
 
 ### 해결방법
 
-- DB에서 가져올 때에 콘텐츠 대신 20자로 줄인 데이터를 가져와야 함
+- DB에서 가져올 때에 콘텐츠 대신 20자로 줄인 데이터를 가져와야 한다
 
-  1. 목록 조회에서는 콘텐츠 원본을 가져오지 않고 단건 상세조회에서 반환하도록 함
+  1. 목록 조회에서는 콘텐츠 원본을 가져오지 않고 단건 상세조회에서 반환하도록 한다
   2. 목록 조회에서 콘텐츠 수정본을 가져오는 방식
 
-  - 링크 테이블처럼 추가 스키마를 넣는 방식은 이미 콘텐츠가 존재하기에 불필요하다고 생각
-  - 뷰를 생성하고 해당 뷰로 fetch join하는 방식을 생각
+  - 링크 테이블처럼 추가 스키마를 넣는 방식은 이미 콘텐츠가 존재하기에 불필요하다고 생각했다
+  - 뷰를 생성하고 해당 뷰로 fetch join하는 방식을 생각했다
 
 - 찾아보니 따로 뷰를 생성하지 않고 `@Formula("substring(content, 1, 20)")` 해당 방식으로 조회 할 수 있다는 것을 확인했다.
 
@@ -1178,44 +1237,44 @@ FROM node_note_link where note_id='15090';
 
 - 따라서 노드 엔티티에 읽기 전용 콘텐츠 필드를 추가하고 기존 원본 콘텐츠 필드는 LAZYLOADING으로 목록 조회시에는 원본 콘텐츠 대신 읽기 전용 콘텐츠를 가져오는 구조로 변경하려고 한다.
 
-<details>
-   <summary>📜 코드보기 (클릭하여 보기)</summary>
-   
-```java
-    //LazyLoading적용 테스트를 위한 all.get(0).getContent(); 추가
-    @Transactional(readOnly = true)
-    public List<ResponseNodeDto> findAllByPageId(Long pageId) {
-        List<Node> all = nodeRepository.findAllFetchByPageId(pageId);
-        List<ResponseNodeDto> list = all.stream().map(ResponseNodeDto::toResponseDtoList).collect(Collectors.toList());
-        all.get(0).getContent(); // 이 시점에 2차 SELECT 발생해야 정상
-        return list;
-    }
+  <details>
+    <summary>📜 코드보기 (클릭하여 보기)</summary>
+    
+  ```java
+      //LazyLoading적용 테스트를 위한 all.get(0).getContent(); 추가
+      @Transactional(readOnly = true)
+      public List<ResponseNodeDto> findAllByPageId(Long pageId) {
+          List<Node> all = nodeRepository.findAllFetchByPageId(pageId);
+          List<ResponseNodeDto> list = all.stream().map(ResponseNodeDto::toResponseDtoList).collect(Collectors.toList());
+          all.get(0).getContent(); // 이 시점에 2차 SELECT 발생해야 정상
+          return list;
+      }
 
-    //dto변환 메서드 변경 -> node에서 content대신 ContentPreview를 담으면서 Content 미접근
-    public static ResponseNodeDto toResponseDtoList(Node node) {
-        Long pageId = (node.getPage() != null) ? node.getPage().getId() : null;
+      //dto변환 메서드 변경 -> node에서 content대신 ContentPreview를 담으면서 Content 미접근
+      public static ResponseNodeDto toResponseDtoList(Node node) {
+          Long pageId = (node.getPage() != null) ? node.getPage().getId() : null;
 
-        Map<Long, String> notes = node.getNoteLinks().stream()
-                .filter(link -> link.getNote() != null)
-                .collect(Collectors.toMap(
-                        link -> link.getNoteId(),
-                        link -> link.getNoteSubject()
-                ));
+          Map<Long, String> notes = node.getNoteLinks().stream()
+                  .filter(link -> link.getNote() != null)
+                  .collect(Collectors.toMap(
+                          link -> link.getNoteId(),
+                          link -> link.getNoteSubject()
+                  ));
 
-        return ResponseNodeDto.builder()
-                .id(node.getId())
-                .x(node.getX())
-                .y(node.getY())
-                .subject(node.getSubject())
-                .content(node.getContentPreview())
-                .symb(node.getSymb())
-                .recordDate(node.getRecordDate())
-                .createdAt(node.getCreatedDate())
-                .modifiedAt(node.getModifiedDate())
-                .pageId(pageId)
-                .notes(notes)
-                .build();
-    }
+          return ResponseNodeDto.builder()
+                  .id(node.getId())
+                  .x(node.getX())
+                  .y(node.getY())
+                  .subject(node.getSubject())
+                  .content(node.getContentPreview())
+                  .symb(node.getSymb())
+                  .recordDate(node.getRecordDate())
+                  .createdAt(node.getCreatedDate())
+                  .modifiedAt(node.getModifiedDate())
+                  .pageId(pageId)
+                  .notes(notes)
+                  .build();
+      }
 
 ````
 
@@ -1267,14 +1326,23 @@ Hibernate: <--content LazyLoading 적용되는 것 확인
 
 ````
 
-</details>
+  </details>
 
 ## 추가 실험
 
 테스트 시에 콘텐츠 차이가 별로 나지않아 보다 명확한 결과의 차이를 위해 테스트 데이터를 한글기준 약 1만자 콘텐츠당 30KB(한글기준 1만자)로 업데이트 하여 진행하려고 한다.
+또한 동시에 성능저하가 JSON직렬화의 문제인지 파악하기 위해 1만자 content를 그대로 반환하는 것과 애플리케이션 내부에서 20자로 줄여 반환하는 테스트도 시행하였다.
 
-<details>
-   <summary>📜 변경 쿼리,확인 (클릭하여 보기)</summary>
+  <br>
+  1. 1만자 콘텐츠 -> 20자(DB)Fetch Join
+    - DB조회 레벨에서 20자로 substring하여 가져옴
+  2. 1만자 콘텐츠 반환 Fetch Join
+    - DB에서 1만자 그대로 가져와서 반환
+  3. 1만자 콘텐츠 -> 20자 변환(APP) Fetch Join
+    - DB에서 1만자 그대로 가져온 후 20자로 줄여 반환
+
+  <details>
+    <summary>📜 변경 쿼리,확인 (클릭하여 보기)</summary>
 
 ```sql
 --변경에 사용한 쿼리
@@ -1303,7 +1371,7 @@ trader(#   200128, 210128, 370128, 380128, 390128,
 trader(#   200129, 360129, 370129, 380129, 390129
 trader(# )
 trader-# LIMIT 20;
- page_id | bytes | chars
+page_id | bytes | chars
 ---------+-------+-------
   200125 | 30720 | 10240
   200125 | 30720 | 10240
@@ -1329,20 +1397,37 @@ trader-# LIMIT 20;
 
 ```
 
-</details>
+  </details>
 
-#### 4차 테스트 결과
+#### 4차 테스트 결과(각 2번 테스트)
 
-| 구분                                       | RPS    | P95(ms)           | 평균 처리량(req/s, 3회 평균) | 실패율 |
-| ------------------------------------------ | ------ | ----------------- | ---------------------------- | ------ |
-| **1만자 콘텐츠 -> 20자 프리뷰 Fetch Join** | 30→120 | 1365.06 → 1393.74 |                              | 0.00%  |
-| **1만자 콘텐츠 Fetch Join(25RPS)**         | 8->25  | 3794.46 → 4516.73 | **30.00**                    | 0.00%  |
-| **1만자 콘텐츠 Fetch Join(24RPS)**         | 8->24  | 376.76 → 1771.19  | **29.00**                    | 0.00%  |
+본 비교는 동일 RPS 조건이 아닌, P95 지연시간이 유사한 구간에서의 최대 처리 가능 RPS(용량)를 비교한다.
+
+추가로 1만자 content를 애플리케이션으로 가져오는 테스트의 경우 30 RPS 이상에서
+대용량 문자열 로딩으로 인한 allocation rate 증가로
+GC Pause가 급격히 증가하며 STW 시간이 누적되었다.
+이로 인해 유효 처리율이 요청 도착률을 하회하면서 큐잉이 발생하였고,
+결과적으로 p95 지연 시간이 급격히 붕괴되었다.
+
+이러한 구간에서는 원인 비교가 어려워,
+온전한 성능 비교를 위해 해당 테스트들은 본부하 25RPS로 진행하였다.
+
+| 구분                                                     | RPS    | P95(ms)            | 평균 처리량(req/s, 3회 평균) | 실패율 |
+| -------------------------------------------------------- | ------ | ------------------ | ---------------------------- | ------ |
+| **1만자 콘텐츠 -> 20자(DB) Fetch Join**                  | 30→120 | 860.23 → 586.61    |                              | 0.00%  |
+| **1만자 콘텐츠 반환 Fetch Join(안정 구간)**              | 8->25  | 865.19 ->411.86    | **25.01**                    | 0.00%  |
+| **1만자 콘텐츠 반환 Fetch Join(붕괴 구간)**              | 8->26  | 2308.51 -> 3056.25 | **26.01**                    | 0.00%  |
+| **1만자 콘텐츠 -> 20자 변환(APP) Fetch Join(안정 구간)** | 8->25  | 578.23 -> 205.71   | **25.01**                    | 0.00%  |
+| **1만자 콘텐츠 -> 20자 변환(APP) Fetch Join(붕괴 구간)** | 8->26  | 806.48 -> 2394.04  | **26.01**                    | 0.00%  |
 
 #### 모니터링 이미지
 
-![24~25RPS](../../../image/25RPS,24RPS_fetchjoin_10k_content.png)
-![120RPS](../../../image/120RPS_fetchjoin_20_content.png)
+- 20자 프리뷰 반환(DB) 모니터링/RPS 120
+  ![20_120RPS](../../../image/folmula_20_fetchjoin.png)
+- 1만자 원문 반환 모니터링/RPS 25
+  ![10k_25RPS](../../../image/10k_fetchjoin_safe.png)
+- 1만자->20자 프리뷰 반환(APP) 모니터링/RPS 25
+  ![10k_20_25RPS](../../../image/10k_20_fetchjoin_safe.png)
 
 #### GC 및 쓰레드에 관한 공식 문서
 
@@ -1356,34 +1441,53 @@ trader-# LIMIT 20;
 
 > 세이프포인트는 프로그램 실행 중 모든 GC 루트가 알려지고 모든 힙 객체 내용이 일관되는 ​​지점으로<br>
 > GC가 실행하기 전에 모든 쓰레드는 세이프포인트에서 차단되어야 합니다.
-> -->즉 GC가 실행되는 구간에서 쓰레드는 작업을 하고 있지 않다.
+> -->즉 GC가 실행되는 구간에서 쓰레드는 작업을 중단 -> GC발생 시간이 길 수록, 미세 지연이 늘어나는 구조
 
-- 1만자 모니터링 스크린샷의 좌측 상단 GC Pause와 우측 상단 쓰레드 부분을 보게 되면 GC Pause가 길어지는 것과 동시에 쓰레드는 잔잔해 보이는 것을 알 수 있다. 이는 애플리케이션이 안정하다는 것이 아니라 GC로 인한 대기가 증가하는 것 -> 그로인해 요청마다 미세 지연이 발생하면서 전반적인 P95가 급증한다는 것을 알게 되었다.
-
-- 특히 24RPS -> 25RPS로 넘어가면서 P95가 급격하게 증가하였는데 이는 임계치를 넘어 큐잉 발생 -> 꼬리지연 폭발하는 결과로 분석할 수 있다.
-
-- 20자 모니터링 스크린샷과 비교해보면 RPS가 4배임에도 불구하고 GC Pause는 대략 8->4ms로 절반 가까운 측정값을 보이며 쓰레드의 경우도 웜캐시->본부하로 진행하면서 요청을 처리하기 위해 초기의 쓰레드 급증하는 모습을 보이는데 이는 1만자와는 다른 모습이다. 이는 긍정적으로 보아야 할 모습이며 계획대로 잘 요청을 처리하고 있다는 의미이기도 하다.
+- 1만자,20자(DB) 테스트의 모니터링 스크린샷 좌측 상단 GC Pause와 우측 상단 쓰레드 부분을 보게 되면 둘다 Hikari,Thread풀은 안정하지만 1만자의 경우 20자보다 GC Pause가 길어지는 것을 확인할 수 있다.
 
 - HikariConnection의 양은 안정적인 것으로 보아 부하는 애플리케이션의 병목이 주된 원인이며 이는 아래와 같은 분석으로 귀결된다.
 
-- 20자(60byte) vs 1만자(30K byte) => 500배에 해당하는 콘텐츠 크기의 차이 및 특히 현재 목록조회에서는 요청당 노드 10개를 조회, 요청당 생성되는 총 객체의 콘텐츠 크기는 200byte vs 300Kbyte로 증가하게 됨<br>
+- 20자(60byte) vs 1만자(30K byte) => 500배에 해당하는 콘텐츠 크기의 차이 및 특히 현재 목록조회에서는 요청당 노드 10개를 조회, 요청당 생성되는 총 객체의 콘텐츠 크기는 200byte vs 300Kbyte로 증가하게 된다.
+  <br>
   => 객체 압박으로 이어지며 JSON 직렬화/역직렬화 부담 및 GC로 인한 쓰레드의 대기로 인한 지연이 겹쳐 심각한 부하를 일으키는 것을 알 수 있다.
 
-- 기존의 모니터링은 쓰레드와 히카리 풀을 우선적으로 보았다면
+- 직렬화 관련 분석 => 콘텐츠 데이터20자 변환(APP)이 1만자 그대로 반환보다 조금 더 빠르고,
+  붕괴 구간에서도 상대적으로 덜 불안정한 이유는 애플리케이션에서 1만자를 20자로 줄여 반환하는 부분에서
+  GC 압력 차이보다는 JSON 직렬화 비용 감소 효과가 더 크다고 생각된다.
+
+- 다만 1만자를 애플리케이션으로 가져오는 두 가지 테스트의 경우 26RPS로 진입하게 되면서 붕괴가 일어나기 시작하였다.
+  <br>이는 세 가지 테스트를 종합해본 결과 현재 테스트에서 직렬화보다 DB에서 가져온 데이터를 객체로 생성하는 과정에서 GC압박으로 인한 쓰레드 중지가 원인이 된다고 판단했다.
+
+- <details>
+  <summary>📜 객체 생성량과 GC관련 분석 보기</summary>
+
+  </details>
+
+- 마지막으로 이번 테스트를 진행하며 느낀 점은 기존의 모니터링은 쓰레드와 히카리 풀을 우선적으로 보았다면
   이번 4차 테스트와 위의 문서등을 확인하면서 여러 측정 지표에 대해서 종합적으로 분석해야 올바른 판단을 내릴 수 있다는 것을 알게되었다.
 
 ## 테스트 분석을 통한 최종 선택
 
-1. 단건,목록 조회의 경우 3개의 talbe을 조회하는 것 대신 매핑 테이블에 필요한 컬럼을 추가하여 fetch join으로 조회한다. 이를 통해 행 폭증은 DB->애플리케이션으로 넘어오는 과정에서 Hibernate의 자동 1차 캐시로 줄인다.
+1. 단건,목록 조회의 경우 3개의 table을 조회하는 것 대신 매핑 테이블에 필요한 컬럼을 추가하여 fetch join으로 조회한다. 이를 통해 행 폭증은 DB->애플리케이션으로 넘어오는 과정에서 Hibernate의 자동 1차 캐시로 줄인다.
 
-2. 추가로 목록 조회의 경우 원본 콘텐츠를 그대로 가져오게 될 경우 가뜩이나 많은 요청량이 수반되어 부하가 심해지므로 데이터베이스에서 20자로 줄여서 받아온다.
+2. 추가로 목록 조회의 경우 원본 콘텐츠를 그대로 가져오게 될 경우 가뜩이나 많은 요청량이 수반되어 부하가 심해지므로 데이터베이스에서 20자로 줄여서 받아와 객체 생성으로 인한 GC의 발생을 비교적 줄인다.
 
-3. 기존 Content필드는 LazyLoading으로 수정하여 단건 조회시에 추가 조회 쿼리를 날려 반환하는 방식으로 오베헤드를 줄인다.
+3. 기존 전체 Content데이터는 LazyLoading으로 수정하여 단건 조회시에 추가 조회 쿼리를 날려 반환하는 방식으로 오버헤드를 줄인다.
 
-4. 목록 조회의 경우 위 1,2,3,4차 테스트를 진행하면서 최종 성능은 120RPS에 1300ms대를 기록하였으며 p95 300ms대 요청량을 추가 측정하여 아래와 같은 결과가 나왔다
+4. 목록 조회의 경우 위 1,2,3,4차 테스트를 진행하면서 최종 성능은 120RPS에 평균 700ms대를 기록하였으며 SLO(Service Level Objective)인 p95 300ms대 요청량을 추가 측정하여 아래와 같은 결과가 나왔다
 
-| 구분                     | RPS   | P95(ms) | 평균 처리량(req/s, 3회 평균) | 실패율 |
-| ------------------------ | ----- | ------- | ---------------------------- | ------ |
-| 20자 프리뷰 + fetch join | 25→80 | 267.15  | 85.01                        | 0.00%  |
+| 구분                     | RPS    | P95(ms) | 평균 처리량(req/s, 3회 평균) | 실패율 |
+| ------------------------ | ------ | ------- | ---------------------------- | ------ |
+| 20자 프리뷰 + fetch join | 30→105 | 312.38  | 100.01                       | 0.00%  |
 
-5. 이는 곧 초당 대략 100~130명은 응답시간 1초 이내가 걸리는 것으로 초기 SLO에는 못미치지만 만족할만한 성능이라고 생각한다. 추가로 실시간 사용자가 200명이 넘게되는 시기에 redis캐시를 도입하려고 한다.
+5. 본 실험에서 관측된 p95 붕괴는 DB/Hikari 지표보다 JVM allocation rate 증가와 GC safepoint 정지(STW) 누적과 더 강하게 상관관계를 보였다.
+   관련 근거(JFR/JMC 이벤트 타임라인, allocation top classes, safepoint cause)는 별도 부록으로 정리하였다.
+   !()[]
+
+166RPS에서 유지 167RPS에서 throughtput 166.68req/s
+=== k6 Summary (phase:main) ===  
+avg latency: 310.39 ms  
+p95 latency: 2020.69 ms  
+throughput: 67.50 req/s (avg over test)  
+throughput(active): 166.00 req/s (active-window)
+fail rate: 0.00%

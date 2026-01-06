@@ -13,7 +13,7 @@
 | 네트워크             | 내부 브릿지 (Docker Compose 환경)                                                     |
 | 데이터 구성          | 약 2,600만 행 규모의 OHLCV 시계열 데이터. PostgreSQL 17 + TimescaleDB로 확장하여 운용 |
 | GC 지표 정의         | sum(rate(jvm_gc_pause_seconds_sum[5m]))                                               |
-| JVM                  | OpenJDK Temurin 17 (64bit)                                                            |
+| JVM                  | OpenJDK Temurin 17 (64bit,JRE-only)                                                   |
 | GC 종류              | G1GC (Garbage-First)                                                                  |
 | 힙 초기/최대 크기    | Xms=248MB / Xmx=3942MB (컨테이너 자동 설정)                                           |
 | Heap Region Size     | 2MB                                                                                   |

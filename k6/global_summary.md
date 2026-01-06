@@ -1,6 +1,8 @@
 # API Performance Overview (k6 Benchmark Summary)
 
-임시 md
+엔드포인트
+목표 성능 : 600RPS, P95 < 300ms, ErrorRate=0
+<br>
 
 | Controller          | Endpoint             | Avg (ms) | P95 (ms) | Fail % | Drop % | Status |
 | ------------------- | -------------------- | -------- | -------- | ------ | ------ | ------ |
