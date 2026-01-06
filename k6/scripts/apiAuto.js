@@ -155,7 +155,7 @@ export function setup() {
       loginId: __ENV.USER || "login_34",
       password: __ENV.PASS || "pw_e369853df766fa44e1ed0ff613f563bd",
     }),
-    { headers: { "Content-Type": "application/json" } }
+    { headers: { "Content-Type": "application/json" }, tags: { phase: "auth" } }
   );
   if (res.status !== 200)
     throw new Error(`로그인 실패: ${res.status} ${res.body}`);
@@ -185,7 +185,7 @@ function loginPerVUFromCSV() {
   const res = http.post(
     `${BASE}/api/login/signin`,
     JSON.stringify({ loginId, password }),
-    { headers: { "Content-Type": "application/json" } }
+    { headers: { "Content-Type": "application/json" }, tags: { phase: "auth" } }
   );
   if (res.status !== 200)
     throw new Error(
@@ -544,6 +544,17 @@ for (const ep of all) {
   mergeThresholds(thresholds, scenarioName, ep._overrides.thresholds);
 }
 
+if (DEBUG) {
+  console.log("=== Scenario effective config ===");
+  for (const [name, sc] of Object.entries(scenarios)) {
+    if (sc.tags?.phase === "main") {
+      console.log(
+        `${name} | executor=${sc.executor} | rate=${sc.rate} | timeUnit=${sc.timeUnit} | duration=${sc.duration} | pre=${sc.preAllocatedVUs} | max=${sc.maxVUs}`
+      );
+    }
+  }
+}
+
 // ✅ 커스텀 Trend의 퍼센타일을 summary에 확실히 포함
 export const options = {
   scenarios,
@@ -622,17 +633,17 @@ export function dispatch(data) {
     chosen = candidates[pickIdx];
   }
 
-  if (DEBUG) {
-    const poolType = userMap[userId]
-      ? `user:${userId}`
-      : userMap.const
-      ? "const(shared)"
-      : "fallback";
-    console.log(
-      `[PARAM] ${mapKey} VU=${__VU} ${poolType} ` +
-        `pick=${pickIdx}/${candidates.length} → ${JSON.stringify(chosen)}`
-    );
-  }
+  // if (DEBUG) {
+  //   const poolType = userMap[userId]
+  //     ? `user:${userId}`
+  //     : userMap.const
+  //     ? "const(shared)"
+  //     : "fallback";
+  //   console.log(
+  //     `[PARAM] ${mapKey} VU=${__VU} ${poolType} ` +
+  //       `pick=${pickIdx}/${candidates.length} → ${JSON.stringify(chosen)}`
+  //   );
+  // }
 
   const renderedPath = needsTpl
     ? renderTemplate(ep.rawPath, chosen)
@@ -644,6 +655,16 @@ export function dispatch(data) {
     qs ? "?" + qs : ""
   }`;
 
+  // DEBUG 모드일 때 현재 요청 URL 출력
+  if (DEBUG) {
+    const v = __ENV.VARIANT || "";
+    const sc = __ENV.SCENARIO || "";
+    // console.log(
+    //   `[REQ] ${ep.method} ${finalUrl}  (scenario=${sc}${
+    //     v ? `, variant=${v}` : ""
+    //   })`
+    // );
+  }
   // ── Stage index 계산(요청 태그에 반영)
   const testStartTs = data?.testStartTs || 0;
   const startOffset = Number(__ENV.START_OFFSET_S || 0);
@@ -686,6 +707,7 @@ export function dispatch(data) {
       phase: phaseTag, // ✅ 항상 동일한 phase
     },
     responseType: DROP_BODIES ? "none" : "text",
+    redirects: 0,
   };
 
   let res;
@@ -722,7 +744,7 @@ export function dispatch(data) {
     console.error(
       `[FAIL] ${params.tags.endpoint}${
         variantStr ? ` [${variantStr}]` : ""
-      } ${meta}\n→ ${e.msg}`
+      } ${meta}\n→ ${e.msg}\nBODY=${res.body}`
     );
   }
 }
@@ -869,9 +891,17 @@ export function handleSummary(data) {
     data.metrics?.["http_reqs{phase:main}"]?.values?.count ??
     0;
 
+  console.log(`[DEBUG] mainCount=${mainCount}`);
+  console.log(
+    `[DEBUG] expectedCount(rate*duration)=${
+      (Number(__ENV.RATE || 0) || 40) * 30
+    }`
+  );
+  const runMs = data.state?.testRunDurationMs;
+  console.log(`[DEBUG] testRunDurationMs=${runMs}`);
   const mainRps_active =
     activeMainSeconds > 0 ? mainCount / activeMainSeconds : null;
-
+  console.log(`[DEBUG] mainRps_active=${mainRps_active}`);
   // http_req_failed (rate)
   const failSeries = pickMetricByTags(
     "http_req_failed",
