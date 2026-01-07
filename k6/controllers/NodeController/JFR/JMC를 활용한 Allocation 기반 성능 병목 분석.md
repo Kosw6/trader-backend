@@ -46,8 +46,8 @@
 - GC Summary이미지를 보면 총GC시간은 9.59s, 총 멈춘 시간은 5.06s으로 90초 본부하 테스트 동안 높은 시간 비중을 차지하는 것을 알 수 있다.
 - 위 두 이미지를 분석한 결과 DB → JDBC → String 디코딩 과정에서 대용량 byte[] + char[]가 폭발적으로 생성하는 것을 알 수 있다.
 
-![V0_60RPS_JMC](../../../../image/V0.png)
-![V0_60RPS_GC](../../../../image/V0_GC.png)
+![V1_60RPS_JMC](../../../../image/V1.png)
+![V1_60RPS_GC](../../../../image/V1_GC.png)
 
 - 다음 두 이미지는 10k -> 20자로 줄여 DB에서 조회하는 흐름의 경우이다.
 - 테스트는 RPS를 20(웜업)->60(본부하)로 변경한 것 외에는 동일하다.
@@ -108,7 +108,7 @@
 
 📉 Old GC Total
 
-- V0: 3.47s
+- V1: 3.47s
 
 - V2: 2.22s (약 36% 감소)
 
@@ -135,14 +135,14 @@
 
 V2 : hotpath개선 + fetchjoin그대로 사용 -> memoryallocation 감소
 V1 : hotpath 개선전
-2step : 노드 서비스 개선(노드만 가져오고 링크 테이블 다시 가져오기) -> postgreV3감소
+2step : 노드 서비스 개선(노드만 가져오고 링크 테이블 다시 가져오기) -> PGStream.receiveTupleV3감소
 
 # V1->V2
 
 ## JMC이미지
 
-![V0_60RPS_JMC](../../../../image/V0.png)
-![V0_60RPS_GC](../../../../image/V0_GC.png)
+![V1_60RPS_JMC](../../../../image/V1.png)
+![V1_60RPS_GC](../../../../image/V1_GC.png)
 
 ## V1의 분석 및 문제점, 해결방안
 
@@ -346,10 +346,10 @@ public class JwtTokenProvider {
 
 - 각각 3회 테스트 후 중앙값을 기준으로 분석하였고 P95지표의 대략 10% 성능 향상이 이루어졌으며 Throughput또한 각 3회 테스트에서 상승한 것을 알 수 있다.
 
-#### JMC이미지 분석
+#### V1,V2 JMC이미지 분석
 
 - V1
-  ![V0_60RPS_JMC](../../../../image/V0.png)
+  ![V1_60RPS_JMC](../../../../image/V1.png)
 - V2(HotPath개선)
   ![V2_60RPS_JMC](../../../../image/V2.png)
 
@@ -391,26 +391,204 @@ public class JwtTokenProvider {
 
 # 2step조회
 
-| Test Case           | Main RPS (active) | p95 Latency (ms) | Throughput (active req/s) |
-| ------------------- | ----------------- | ---------------- | ------------------------- |
-| 30 → 100 RPS        | 94.42             | 10103.76         | 94.42                     |
-| V1 30 → 60          | 59.78             | 7317.39          | 59.78                     |
-| **V1-re (JMC)**     | **59.50**         | **7419.67**      | **59.50**                 |
-| V1-re2              | 59.36             | 8515.43          | 59.36                     |
-| V2                  | 59.82             | 7027.21          | 59.82                     |
-| **V2-re2 (JMC)**    | **59.91**         | **6908.74**      | **59.91**                 |
-| V2-re4              | 59.90             | 6460.37          | 59.90                     |
-| V0                  | 59.61             | 7622.90          | 59.61                     |
-| V0-re               | 59.27             | 8488.78          | 59.27                     |
-| V0-re2              | 59.64             | 7348.87          | 59.64                     |
-| V0-re3              | 59.58             | 7595.34          | 59.58                     |
-| 2step               | 59.88             | 7260.43          | 59.88                     |
-| 2step-re1           | 59.92             | 7313.08          | 59.92                     |
-| 2step-re2           | 59.62             | 7011.09          | 59.62                     |
-| 2step-re3           | 59.64             | 7452.96          | 59.64                     |
-| 30 → 50 RPS         | 50.00             | 5706.16          | 50.00                     |
-| 1만자 실패 (8 → 20) | 20.00             | 11257.29         | 20.00                     |
-| 1만자 성공 (8 → 15) | 15.00             | 2271.19          | 15.00                     |
+## V2->2step 조회 변경사항
+
+- 이전 V2(fetchjoin)에서 JFR로 기록한 파일을 JMC로 확인해본 결과 V1에서 HotPath를 개선하여 ensureBufferSize()와 ConditionNode의 메모리 할당량이 줄어들었고 성능 또한 10%가까이 향상됨을 알 수 있었다.
+  다만 TopStackTrace의 최상위인 PGStream.receiveTupleV3() 경우 V1->V2로 튜닝하면서 유의미한 감소를 확인하지 못하여 조회 방식에 변화를 줘보고자 한다.
+
+- 기존 V2의 조회 코드의 경우 fetchJoin을 사용하며 Node테이블의 Content필드를 임의로 많은 양의 데이터를 집어넣었고 목록 조회할 때에만 DB레벨에서 Substring을 통해 20자로 가져오는 방식이다.
+
+- 조회하는 데이터는 Node테이블의 정보와 그와 연관된 Note테이블의 제목과 본문을 가져오게 된다.
+- 하지만 이 경우에는 Node,Note테이블을 조회하게되고 행 폭증이 발생하여 Hibernate에서 Deduplicate로 중복을 제거하게 되며 이 부분에서 병목이 일어날 수 있다고 생각했다. 그 결과로 V2의 JMC이미지를 보면, <br>
+  Hibernate가 ResultSet을 소비하는 과정에서
+  PostgreSQL JDBC 드라이버 내부의
+  PGStream.receiveTupleV3() 호출 비중이 높게 관측되었다.
+
+- 따라서 V2->2step으로 변경함에 따라 아래와 같은 코드로 수정되었다
+
+ <details>
+  <summary>📜 V2->2step조회 변경 코드 (클릭하여 보기)</summary>
+
+```java
+
+//Service
+@Service
+@RequiredArgsConstructor
+public class NodeService {
+  ...
+@Transactional(readOnly = true)
+    public List<ResponseNodeDto> findAllByPageId(Long pageId) {
+        //2단계 조회
+        List<NodePreviewRow> node2StepByPageId = nodeRepository.findNode2StepByPageId(pageId);
+        List<Long> nodeIds = new ArrayList<>(node2StepByPageId.size());
+        for (int i = 0; i < node2StepByPageId.size(); i++) {
+            nodeIds.add(node2StepByPageId.get(i).getId());
+        }
+        List<LinkRow> links =
+                nodeRepository.findLinks2StepByNodeIds(nodeIds);
+
+        Map<Long, Map<Long, String>> notesByNodeId = new HashMap<>();
+
+        for (int i = 0; i < links.size(); i++) {
+            LinkRow row = links.get(i);
+
+            Map<Long, String> notes =
+                    notesByNodeId.computeIfAbsent(
+                            row.getNodeId(),
+                            k -> new HashMap<>()
+                    );
+
+            notes.put(row.getNoteId(), row.getNoteSubject());
+        }
+
+        List<ResponseNodeDto> result =
+                new ArrayList<>(node2StepByPageId.size());
+
+        for (int i = 0; i < node2StepByPageId.size(); i++) {
+            NodePreviewRow n = node2StepByPageId.get(i);
+
+            Map<Long, String> notes =
+                    notesByNodeId.getOrDefault(
+                            n.getId(),
+                            Collections.emptyMap()
+                    );
+
+            ResponseNodeDto dto = ResponseNodeDto.builder()
+                    .id(n.getId())
+                    .x(n.getX())
+                    .y(n.getY())
+                    .subject(n.getSubject())
+                    .content(n.getContentPreview())
+                    .symb(n.getSymb())
+                    .recordDate(n.getRecordDate())
+                    .modifiedAt(n.getModifiedDate())
+                    .pageId(pageId)
+                    .notes(notes)
+                    .build();
+
+            result.add(dto);
+        }
+
+        return result;
+    }
+}
+
+//Repository
+public interface NodeRepository extends JpaRepository<Node,Long> {
+
+  ...
+    //2단계 조회 노드용
+    @Query("""
+      select
+        n.id as id,
+        n.x as x,
+        n.y as y,
+        n.subject as subject,
+        substring(n.content, 1, 20) as contentPreview,
+        n.symb as symb,
+        n.recordDate as recordDate,
+        n.modifiedDate as modifiedDate
+      from Node n
+      where n.page.id = :pageId
+      order by n.id
+    """)
+    List<NodePreviewRow> findNode2StepByPageId(Long pageId);
+    //2단계 조회 링크용
+    @Query("""
+      select
+        l.node.id as nodeId,
+        l.noteId as noteId,
+        l.noteSubject as noteSubject
+      from NodeNoteLink l
+      where l.node.id in :nodeIds
+      order by l.node.id, l.noteId
+    """)
+    List<LinkRow> findLinks2StepByNodeIds(Collection<Long> nodeIds);
+
+}
+```
+
+</details>
+
+- NodePreviewRow, LinkRow로 인터페이스를 만든 뒤 각각 노드, 노트(매핑테이블)에서 원하는 필드값만 조회하게 되는데 1차적으로 요청된 노드만 조회한 다음 2차적으로 해당 노드들에 연결된 노트를 조회하게 된다.
+- 각 조회의 경우 IN절로 묶어서 조회하며 노드와 노트를 서비스 레벨에서 조립하여 반환한다.
+
+### K6부하테스트 결과 및 JMC이미지를 통한 분석
+
+- 부하테스트 결과
+  | Test Case | Main RPS (active) | p95 Latency (ms) | Throughput (active req/s) |
+  | ------------------- | ----------------- | ---------------- | ------------------------- |
+  | **2step(중앙값)** | **60** | **7260.43** | **59.88** |
+  | 2step-re1 | 60 | 7313.08 | 59.92 |
+  | 2step-re2 | 60 | 7452.96 | 59.64 |
+  | V2 | 60 | 7027.21 | 59.82 |
+  | **V2-re1(중앙값)** | **60** | **6908.74** | **59.91** |
+  | V2-re2 | 60 | 6460.37 | 59.90 |
+
+- 부하테스트 결과는 2step의 경우 중앙값 기준으로 대략 5%의 성능 하락이 발생하였다.
+- 이 결과에 대한 원인을 찾기 위해 아래 V2,2step의 JMC이미지를 확인하며 분석하고자 한다.
+
+- 2step
+  ![2step_60RPS_JMC](../../../../image/2step.png)
+- V2(HotPath개선)
+  ![V2_60RPS_JMC](../../../../image/V2.png)
+- 2step_GC
+  ![2step_60RPS_GC](../../../../image/2step_GC.png)
+- V2_GC(HotPath개선)
+  ![V2_60RPS_GC](../../../../image/V2_GC.png)
+
+- 2step이미지를 볼 경우 상위 할당에 기존 V2에서 ConditionNode부분이 내려갔으며 대신 `Object[]`, `Method`와 같은 할당이 크게 증가하였음을 알 수 있다. 또한 스택 트레이스의 경우 V2에서 줄이고자 한 `PGStream.receiveTupleV3()`이 내려갔으며 대신 `Copy`, `toArray`등 **객체 그래프** 조립 비용이 늘어난 것을 알 수 있다.
+
+- 추가로 GC관련 이미지를 비교하자면
+
+| 항목  | Young Total GC Time | old Total GC time | Total Pause Time |
+| ----- | ------------------- | ----------------- | ---------------- |
+| 2step | 712.634ms           | 5.187s            | 841.234ms        |
+| V2    | 668.663ms           | 2.239s            | 792.660ms        |
+
+- 2step에서 총 GC Time은 2배가량 증가하였으며 주로 old GC에서 많은 증가가 일어났다.
+
+### 2step 최종 분석
+
+- 2step에서는 분리 조회 후 서비스 레벨에서 Map/List로 재조립하는 과정에서
+  수명과 참조 그래프가 긴 중간 컬렉션과 DTO가 다량 생성된다.
+  이 객체들이 Young GC에서 즉시 회수되지 않고 Survivor를 거쳐 Old로 승격되며,
+  그 결과 Old GC Total Time이 V2 대비 크게 증가하였다.
+  또한 Old GC 증가는 '살아남는 객체 증가'를 의미하여 이후 GC 비용을 누적시키고,
+  tail latency 안정성 측면에서 Young GC 증가보다 더 불리하다.
+
+- 한편 2step 전환 이후 JMC 상위 Stack Trace에서
+  기존 V2에서 가장 높은 비중을 차지하던
+  PGStream.receiveTupleV3()가 사라진 것은,
+  Hibernate가 소비하던 JDBC ResultSet 수신 경로,
+  즉 DB → JDBC 드라이버 레벨의 I/O 및 디코딩 비용이
+  상대적으로 완화되었음을 의미한다.
+  그러나 이는 병목이 제거된 것이 아니라,
+  Hibernate 레벨의 결과 스트림 처리에서
+  서비스 레벨의 객체 그래프 조립 비용로 병목이 이동했음을 나타낸다.
+
+- 즉, fetch join 기반 V2에서는 JDBC 결과 스트림을 소비하는 과정에서
+  Hibernate가 persistence context(Identity Map)를 활용해
+  엔티티를 병합하므로,
+  서비스 레벨에서 추가적인 재조립이나
+  중간 컬렉션(Map/List) 생성을 수행하는 비용이
+  상대적으로 적게 유지된다.
+
+  반면 2step에서는 조회 결과를
+  List/Map/Object[] 형태로 서비스 레벨에서 직접 재구성하면서
+  Copy, toArray, Method, ResolvableType 등
+  객체 그래프 조립 비용이 상위로 부상하였다.
+
+- 그 결과 DB/JDBC 병목은 완화되었지만,
+  애플리케이션 레벨의 할당 및 GC 압박이 증가하여
+  p95 기준 성능은 오히려 V2 대비 하락하였다.
+  이는 2step이 병목을 해소한 구조가 아니라
+  더 비용이 큰 병목으로 이동시킨 구조임을 의미한다.
+
+- 다만 Sum of Pauses(STW)는 Old Total Time과 달리
+  실제 애플리케이션 정지 시간만 집계하며,
+  G1은 Old 관련 작업의 상당 부분을 concurrent로 수행할 수 있어
+  Old Total Time 증가에 비해 Pause 증가폭이 상대적으로 작게 관측될 수 있다.
 
 ### GC Summary 최종 비교 (본부하 기준)
 
@@ -418,12 +596,12 @@ public class JwtTokenProvider {
 
 | 케이스          | Young Total |   Old Total |   All Total | Sum of Pauses |
 | --------------- | ----------: | ----------: | ----------: | ------------: |
-| **V0**          |      691 ms |      3.47 s |     4.167 s |        801 ms |
+| **V1**          |      691 ms |      3.47 s |     4.167 s |        801 ms |
 | **V2 (최종안)** |  **668 ms** | **2.223 s** | **2.907 s** |    **792 ms** |
 | **2step**       |      712 ms | **5.187 s** | **5.900 s** |    **841 ms** |
 
 GC Summary 기준으로 V2는 Young GC는 유지하면서 Old GC Total을
-V0 대비 약 36% 감소시켰고, 2step 대비 2배 이상 낮은 수준을 유지했다.
+V1 대비 약 36% 감소시켰고, 2step 대비 2배 이상 낮은 수준을 유지했다.
 2step은 DB/JDBC 병목은 완화했으나 객체 그래프 조립 비용 증가로
 Old GC 부담이 크게 상승하여 p95 및 전체 성능 개선으로 이어지지 않았다.
 따라서 본 워크로드의 최종안은 V2(fetch join + hotpath 개선)로 확정하였다.
