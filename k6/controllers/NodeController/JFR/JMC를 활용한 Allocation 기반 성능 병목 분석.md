@@ -160,6 +160,9 @@ V1 : hotpath 개선전
   3. 최종적으로 BaseNCodec.decode()를 사용함을 알 수 있다.
 - 이는 JFR분석을 통해 알 수 있듯이 주요 탑 스택트레이스인 ensureBufferSize()의 BaseNCodec.decode() 원인이 아래에 후술할 jwt토큰 검증에 있다는 것을 알 수 있었으며 이를 중점적으로 개선하였다.
 
+<details>
+  <summary>📜 V1->V2 HotPath 변경 코드 (클릭하여 보기)</summary>
+
 ```java
 //기존코드
 
@@ -293,6 +296,8 @@ public class JwtTokenProvider {
 }
 
 ```
+
+</details>
 
 #### 문제점 및 코드 수정 사항
 
