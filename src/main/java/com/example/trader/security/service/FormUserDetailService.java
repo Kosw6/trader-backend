@@ -6,6 +6,7 @@ import com.example.trader.repository.UserRepository;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -16,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 //일반적인 로그인시 loginId+Password
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class FormUserDetailService implements UserDetailsService {

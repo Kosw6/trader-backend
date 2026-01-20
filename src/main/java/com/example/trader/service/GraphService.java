@@ -32,9 +32,9 @@ public class GraphService {
             throw new IllegalArgumentException("Page not found or no permission");
         }
         // 두 번의 간단한 쿼리로 안전하게 조회
-        List<ResponseNodeDto> nodeDtos = nodeRepository.findByPageId(pageId).stream().map(this::toResponseNodeDto)
+        List<ResponseNodeDto> nodeDtos = nodeRepository.findAllFetchByPageId(pageId).stream().map(this::toResponseNodeDto)
                 .collect(Collectors.toList());
-        List<ResponseEdgeDto> edgeDtos = edgeRepository.findByPageId(pageId).stream().map(this::toResponseEdgeDto)
+        List<ResponseEdgeDto> edgeDtos = edgeRepository.findAllByPageId(pageId).stream().map(this::toResponseEdgeDto)
                 .collect(Collectors.toList());
         return new ResponseGraphDto(pageId,nodeDtos,edgeDtos);
     }

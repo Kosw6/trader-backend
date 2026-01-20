@@ -38,6 +38,7 @@ public class JwtTokenProvider {
 
     //유저 이름을 jwt토큰에 담아서 생성하고 반환, 컨트롤러에서 헤더에 담아서 반환
     //ex) headers.set("Authorization", "Bearer " + token);형식으로
+    //todo:RoleClaim넣기:.withClaim("r","a")->r는 role, a는 admin,u는 user
     public String createAccessToken(String loginId) throws UnsupportedEncodingException {
         return JWT.create()
                 .withSubject(loginId)
@@ -79,15 +80,21 @@ public class JwtTokenProvider {
         }
         throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
     }
+    public String getTokenSubject(DecodedJWT jwt) {
+        String sub = jwt.getSubject();
+        if (sub == null) {
+            throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
+        }
+        return sub;
+    }
 
 
     // 토큰 유효성 검사-복호화하고, 시간확인
     public DecodedJWT validateToken(String receivedToken) {
+//        log.info("run validation");
         try {
             DecodedJWT verify = JWT.require(Algorithm.HMAC256(secret))
                     .build().verify(receivedToken);
-//            log.info("verify.getExpiresAt: "+ verify.getExpiresAt());
-//            log.info("System.currentTimeMillis(): "+ new Date(System.currentTimeMillis()));
             if(new Date(System.currentTimeMillis()).before(verify.getExpiresAt())) {//토큰만료시간 이전이냐
                 return verify;
             }
@@ -95,6 +102,28 @@ public class JwtTokenProvider {
         } catch (Exception e) {
             log.error(e.getMessage());
             return null;
+        }
+    }
+
+    public DecodedJWT validateTokenOrThrow(String token) {
+        try {
+            DecodedJWT jwt = JWT.require(Algorithm.HMAC256(secret))
+                    .build()
+                    .verify(token); // 여기서 서명/형식 검증
+
+            Date exp = jwt.getExpiresAt();
+            if (exp == null) {
+                throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
+            }
+            if (System.currentTimeMillis() > exp.getTime()) {
+                throw new BaseException(BaseResponseStatus.ACCESS_TOKEN_EXPIRED);
+            }
+            return jwt;
+        } catch (BaseException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("JWT validation failed: {}", e.getMessage());
+            throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
         }
     }
 
@@ -108,11 +137,17 @@ public class JwtTokenProvider {
     }
 
      //Authentication 객체 생성
-    public Authentication getAuthentication(String token, UserDetailsService userDetailsService) throws UnsupportedEncodingException {
-        String userId = getTokenInfo(token);//유저아이디 받아아서 로그인 아이디로 변환
-        Long id = Long.parseLong(userId);
-        String loginId = userService.findUserByUserId(id).getLoginId();
-        UserDetails userDetails = userDetailsService.loadUserByUsername(loginId);
-        return new UsernamePasswordAuthenticationToken(userDetails, "", userDetails.getAuthorities());
-    }
+    //여기서 검증X + loginId 레포지토리 검색 대신 토큰에 담긴 정보 가져오기 -> 사용자 정보는 UserDetailsService를 Override한 메서드로 DB조회
+//    public Authentication getAuthentication(String token, UserDetailsService userDetailsService) throws UnsupportedEncodingException {
+//        String userId = getTokenInfo(token);//유저아이디 받아아서 로그인 아이디로 변환
+//        Long id = Long.parseLong(userId);
+//        String loginId = userService.findUserByUserId(id).getLoginId();
+//        UserDetails userDetails = userDetailsService.loadUserByUsername(loginId);
+//        return new UsernamePasswordAuthenticationToken(userDetails, "", userDetails.getAuthorities());
+//    }
+     public Authentication getAuthentication(DecodedJWT jwt, UserDetailsService uds) throws UnsupportedEncodingException {
+         String loginId = jwt.getSubject();
+         UserDetails userDetails = uds.loadUserByUsername(loginId);
+         return new UsernamePasswordAuthenticationToken(userDetails, "", userDetails.getAuthorities());
+     }
 }

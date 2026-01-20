@@ -1,23 +1,28 @@
 package com.example.trader.service;
 
+import com.example.trader.common.util.BatchUtils;
 import com.example.trader.dto.map.RequestNodeDto;
 import com.example.trader.dto.map.ResponseNodeDto;
 import com.example.trader.entity.Node;
+import com.example.trader.entity.NodeNoteLink;
 import com.example.trader.entity.Note;
 import com.example.trader.entity.Page;
-import com.example.trader.repository.EdgeRepository;
-import com.example.trader.repository.NodeRepository;
-import com.example.trader.repository.NoteRepository;
-import com.example.trader.repository.PageRepository;
+import com.example.trader.repository.*;
+import com.example.trader.repository.projection.*;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Nullable;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class NodeService {
@@ -26,8 +31,9 @@ public class NodeService {
     private final PageRepository pageRepository;
     private final NoteRepository noteRepository;
     private final EdgeRepository edgeRepository;
+    private final NodeNoteLinkRepository nodeNoteLinkRepository;
     private final EntityManager em;
-
+    private final ObjectMapper objectMapper;
     @Transactional
     public void deleteNode(Long id) {
         edgeRepository.deleteByNodeId(id);
@@ -53,7 +59,7 @@ public class NodeService {
             syncNotes(node,req.getNoteIds());
         }
 
-        return toResponseDto(node);
+        return ResponseNodeDto.toResponseDto(node);
     }
 
     @Transactional
@@ -119,22 +125,141 @@ public class NodeService {
         }
 
         Node saved = nodeRepository.save(node);
-        return toResponseDto(saved);
+        return ResponseNodeDto.toResponseDto(saved);
     }
 
     @Transactional(readOnly = true)
     public List<ResponseNodeDto> findAllByPageId(Long pageId) {
-        return nodeRepository.findByPageId(pageId).stream()
-                .map(this::toResponseDto)
-                .toList();
+        // fetch기반 쿼리실행
+        return nodeRepository.findAllFetchByPageId(pageId).stream().map(ResponseNodeDto::toResponseDtoToPreviewList).collect(Collectors.toList());
+
+        //20자 프리뷰용
+//        List<ResponseNodeDto> list = all.stream().map(ResponseNodeDto::toResponseDtoToPreviewList).collect(Collectors.toList());
+        //1만자
+//        List<ResponseNodeDto> list = all.stream().map(ResponseNodeDto::toResponseDto).collect(Collectors.toList());
+        //2단계 조회
+//        List<NodePreviewRow> node2StepByPageId = nodeRepository.findNode2StepByPageId(pageId);
+//        List<Long> nodeIds = new ArrayList<>(node2StepByPageId.size());
+//        for (int i = 0; i < node2StepByPageId.size(); i++) {
+//            nodeIds.add(node2StepByPageId.get(i).getId());
+//        }
+//        List<LinkRow> links =
+//                nodeRepository.findLinks2StepByNodeIds(nodeIds);
+//
+//        Map<Long, Map<Long, String>> notesByNodeId = new HashMap<>();
+//
+//        for (int i = 0; i < links.size(); i++) {
+//            LinkRow row = links.get(i);
+//
+//            Map<Long, String> notes =
+//                    notesByNodeId.computeIfAbsent(
+//                            row.getNodeId(),
+//                            k -> new HashMap<>()
+//                    );
+//
+//            notes.put(row.getNoteId(), row.getNoteSubject());
+//        }
+//
+//        List<ResponseNodeDto> result =
+//                new ArrayList<>(node2StepByPageId.size());
+//
+//        for (int i = 0; i < node2StepByPageId.size(); i++) {
+//            NodePreviewRow n = node2StepByPageId.get(i);
+//
+//            Map<Long, String> notes =
+//                    notesByNodeId.getOrDefault(
+//                            n.getId(),
+//                            Collections.emptyMap()
+//                    );
+//
+//            ResponseNodeDto dto = ResponseNodeDto.builder()
+//                    .id(n.getId())
+//                    .x(n.getX())
+//                    .y(n.getY())
+//                    .subject(n.getSubject())
+//                    .content(n.getContentPreview())
+//                    .symb(n.getSymb())
+//                    .recordDate(n.getRecordDate())
+//                    .modifiedAt(n.getModifiedDate())
+//                    .pageId(pageId)
+//                    .notes(notes)
+//                    .build();
+//
+//            result.add(dto);
+//        }
+        
     }
+
+//    //프로젝션용
+//    @Transactional(readOnly = true)
+//    public List<ResponseNodeDto> findAllProjectionByPageId(Long pageId) {
+//        // 1️⃣ Projection 기반 쿼리 실행
+//        List<NodePreviewWithNoteProjection> all = nodeRepository.findAllPreviewWithNotesByPageId(pageId);
+//
+//        // 2️⃣ DTO 변환 (행 폭증 → Node 단위 그룹화)
+//        return ResponseNodeDto.fromProjectiontoResponseDto(all);
+//    }
+    @Transactional(readOnly = true)
+    public List<ResponseNodeDto> findAllNodePreview(Long pageId) {
+        List<NodePreviewProjection> rows = nodeRepository.findAllPreviewByPageId(pageId);
+        return rows.stream().map(r ->
+                ResponseNodeDto.builder()
+                        .id(r.getId())
+                        .x(r.getX())
+                        .y(r.getY())
+                        .subject(r.getSubject())
+                        .content(r.getContentPreview())  // ← 목록엔 20자 프리뷰만
+                        .pageId(r.getPageId())
+                        .createdAt(r.getCreatedDate())
+                        .modifiedAt(r.getModifiedDate())
+                        .build()
+        ).toList();
+    }
+
+
+//    @Transactional(readOnly = true)
+//    public List<ResponseNodeDto> findAllNodeWithNotesJson(Long pageId) {
+////        List<Node> nodes = nodeRepository.findAllNodeWithNotesJson(pageId);
+//        List<NodeRowProjection> rows = nodeRepository.findAllNodeRowProjectionByPageId(pageId);
+////        return nodeRepository.findAllFetchByPageId(pageId)
+////                .stream()
+////                .map(ResponseNodeDto::toResponseDto)
+////                .toList();
+//        return rows.stream().map(r -> {
+//            Map<Long,String> notes = parseToMap(r.getNotesJson()); // Jackson으로 파싱
+//            return ResponseNodeDto.builder()
+//                    .id(r.getId())
+//                    .x(r.getX())
+//                    .y(r.getY())
+//                    .subject(r.getSubject())
+//                    .content(r.getContent())           // ← 추가
+//                    .symb(r.getSymb())                 // ← 추가
+//                    .recordDate(r.getRecordDate())     // ← 추가
+//                    .pageId(r.getPageId())
+//                    .createdAt(r.getCreatedDate())     // ← 추가
+//                    .modifiedAt(r.getModifiedDate())   // ← 추가
+//                    .notes(notes)
+//                    .build();
+//        }).toList();
+//
+//    }
 
     @Transactional(readOnly = true)
     public ResponseNodeDto findById(Long id) {
-        return toResponseDto(nodeRepository.findByIdWithLinks(id).orElseThrow(()-> new IllegalArgumentException()));
+        Node findNode = nodeRepository.findByIdWithLinks(id).orElseThrow(() -> new IllegalArgumentException());
+
+        return ResponseNodeDto.toResponseDto(findNode);
+    }
+    private Map<Long, String> parseToMap(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            // JSON 예시: {"11":"첫 노트","12":"둘째 노트"}
+            return objectMapper.readValue(json, new TypeReference<Map<Long, String>>() {});
+        } catch (Exception e) {
+            // 파싱 실패 시 빈 맵 반환
+            return Map.of();
+        }
     }
 
-    private ResponseNodeDto toResponseDto(Node node) {
-        return ResponseNodeDto.toResponseDto(node);
-    }
+
 }

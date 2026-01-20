@@ -4,9 +4,13 @@ import com.example.trader.dto.map.RequestNodeDto;
 import com.example.trader.entity.base.BaseTimeEntity;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.Formula;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDate;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @NoArgsConstructor
 @AllArgsConstructor
@@ -22,7 +26,17 @@ public class Node extends BaseTimeEntity {
     private double x;
     private double y;
     private String subject;
+
+
+    @Basic(fetch = FetchType.LAZY)
+    @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(columnDefinition = "text")
     private String content;
+
+    @Formula("substring(n1_0.content, 1, 20)::text")
+    private String contentPreview;
+
     private String symb;
     private LocalDate recordDate;
 
@@ -47,13 +61,15 @@ public class Node extends BaseTimeEntity {
         if (dto.getRecordDate() != null) this.recordDate = dto.getRecordDate();
     }
     public void attach(Note note) {
+        Long targetId = note.getId();
         // 중복 방지
-        if (noteLinks.stream().anyMatch(l -> l.getNote().equals(note))) return;
+//        if (noteLinks.stream().anyMatch(l -> Objects.equals(l.getNoteId(), targetId))) return;
         NodeNoteLink link = NodeNoteLink.of(this, note);
         noteLinks.add(link);
     }
     public void detach(Note note) {
-        noteLinks.removeIf(l -> l.getNote().equals(note));
+        Long targetId = note.getId();
+//        noteLinks.removeIf(l -> Objects.equals(l.getNoteId(), targetId));
     }
 
     @Override
@@ -75,11 +91,17 @@ public class Node extends BaseTimeEntity {
             attach(n); // 중복 체크는 attach 단건에서 처리
         }
     }
-    /** 여러 개 한꺼번에 제거 (null 안전) */
+    /** 여러 개 한꺼번에 제거 (null 안전, Lazy 초기화 방지) */
     public void detachAll(Collection<Note> notes) {
         if (notes == null || notes.isEmpty()) return;
-        Set<Note> targets = new HashSet<>(notes);
-        noteLinks.removeIf(l -> targets.contains(l.getNote()));
+
+        // FK id만 뽑아서 비교하도록 변경
+        Set<Long> targetIds = notes.stream()
+                .map(Note::getId)  // getId()는 프록시 초기화 안 함
+                .collect(Collectors.toSet());
+
+        // link.getNoteId()로 비교 → Note를 로딩하지 않음
+//        noteLinks.removeIf(l -> targetIds.contains(l.getNoteId()));
     }
 
 
