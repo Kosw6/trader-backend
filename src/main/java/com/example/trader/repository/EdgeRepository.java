@@ -11,7 +11,7 @@ import java.util.Optional;
 
 public interface EdgeRepository extends JpaRepository<Edge,Long> {
     // EdgeRepository.java
-    List<Edge> findByPageId(Long pageId);
+    List<Edge> findAllByPageId(Long pageId);
     // 노드 ID 기반 엣지 일괄 삭제 (소스/타겟 모두 처리)
     @Modifying
     @Query("DELETE FROM Edge e WHERE e.source.id = :nodeId OR e.target.id = :nodeId")

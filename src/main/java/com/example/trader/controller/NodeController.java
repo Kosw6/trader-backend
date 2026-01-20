@@ -23,6 +23,8 @@ public class NodeController {
     @GetMapping("/page/{pageId}")
     public ResponseEntity<List<ResponseNodeDto>> getNodesByPage(@PathVariable Long pageId) {
         return ResponseEntity.ok(nodeService.findAllByPageId(pageId));
+//        return ResponseEntity.ok(nodeService.findAllNodeWithNotesJson(pageId));
+//        return ResponseEntity.ok(nodeService.findAllProjectionByPageId(pageId));
     }
 
     // 노드 단건 조회

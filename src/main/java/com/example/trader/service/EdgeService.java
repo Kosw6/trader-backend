@@ -76,7 +76,7 @@ public class EdgeService {
 
     @Transactional(readOnly = true)
     public List<ResponseEdgeDto> findAllByPageId(Long pageId) {
-        return edgeRepository.findByPageId(pageId).stream()
+        return edgeRepository.findAllByPageId(pageId).stream()
                 .map(this::toResponseDto)
                 .toList();
     }

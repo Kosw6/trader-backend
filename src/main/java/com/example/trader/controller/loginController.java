@@ -79,10 +79,10 @@ public class loginController {
             );
             //유저ID로 토큰발행 -> 이렇게 하면 회원가입 정보가 없는 oauth2도 사용가능
             UserContext userContext= (UserContext) authentication.getPrincipal();
-            Long userId = userContext.getUserDto().getId();
+            String loginId = userContext.getUserDto().getLoginId();
             // 2. 유저아이디로 Access 토큰 및 Refresh 토큰 생성
-            String accessToken = jwtTokenProvider.createAccessToken(userId.toString());
-            String refreshToken = jwtTokenProvider.createRefreshToken(userId.toString(),accessToken);
+            String accessToken = jwtTokenProvider.createAccessToken(loginId);
+            String refreshToken = jwtTokenProvider.createRefreshToken(loginId,accessToken);
 
             // 3. Refresh 토큰을 HttpOnly 쿠키에 저장 (클라이언트가 접근하지 못하게 하기 위함)
             ResponseCookie cookie = ResponseCookie.from("refreshToken", refreshToken)
@@ -137,11 +137,12 @@ public class loginController {
                 if("refreshToken".equals(cookie.getName())){
                     //토큰 확인하고 복호화
                     String token = cookie.getValue();
-                    String userId = jwtTokenProvider.getTokenInfo(token);
+                    String loginId = jwtTokenProvider.getTokenInfo(token);
                     // 토큰이 존재하고 유효하면 사용자 정보를 SecurityContext에 설정 && 토큰유지기한이 유효한지 체크
-                    if (userId!=null && jwtTokenProvider.validateToken(token)!=null) {
-                        String accessToken = jwtTokenProvider.createAccessToken(userId.toString());
-                        String refreshToken = jwtTokenProvider.createRefreshToken(userId.toString(),accessToken);
+                    if (loginId!=null && jwtTokenProvider.validateToken(token)!=null) {
+                        // 2. 유저아이디로 Access 토큰 및 Refresh 토큰 생성
+                        String accessToken = jwtTokenProvider.createAccessToken(loginId);
+                        String refreshToken = jwtTokenProvider.createRefreshToken(loginId,accessToken);
                         Cookie refreshTokenCookie = new Cookie("refreshToken", refreshToken);
                         refreshTokenCookie.setHttpOnly(true);
                         refreshTokenCookie.setSecure(true); // HTTPS로만 전송 가능

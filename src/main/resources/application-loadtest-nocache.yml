@@ -4,11 +4,11 @@ spring:
   datasource:
     hikari:
       maximum-pool-size: 80   # 요청 중 DB를 쓰는 비율 × 동시성 × 1.2
-      minimum-idle: 80
-      connection-timeout: 2000     # ms
+      minimum-idle: 20
+      connection-timeout: 10000     # ms
       max-lifetime: 1800000        # 30m
-      idle-timeout: 300000
-    url: jdbc:postgresql://localhost:5432/trader
+      idle-timeout: 600000
+    url: jdbc:postgresql://localhost:6432/trader?prepareThreshold=0
     username: postgres
     password: '060606'
   jpa:
@@ -16,11 +16,11 @@ spring:
       ddl-auto: none
     properties:
       hibernate.jdbc.lob.non_contextual_creation: true
-      hibernate:
-        show_sql: false
-        format_sql: false
-        use_sql_comments: true
-        dialect: org.hibernate.dialect.PostgreSQLDialect
+      hibernate.enhancer.enableLazyInitialization: true   # ★ 기본타입 LAZY가 실제로 동작
+      hibernate.show_sql: false
+      hibernate.format_sql: false
+      hibernate.use_sql_comments: false
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
   data:
     redis:
       host: localhost   # 도커 컴포즈 redis 사용 시 그대로
@@ -111,6 +111,10 @@ management:
 
 # Tomcat 메트릭을 위해 MBean registry 활성화 (매우 중요)
 server:
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-exception: true
   tomcat:
     threads:
       max: 300
@@ -124,9 +128,9 @@ server:
 logging:
   level:
     root: ERROR
-    org.springframework: ERROR
-    org.springframework.web: ERROR
-    org.springframework.security: ERROR
+    org.springframework: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
     org.springframework.boot.actuate: ERROR
     org.springframework.boot.autoconfigure.security: ERROR
     io.micrometer: ERROR
@@ -137,7 +141,7 @@ logging:
     org.apache.tomcat: ERROR
     com.zaxxer.hikari: ERROR
     org.hibernate: ERROR                 # 전체 상한
-    org.hibernate.SQL: OFF               # 실행 SQL 줄
+    org.hibernate.SQL: ERROR               # 실행 SQL 줄
     org.hibernate.type: OFF              # 파라미터 타입/바인딩
     org.hibernate.orm.jdbc.bind: OFF     # (Hibernate 6) 바인드 값 디버그
     org.hibernate.orm.results: OFF       # (Hibernate 6) 결과 매핑 로그
