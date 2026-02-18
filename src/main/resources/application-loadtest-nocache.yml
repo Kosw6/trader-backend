@@ -1,0 +1,150 @@
+spring:
+  application:
+    name: trader
+  datasource:
+    hikari:
+      maximum-pool-size: 80   # 요청 중 DB를 쓰는 비율 × 동시성 × 1.2
+      minimum-idle: 20
+      connection-timeout: 10000     # ms
+      max-lifetime: 1800000        # 30m
+      idle-timeout: 600000
+    url: jdbc:postgresql://localhost:6432/trader?prepareThreshold=0
+    username: postgres
+    password: '060606'
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate.jdbc.lob.non_contextual_creation: true
+      hibernate.enhancer.enableLazyInitialization: true   # ★ 기본타입 LAZY가 실제로 동작
+      hibernate.show_sql: false
+      hibernate.format_sql: false
+      hibernate.use_sql_comments: false
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+  data:
+    redis:
+      host: localhost   # 도커 컴포즈 redis 사용 시 그대로
+      port: 6379
+      timeout: 2s
+      lettuce:
+        pool:
+          max-active: 100
+          max-idle: 50
+          min-idle: 10
+          max-wait: 2s
+    cache:
+      redis:
+        time-to-live: 10m
+        key-prefix: "demo::"
+        cache-null-values: false
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${OAUTH_GOOGLE_CLIENT_ID}
+            client-secret: ${OAUTH_GOOGLE_CLIENT_SECRET}
+            scope: profile, email
+            redirect-uri: "http://localhost:8080/login/oauth2/code/google"
+          kakao:
+            client-id: ${OAUTH_KAKAO_CLIENT_ID}
+            #client-secret: YOUR_KAKAO_CLIENT_SECRET
+            client-authentication-method: client_secret_post
+            authorization-grant-type: authorization_code
+            redirect-uri: "http://localhost:8080/login/oauth2/code/kakao"
+            scope: profile_nickname
+            #이메일은 나중에 추가 예정
+            client-name: Kakao
+            provider: kakao
+        provider:
+          kakao:
+            authorization-uri: https://kauth.kakao.com/oauth/authorize
+            token-uri: https://kauth.kakao.com/oauth/token
+            user-info-uri: https://kapi.kakao.com/v2/user/me
+            user-name-attribute: id
+  web:
+    resources:
+      add-mappings: false #정적 리소스 매핑 비활성화
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+    prometheus:
+      enabled: true         # ← 명시 (기본 true지만 안전하게)
+  prometheus:
+    metrics:
+      export:
+        enabled: true       # ← Prometheus 레지스트리 활성화
+      distribution:
+        percentiles-histogram:
+          hikaricp.connections.usage: true
+          hikaricp.connections.acquire: true
+          hikaricp.connections.creation: true
+
+  metrics:
+    export:
+      prometheus:
+        enabled: true         # ← Prometheus 레지스트리 on (Spring Boot 3 기준)
+    distribution:
+      percentiles-histogram:
+        hikaricp.connections.acquire: true
+        hikaricp.connections.creation: true
+        hikaricp.connections.usage: true
+        http:
+          server:
+            requests: true
+      sla: # ← 'slo' 아님! Micrometer는 'sla' 키 사용
+        hikaricp.connections.acquire: 1ms,5ms,10ms,20ms,50ms,100ms,200ms,500ms,1s,2s,5s
+        hikaricp.connections.creation: 1ms,5ms,10ms,20ms,50ms,100ms,200ms,500ms,1s
+        hikaricp.connections.usage: 1ms,5ms,10ms,20ms,50ms,100ms,200ms,500ms,1s,2s,5s
+      minimum-expected-value:
+        hikaricp.connections.acquire: 1ms
+      maximum-expected-value:
+        hikaricp.connections.acquire: 5s
+    tags:
+      application: trader-backend  # (옵션) 공통 태그
+
+
+# Tomcat 메트릭을 위해 MBean registry 활성화 (매우 중요)
+server:
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-exception: true
+  tomcat:
+    threads:
+      max: 300
+      min-spare: 30
+    # (선택) 버스트 흡수
+    accept-count: 512
+    connection-timeout: 10s
+    mbeanregistry:
+      enabled: true
+
+logging:
+  level:
+    root: ERROR
+    org.springframework: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+    org.springframework.boot.actuate: ERROR
+    org.springframework.boot.autoconfigure.security: ERROR
+    io.micrometer: ERROR
+    io.micrometer.core: ERROR
+    io.micrometer.prometheus: ERROR
+    reactor.netty: ERROR        # WebClient/Netty 쓰면 여기서도 찍힐 수 있음
+    org.apache.catalina: ERROR  # Tomcat
+    org.apache.tomcat: ERROR
+    com.zaxxer.hikari: ERROR
+    org.hibernate: ERROR                 # 전체 상한
+    org.hibernate.SQL: ERROR               # 실행 SQL 줄
+    org.hibernate.type: OFF              # 파라미터 타입/바인딩
+    org.hibernate.orm.jdbc.bind: OFF     # (Hibernate 6) 바인드 값 디버그
+    org.hibernate.orm.results: OFF       # (Hibernate 6) 결과 매핑 로그
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR  # SQL 경고는 숨기고 에러만
+    org.hibernate.type.descriptor.sql.BasicBinder: OFF  # (Hibernate 5 계열)
+    org.hibernate.orm.jdbc.extract: OFF                 # (Hibernate 6 계열)
