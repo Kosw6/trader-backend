@@ -18,4 +18,37 @@ public interface EdgeRepository extends JpaRepository<Edge,Long> {
     void deleteByNodeId(@Param("nodeId") Long nodeId);
 
     boolean existsBySourceIdAndTargetId(Long sourceId, Long targetId);
+
+    @Query("""
+    select e
+    from Edge e
+    where e.id = :edgeId
+      and e.page.id = :pageId
+      and e.page.directory.user.id = :userId
+    """)
+    Optional<Edge> findPersonalEdge(@Param("edgeId") Long edgeId,
+                                    @Param("pageId") Long pageId,
+                                    @Param("userId") Long userId);
+
+    @Query("""
+    select e
+    from Edge e
+    where e.id = :edgeId
+      and e.page.id = :pageId
+      and e.page.directory.team.id = :teamId
+    """)
+    Optional<Edge> findByIdInTeamGraph(@Param("edgeId") Long edgeId,
+                                       @Param("pageId") Long pageId,
+                                       @Param("teamId") Long teamId);
+
+    @Query("""
+    select count(e) > 0
+    from Edge e
+    where e.page.id = :pageId
+      and e.source.id = :sourceId
+      and e.target.id = :targetId
+    """)
+    boolean existsInPageBySourceTarget(@Param("pageId") Long pageId,
+                                       @Param("sourceId") Long sourceId,
+                                       @Param("targetId") Long targetId);
 }

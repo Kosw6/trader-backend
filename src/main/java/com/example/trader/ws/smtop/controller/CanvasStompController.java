@@ -1,8 +1,8 @@
-package com.example.trader.controller.ws;
+package com.example.trader.ws.smtop.controller;
 
-import com.example.trader.dto.message.CursorMessage;
-import com.example.trader.dto.message.LockMessage;
-import com.example.trader.dto.message.NodeMoveMessage;
+import com.example.trader.ws.smtop.dto.CursorMessage;
+import com.example.trader.ws.smtop.dto.LockMessage;
+import com.example.trader.ws.smtop.dto.NodeMoveMessage;
 import com.example.trader.service.NodeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.DestinationVariable;

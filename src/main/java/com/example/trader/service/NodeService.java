@@ -88,22 +88,25 @@ public class NodeService {
     }
 
     @Transactional
-    public ResponseNodeDto updateTeamNode(Long teamId, Long graphId, Long nodeId, RequestNodeDto req) {
+    public ResponseNodeDto updateTeamNode(Long teamId, Long nodeId, Long userId, RequestNodeDto req) {
+        // 팀 권한 체크 (node belongs to team etc)
+        if (!nodeRepository.existsByIdAndPageDirectoryTeamId(nodeId, teamId)) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+        }
 
-        // 1) node가 (teamId, graphId)에 속하는지 한 방에 검증 + 조회
-        Node node = nodeRepository.findByIdWithLinksInTeamGraph(nodeId, graphId, teamId)
-                .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
+        Node node = nodeRepository.findByIdWithLinks(nodeId)
+                .orElseThrow(() -> new IllegalArgumentException("연결된 노트링크가 없습니다"));
 
-        // 2) 기본 필드 업데이트
         node.updateBasics(req);
 
-        // 3) 노트 링크 동기화
         if (req.isNoteIdsOmitted()) {
             // 변경 없음
         } else if (req.isNoteIdsEmptySet()) {
-            syncNotes(node, List.of());
+            // ✅ “내 링크만” 모두 해제 (남의 링크는 그대로)
+            syncTeamNotesMineOnly(node, List.of(), userId);
         } else {
-            syncNotes(node, req.getNoteIds());
+            // ✅ “내 링크만” 주어진 ID로 동기화
+            syncTeamNotesMineOnly(node, req.getNoteIds(), userId);
         }
 
         return ResponseNodeDto.toResponseDto(node);
@@ -151,6 +154,43 @@ public class NodeService {
         }
     }
 
+    //TODO
+    /**개인의 노트만 노드에 연결을 시킬 수 있으며 타인의 연결은 끊을 수 없다
+     * 프론트 페이지에서 노드 수정시에 맨 위에 자신의 연결부터 뜨고 x버튼은 자신의 노트연결만 표시하게 수정
+    */
+    private void syncTeamNotesMineOnly(Node node, List<Long> desiredNoteIds, Long userId) {
+        Set<Long> desired = new HashSet<>(desiredNoteIds == null ? List.of() : desiredNoteIds);
+
+        // 1) 현재 링크 중 "내 노트"만 골라 현재 상태 만들기
+        Set<Long> currentMine = node.getNoteLinks().stream()
+                .filter(link -> link.getNote().getUser().getId().equals(userId)) // ✅ 내 노트만
+                .map(link -> link.getNote().getId())
+                .collect(Collectors.toSet());
+
+        // 2) 추가/삭제는 내 노트 링크에 대해서만 계산
+        Set<Long> toAdd = new HashSet<>(desired);
+        toAdd.removeAll(currentMine);
+
+        Set<Long> toRemove = new HashSet<>(currentMine);
+        toRemove.removeAll(desired);
+
+        // 3) ✅ 보안: toAdd에 들어온 noteIds가 전부 "내 노트"가 맞는지 DB로 검증
+        // (프론트에서 막아도 서버는 반드시 재검증)
+        if (!toAdd.isEmpty()) {
+            List<Long> allowedIds = noteRepository.findIdsByUserIdAndIdIn(userId, toAdd);
+            if (allowedIds.size() != toAdd.size()) {
+                throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE); // 또는 INVALID_NOTE_ACCESS
+            }
+            var refs = allowedIds.stream().map(id -> em.getReference(Note.class, id)).toList();
+            node.attachAll(refs);
+        }
+
+        // 4) 삭제는 "내 노트 링크"만 제거하므로 DB검증 없이도 안전
+        if (!toRemove.isEmpty()) {
+            var refs = toRemove.stream().map(id -> em.getReference(Note.class, id)).toList();
+            node.detachAll(refs);
+        }
+    }
 
 
 

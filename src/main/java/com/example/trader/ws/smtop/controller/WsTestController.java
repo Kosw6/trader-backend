@@ -1,4 +1,4 @@
-package com.example.trader.controller.ws;
+package com.example.trader.ws.smtop.controller;
 
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;

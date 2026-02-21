@@ -1,4 +1,4 @@
-package com.example.trader.dto.message;
+package com.example.trader.ws.smtop.dto;
 
 public record NodeMoveMessage(
         Long nodeId,

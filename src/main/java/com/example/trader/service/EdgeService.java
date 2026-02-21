@@ -5,6 +5,8 @@ import com.example.trader.dto.map.ResponseEdgeDto;
 import com.example.trader.entity.Edge;
 import com.example.trader.entity.Node;
 import com.example.trader.entity.Page;
+import com.example.trader.exception.BaseException;
+import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.repository.EdgeRepository;
 import com.example.trader.repository.NodeRepository;
 import com.example.trader.repository.PageRepository;

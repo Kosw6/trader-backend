@@ -16,17 +16,17 @@ public class EdgeController {
 
     private final EdgeService edgeService;
 
-    // 특정 페이지의 엣지 전체 조회
-    @GetMapping("/page/{pageId}")
-    public ResponseEntity<List<ResponseEdgeDto>> getEdgesByPage(@PathVariable Long pageId) {
-        return ResponseEntity.ok(edgeService.findAllByPageId(pageId));
-    }
-
-    // 엣지 단건 조회
-    @GetMapping("/{id}")
-    public ResponseEntity<ResponseEdgeDto> getEdge(@PathVariable Long id) {
-        return ResponseEntity.ok(edgeService.findById(id));
-    }
+//    // 특정 페이지의 엣지 전체 조회
+//    @GetMapping("/page/{pageId}")
+//    public ResponseEntity<List<ResponseEdgeDto>> getEdgesByPage(@PathVariable Long pageId) {
+//        return ResponseEntity.ok(edgeService.findAllByPageId(pageId));
+//    }
+//
+//    // 엣지 단건 조회
+//    @GetMapping("/{id}")
+//    public ResponseEntity<ResponseEdgeDto> getEdge(@PathVariable Long id) {
+//        return ResponseEntity.ok(edgeService.findById(id));
+//    }
 
     // 엣지 생성
     @PostMapping("/page/{pageId}")

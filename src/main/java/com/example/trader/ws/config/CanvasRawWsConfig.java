@@ -1,4 +1,4 @@
-package com.example.trader.config;
+package com.example.trader.ws.config;
 
 import com.example.trader.common.handler.CanvasRawWsHandler;
 import lombok.RequiredArgsConstructor;

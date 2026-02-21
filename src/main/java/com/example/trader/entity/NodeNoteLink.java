@@ -41,6 +41,8 @@ public class NodeNoteLink {
     @Column(name = "note_subject", insertable = false, updatable = false)
     private String noteSubject;
 
+    //TODO:오너명을 추가할지
+
     // (옵션) 메타필드들: anchorX, anchorY ...
 
     public static NodeNoteLink of(Node node, Note note) {
