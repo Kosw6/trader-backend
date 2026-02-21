@@ -136,6 +136,24 @@ public class JwtTokenProvider {
         return null;
     }
 
+    //todo:쿠키 기반으로 수정
+//    public String resolveToken(HttpServletRequest request) {
+//
+//        Cookie[] cookies = request.getCookies();
+//
+//        if (cookies == null) {
+//            return null;
+//        }
+//
+//        for (Cookie cookie : cookies) {
+//            if ("accessToken".equals(cookie.getName())) {
+//                return cookie.getValue();
+//            }
+//        }
+//
+//        return null;
+//    }
+
      //Authentication 객체 생성
     //여기서 검증X + loginId 레포지토리 검색 대신 토큰에 담긴 정보 가져오기 -> 사용자 정보는 UserDetailsService를 Override한 메서드로 DB조회
 //    public Authentication getAuthentication(String token, UserDetailsService userDetailsService) throws UnsupportedEncodingException {

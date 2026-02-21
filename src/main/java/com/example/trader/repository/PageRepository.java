@@ -77,6 +77,14 @@ public interface PageRepository extends JpaRepository<Page,Long> {
     List<Long> findPageIdsInDirectoryTreeInTeam(@Param("dirId") Long dirId,
                                                 @Param("teamId") Long teamId);
 
+    @Query("""
+    select count(p) > 0
+    from Page p
+    where p.id = :pageId
+      and p.directory.user.id = :userId
+    """)
+    boolean existsPersonalPage(@Param("pageId") Long pageId, @Param("userId") Long userId);
+
     boolean existsByIdAndUserId(Long id, Long userId);
 
     Long deleteByIdAndUserId(Long id, Long userId);

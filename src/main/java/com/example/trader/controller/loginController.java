@@ -69,7 +69,7 @@ public class loginController {
 //                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/api/login/signin")//로그인 기능
-    public ResponseEntity login(@RequestBody LoginRequest loginRequest, HttpServletResponse response) throws IOException {
+    public ResponseEntity<?> login(@RequestBody LoginRequest loginRequest, HttpServletResponse response) throws IOException {
         try {
             //빈으로 등록하면서 커스텀 Provider을 제공한 AuthenticationManager로 유저 정보를 검증함
             Authentication authentication = authenticationManager.authenticate(
@@ -110,7 +110,7 @@ public class loginController {
     )
     @ApiResponse(responseCode = "201", description = "성공")
     @PostMapping("/api/login/signup")
-    public ResponseEntity join(@RequestBody SingUpDto singUpDto){
+    public ResponseEntity<?> join(@RequestBody SingUpDto singUpDto){
         User user = User.builder()
                 .nickName(singUpDto.nickName())
                 .loginId(singUpDto.loginId())
@@ -126,7 +126,7 @@ public class loginController {
     }
 
     @GetMapping("/api/login/refresh")
-    public ResponseEntity refreshJwt(HttpServletRequest request, HttpServletResponse response) throws UnsupportedEncodingException {
+    public ResponseEntity<?> refreshJwt(HttpServletRequest request, HttpServletResponse response) throws UnsupportedEncodingException {
 //        log.info("refresh catch");
 //        log.info("request.getCookies():",request.getCookies());
             if(request.getCookies()!=null){
@@ -159,4 +159,30 @@ public class loginController {
     }
 
 
+    @PostMapping("/api/login/logout")
+    public ResponseEntity<?> logout(HttpServletResponse response) {
+
+        // accessToken 삭제
+        ResponseCookie deleteAccess = ResponseCookie.from("accessToken", "")
+                .httpOnly(true)
+                .secure(false) // 배포시 true
+                .path("/")
+                .maxAge(0)
+                .sameSite("Lax")
+                .build();
+
+        // refreshToken 삭제
+        ResponseCookie deleteRefresh = ResponseCookie.from("refreshToken", "")
+                .httpOnly(true)
+                .secure(false) // 배포시 true
+                .path("/")
+                .maxAge(0)
+                .sameSite("Lax")
+                .build();
+
+        response.addHeader("Set-Cookie", deleteAccess.toString());
+        response.addHeader("Set-Cookie", deleteRefresh.toString());
+
+        return ResponseEntity.ok().build();
+    }
 }

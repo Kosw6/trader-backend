@@ -22,6 +22,17 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
     //노드가 특정 페이지에 속하는지까지 포함
     boolean existsByIdAndPageIdAndPageDirectoryTeamId(Long nodeId, Long pageId, Long teamId);
 
+
+    @Query("""
+    select n
+    from Node n
+    where n.id = :nodeId
+      and n.page.id = :pageId
+      and n.page.directory.user.id = :userId
+    """)
+    Optional<Node> findPersonalNode(@Param("nodeId") Long nodeId,
+                                    @Param("pageId") Long pageId,
+                                    @Param("userId") Long userId);
     @Query("""
     select distinct n
     from Node n
@@ -43,6 +54,17 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
     Optional<Node> findByIdWithLinksInTeamGraph(@Param("nodeId") Long nodeId,
                                                 @Param("graphId") Long graphId,
                                                 @Param("teamId") Long teamId);
+
+    @Query("""
+    select n
+    from Node n
+    where n.id = :nodeId
+      and n.page.id = :pageId
+      and n.page.directory.team.id = :teamId
+    """)
+    Optional<Node> findTeamNode(@Param("nodeId") Long nodeId,
+                                @Param("pageId") Long pageId,
+                                @Param("teamId") Long teamId);
     //fetch용 단건
     @Query("""
         select distinct n 
@@ -52,14 +74,14 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
         """)
     Optional<Node> findByIdWithLinks(@Param("id") Long id);
 
-    //Lazy로딩용 목록
-    @Query("""
-        select distinct n
-        from Node n
-        where n.page.id = :pageId
-        order by n.id
-        """)
-    List<Node>  findAllByPageId(@Param("pageId")Long pageId);
+//    //Lazy로딩용 목록
+//    @Query("""
+//        select distinct n
+//        from Node n
+//        where n.page.id = :pageId
+//        order by n.id
+//        """)
+//    List<Node>  findAllByPageId(@Param("pageId")Long pageId);
     //fetch용 목록-노드기반
     @Query("""
     select distinct n
