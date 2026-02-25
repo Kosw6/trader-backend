@@ -91,4 +91,24 @@ public interface PageRepository extends JpaRepository<Page,Long> {
 
     boolean existsByIdAndDirectoryTeamId(Long id, Long teamId);
 
+    @Query("""
+        select new com.example.trader.dto.map.ResponsePageDto(p.id, p.title, d.id)
+        from Page p
+        join p.directory d
+        where d.team.id = :teamId
+        order by p.id asc
+    """)
+    List<ResponsePageDto> findAllDtoByTeamId(@Param("teamId") Long teamId);
+
+    @Query("""
+        select new com.example.trader.dto.map.ResponsePageDto(p.id, p.title, d.id)
+        from Page p
+        join p.directory d
+        where d.id = :dirId
+          and d.team.id = :teamId
+        order by p.id asc
+    """)
+    List<ResponsePageDto> findAllDtoByDirectoryAndTeamId(@Param("dirId") Long dirId,
+                                                         @Param("teamId") Long teamId);
+
 }

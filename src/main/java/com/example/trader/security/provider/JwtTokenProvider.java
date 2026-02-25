@@ -8,6 +8,7 @@ import com.example.trader.entity.User;
 import com.example.trader.exception.BaseException;
 import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.service.UserService;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -129,10 +130,19 @@ public class JwtTokenProvider {
 
     // 요청에서 JWT 토큰 추출
     public String resolveToken(HttpServletRequest request) {
-        String bearerToken = request.getHeader("Authorization");//accessToken는 헤더에 담겨서 [refreshToken은 쿠키로]
-        if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
-            return bearerToken.substring(7);
+
+        Cookie[] cookies = request.getCookies();
+
+        if (cookies == null) {
+            return null;
         }
+
+        for (Cookie cookie : cookies) {
+            if ("accessToken".equals(cookie.getName())) {
+                return cookie.getValue();
+            }
+        }
+
         return null;
     }
 

@@ -44,4 +44,5 @@ out/
 /bin/
 .idea/
 *.iml
-application.yml.env 
+application.yml.env
+.yml

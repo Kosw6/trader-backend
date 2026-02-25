@@ -1,11 +1,12 @@
 package com.example.trader.ws.raw.dto;
 
 public record RawCursorMessage(
-        String type,      // "cursor"
+        String type,
         Long teamId,
         Long graphId,
-        Long userId,      // 서버가 세팅해도 됨
-        String username,  // 서버가 세팅해도 됨
+        Long userId,
+        String nickName,
+        Long nodeId,     // DRAG_PREVIEW용 (CURSOR는 null)
         double x,
         double y,
         long sentAt

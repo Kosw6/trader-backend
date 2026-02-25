@@ -68,37 +68,45 @@ public class loginController {
 //            @ApiResponse(responseCode = "404", description = "사용자를 찾을 수 없음",
 //                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
-    @PostMapping("/api/login/signin")//로그인 기능
-    public ResponseEntity<?> login(@RequestBody LoginRequest loginRequest, HttpServletResponse response) throws IOException {
+    @PostMapping("/api/login/signin")
+    public ResponseEntity<?> login(@RequestBody LoginRequest loginRequest,
+                                   HttpServletResponse response) throws IOException {
         try {
-            //빈으로 등록하면서 커스텀 Provider을 제공한 AuthenticationManager로 유저 정보를 검증함
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(loginRequest.getLoginId(), loginRequest.getPassword())
             );
-            //유저ID로 토큰발행 -> 이렇게 하면 회원가입 정보가 없는 oauth2도 사용가능
-            UserContext userContext= (UserContext) authentication.getPrincipal();
-            String loginId = userContext.getUserDto().getLoginId();
-            // 2. 유저아이디로 Access 토큰 및 Refresh 토큰 생성
-            String accessToken = jwtTokenProvider.createAccessToken(loginId);
-            String refreshToken = jwtTokenProvider.createRefreshToken(loginId,accessToken);
 
-            // 3. Refresh 토큰을 HttpOnly 쿠키에 저장 (클라이언트가 접근하지 못하게 하기 위함)
-            ResponseCookie cookie = ResponseCookie.from("refreshToken", refreshToken)
+            UserContext userContext = (UserContext) authentication.getPrincipal();
+            String loginId = userContext.getUserDto().getLoginId();
+
+            String accessToken = jwtTokenProvider.createAccessToken(loginId);
+            String refreshToken = jwtTokenProvider.createRefreshToken(loginId, accessToken);
+
+            // ✅ accessToken 쿠키
+            ResponseCookie accessCookie = ResponseCookie.from("accessToken", accessToken)
                     .httpOnly(true)
-                    .secure(false) // 개발 환경에서는 false
+                    .secure(false)          // 배포(HTTPS)면 true
+                    .path("/")
+                    .maxAge(60 * 30)        // 예: 30분
+                    .sameSite("Lax")        // cross-site면 None 필요
+                    .build();
+
+            // ✅ refreshToken 쿠키
+            ResponseCookie refreshCookie = ResponseCookie.from("refreshToken", refreshToken)
+                    .httpOnly(true)
+                    .secure(false)          // 배포(HTTPS)면 true
                     .path("/")
                     .maxAge(7 * 24 * 60 * 60)
-                    .sameSite("Lax") // "Lax" 또는 "Strict"도 가능
+                    .sameSite("Lax")
                     .build();
-            response.addHeader("Set-Cookie", cookie.toString());
 
-            // 4. Access 토큰을 응답 바디에 담아서 반환
-            Map<String, String> tokens = new HashMap<>();
-            tokens.put("accessToken", accessToken);
-            return ResponseEntity.ok().body(tokens);
-              // Access 토큰은 클라이언트 측에서 로컬 스토리지 또는 메모리에 저장하여 사용
+            response.addHeader("Set-Cookie", accessCookie.toString());
+            response.addHeader("Set-Cookie", refreshCookie.toString());
+
+            // ✅ 완전 쿠키 기반이면 바디는 비워도 됨(프론트가 토큰을 들고 있을 필요가 없음)
+            return ResponseEntity.ok().build();
+
         } catch (AuthenticationException e) {
-            // 인증 실패 시 401 Unauthorized 응답
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         } catch (UnsupportedEncodingException e) {
             throw new UnsupportedEncodingException();
@@ -126,39 +134,59 @@ public class loginController {
     }
 
     @GetMapping("/api/login/refresh")
-    public ResponseEntity<?> refreshJwt(HttpServletRequest request, HttpServletResponse response) throws UnsupportedEncodingException {
-//        log.info("refresh catch");
-//        log.info("request.getCookies():",request.getCookies());
-            if(request.getCookies()!=null){
-            for (Cookie cookie : request.getCookies()) {
-//                log.info(cookie.getName());
-                if("refreshToken".equals(cookie.getName())){
-                    //토큰 확인하고 복호화
-                    String token = cookie.getValue();
-                    String loginId = jwtTokenProvider.getTokenInfo(token);
-                    // 토큰이 존재하고 유효하면 사용자 정보를 SecurityContext에 설정 && 토큰유지기한이 유효한지 체크
-                    if (loginId!=null && jwtTokenProvider.validateToken(token)!=null) {
-                        // 2. 유저아이디로 Access 토큰 및 Refresh 토큰 생성
-                        String accessToken = jwtTokenProvider.createAccessToken(loginId);
-                        String refreshToken = jwtTokenProvider.createRefreshToken(loginId,accessToken);
-                        Cookie refreshTokenCookie = new Cookie("refreshToken", refreshToken);
-                        refreshTokenCookie.setHttpOnly(true);
-                        refreshTokenCookie.setSecure(true); // HTTPS로만 전송 가능
-                        refreshTokenCookie.setPath("/");    // 모든 경로에서 접근 가능
-                        refreshTokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7일간 유효
-                        response.addCookie(refreshTokenCookie);
-                        Map<String, String> tokens = new HashMap<>();
-                        tokens.put("accessToken", accessToken);
-                        return ResponseEntity.ok().body(tokens);
-                    }
+    public ResponseEntity<?> refreshJwt(HttpServletRequest request, HttpServletResponse response)
+            throws UnsupportedEncodingException {
+
+        String refreshToken = null;
+
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie c : cookies) {
+                if ("refreshToken".equals(c.getName())) {
+                    refreshToken = c.getValue();
+                    break;
                 }
             }
-
         }
+
+        if (refreshToken == null) {
+            throw new BaseException(BaseResponseStatus.FAIL_TOKEN_AUTHORIZATION);
+        }
+
+        String loginId = jwtTokenProvider.getTokenInfo(refreshToken);
+
+        if (loginId != null && jwtTokenProvider.validateToken(refreshToken) != null) {
+
+            String newAccess = jwtTokenProvider.createAccessToken(loginId);
+            String newRefresh = jwtTokenProvider.createRefreshToken(loginId, newAccess);
+
+            ResponseCookie accessCookie = ResponseCookie.from("accessToken", newAccess)
+                    .httpOnly(true)
+                    .secure(false)     // 배포면 true
+                    .path("/")
+                    .maxAge(60 * 30)
+                    .sameSite("Lax")
+                    .build();
+
+            ResponseCookie refreshCookie = ResponseCookie.from("refreshToken", newRefresh)
+                    .httpOnly(true)
+                    .secure(false)     // 배포면 true
+                    .path("/")
+                    .maxAge(7 * 24 * 60 * 60)
+                    .sameSite("Lax")
+                    .build();
+
+            response.addHeader("Set-Cookie", accessCookie.toString());
+            response.addHeader("Set-Cookie", refreshCookie.toString());
+
+            return ResponseEntity.ok().build();
+        }
+
         throw new BaseException(BaseResponseStatus.FAIL_TOKEN_AUTHORIZATION);
     }
 
 
+    //todo:토큰 블랙,화이트리스트 구현(탈취시 위험 저하)
     @PostMapping("/api/login/logout")
     public ResponseEntity<?> logout(HttpServletResponse response) {
 
