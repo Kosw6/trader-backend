@@ -43,17 +43,17 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
     Optional<Node> findPersonalNodeWithLinks(@Param("nodeId") Long nodeId,
                                              @Param("userId") Long userId);
 
-    @Query("""
-    select distinct n
-    from Node n
-    left join fetch n.links l
-    where n.id = :nodeId
-      and n.page.id = :graphId
-      and n.page.directory.team.id = :teamId
-    """)
-    Optional<Node> findByIdWithLinksInTeamGraph(@Param("nodeId") Long nodeId,
-                                                @Param("graphId") Long graphId,
-                                                @Param("teamId") Long teamId);
+//    @Query("""
+//    select distinct n
+//    from Node n
+//    left join fetch n.links l
+//    where n.id = :nodeId
+//      and n.page.id = :graphId
+//      and n.page.directory.team.id = :teamId
+//    """)
+//    Optional<Node> findByIdWithLinksInTeamGraph(@Param("nodeId") Long nodeId,
+//                                                @Param("graphId") Long graphId,
+//                                                @Param("teamId") Long teamId);
 
     @Query("""
     select n

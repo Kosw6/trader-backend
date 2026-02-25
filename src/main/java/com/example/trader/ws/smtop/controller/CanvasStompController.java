@@ -1,5 +1,6 @@
 package com.example.trader.ws.smtop.controller;
 
+import com.example.trader.ws.raw.WsAttrs;
 import com.example.trader.ws.smtop.dto.CursorMessage;
 import com.example.trader.ws.smtop.dto.LockMessage;
 import com.example.trader.ws.smtop.dto.NodeMoveMessage;
@@ -8,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 
@@ -41,13 +43,30 @@ public class CanvasStompController {
     @MessageMapping("/teams/{teamId}/graphs/{graphId}/presence/cursor")
     public void cursor(@DestinationVariable Long teamId,
                        @DestinationVariable Long graphId,
-                       @Payload CursorMessage msg,
-                       Principal principal) {
+                       @Payload CursorMessage in,
+                       SimpMessageHeaderAccessor accessor) {
 
-//        msg.username(principal.getName()); // CursorMessage에 sender 필드 추가 권장
+        Long userId = (Long) accessor.getSessionAttributes().get(WsAttrs.USER_ID);
+        String nickName = (String) accessor.getSessionAttributes().get(WsAttrs.NICKNAME);
+
+        // userId 없으면 끊기(보안)
+        if (userId == null) return;
+
+        // RAW와 동일하게 서버 authoritative로 덮어쓰기(성능테스트 공정성)
+        CursorMessage out = new CursorMessage(
+                "CURSOR",
+                teamId,
+                graphId,
+                userId,
+                nickName,
+                in.x(),
+                in.y(),
+                in.sentAt()
+        );
+
         messagingTemplate.convertAndSend(
                 "/topic/teams/" + teamId + "/graphs/" + graphId + "/presence",
-                msg
+                out
         );
     }
 

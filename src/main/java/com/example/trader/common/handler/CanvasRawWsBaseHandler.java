@@ -15,7 +15,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
 
 @Component
 @Slf4j
-public class CanvasRawWsHandler extends TextWebSocketHandler {
+public class CanvasRawWsBaseHandler extends TextWebSocketHandler {
 
     // roomKey -> sessions
     private final ConcurrentHashMap<String, CopyOnWriteArraySet<WebSocketSession>> rooms = new ConcurrentHashMap<>();

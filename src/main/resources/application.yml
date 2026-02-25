@@ -10,7 +10,7 @@ spring:
       idle-timeout: 30000
     url: jdbc:postgresql://localhost:5432/trader
     username: postgres
-    password: '060606'
+    password: 'warandme1!'
   jpa:
     hibernate:
       ddl-auto: update
@@ -89,7 +89,7 @@ management:
     tags:
       application: trader-backend  # (옵션) 공통 태그
 
-# Tomcat 메트릭을 위해 MBean registry 활성화 (매우 중요)
+# Tomcat 메트릭을 위해 MBean registry 활성화
 server:
   tomcat:
     threads:
@@ -112,7 +112,7 @@ logging:
     io.micrometer: ERROR
     io.micrometer.core: ERROR
     io.micrometer.prometheus: ERROR
-    reactor.netty: ERROR        # WebClient/Netty 쓰면 여기서도 찍힐 수 있음
+    reactor.netty: ERROR
     org.apache.catalina: ERROR  # Tomcat
     org.apache.tomcat: ERROR
     com.zaxxer.hikari: ERROR
@@ -124,3 +124,6 @@ logging:
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR  # SQL 경고는 숨기고 에러만
     org.hibernate.type.descriptor.sql.BasicBinder: OFF  # (Hibernate 5 계열)
     org.hibernate.orm.jdbc.extract: OFF                 # (Hibernate 6 계열)
+#    org.springframework.web.socket: DEBUG
+#    org.springframework.web.socket.handler: DEBUG
+#    org.springframework.web.socket.server: DEBUG

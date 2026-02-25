@@ -42,6 +42,25 @@ public interface DirectoryRepository extends JpaRepository<Directory,Long> {
 
     boolean existsByIdAndUserId(Long id, Long userId);
 
+    @Query("""
+        select new com.example.trader.dto.map.ResponseDirectoryDto(d.id, d.name, p.id)
+        from Directory d
+        left join d.parent p
+        where d.team.id = :teamId
+        order by d.id asc
+    """)
+    List<ResponseDirectoryDto> findAllDtoByTeamId(@Param("teamId") Long teamId);
+
+    @Query("""
+        select new com.example.trader.dto.map.ResponseDirectoryDto(d.id, d.name, p.id)
+        from Directory d
+        left join d.parent p
+        where d.id = :dirId
+          and d.team.id = :teamId
+    """)
+    Optional<ResponseDirectoryDto> findDtoByIdAndTeamId(@Param("dirId") Long dirId,
+                                                        @Param("teamId") Long teamId);
+
     @Query(value = """
         WITH RECURSIVE sub AS (
             SELECT d.id
