@@ -41,7 +41,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 @Slf4j
-@EnableWebSecurity(debug = true)
+@EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 @Configuration//빈설정파일
 @RequiredArgsConstructor

@@ -17,9 +17,9 @@ spring:
     properties:
       hibernate.jdbc.lob.non_contextual_creation: true
       hibernate.enhancer.enableLazyInitialization: true   # ★ 기본타입 LAZY가 실제로 동작
-      hibernate.show_sql: true
-      hibernate.format_sql: true
-      hibernate.use_sql_comments: true
+      hibernate.show_sql: false
+      hibernate.format_sql: false
+      hibernate.use_sql_comments: false
       hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
   data:
     redis:
@@ -116,8 +116,8 @@ logging:
     org.apache.catalina: ERROR  # Tomcat
     org.apache.tomcat: ERROR
     com.zaxxer.hikari: ERROR
-    org.hibernate: INFO                 # 전체 상한
-    org.hibernate.SQL: INFO               # 실행 SQL 줄
+    org.hibernate: OFF                 # 전체 상한
+    org.hibernate.SQL: OFF               # 실행 SQL 줄
     org.hibernate.type: OFF              # 파라미터 타입/바인딩
     org.hibernate.orm.jdbc.bind: OFF     # (Hibernate 6) 바인드 값 디버그
     org.hibernate.orm.results: OFF       # (Hibernate 6) 결과 매핑 로그

@@ -87,7 +87,154 @@ Spring STOMP 기반 메시징 방식과
 
 | Type     | Duration | Errors | Received  | Recv/s    | ≤200ms     | ≤1000ms |
 | -------- | -------- | ------ | --------- | --------- | ---------- | ------- |
-| RAW #1   | 61.93s   | 0      | 9,004     | 145.40    | **27.84%** | 100.00% |
-| RAW #2   | 64.45s   | 0      | 5,134     | 79.66     | **0.25%**  | 100.00% |
+| RAW #1   | 65.93s   | 0      | 6,509     | 99.52    | **1.03%** | 82.89% |
+| RAW #2   | 64.69s   | 0      | 5,346     | 82.64     | **5.76%**  | 100.00% |
 | STOMP #1 | 62.53s   | 0      | 1,948,286 | 31,156.87 | **0.01%**  | 0.46%   |
 | STOMP #2 | 62.66s   | 0      | 1,799,164 | 28,713.92 | **0.30%**  | 1.19%   |
+
+### 문제 발생
+위 두가지 테스트를 진행한 결과 RAW의 수신량이 STOMP에 비해 현저히 낮은 것을 확인 할 수 있었다.
+
+- 이상적인 수신량 : 20Hz * 20send * 30s*  200recive = 2,400,000msg/s
+- STOMP또한 이상적인 수신량에 미치지 못하지만 RAW는 그에 훨씬 못미치는 수치이다. 중앙값 기준 : **6000 VS 1,800,000**
+
+### 원인 분석
+이를 확인하기 위해 RAW쪽 핸들러 코드에 디버깅 로그를 넣어 확인하였다.
+
+```java
+
+@Override
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        try {
+            log.info("[RAW] open session={} uri={} principal={} cookie={}",
+                    session.getId(),
+                    session.getUri(),
+                    (session.getPrincipal() != null ? session.getPrincipal().getName() : null),
+                    session.getHandshakeHeaders().getFirst("Cookie")
+            );
+
+            ...
+            ...
+
+            registry.join(roomKey, session);
+            // (옵션) 로그: 현재 room size
+            log.info("[RAW] joined roomKey={} size={}", roomKey, registry.size(roomKey));
+
+        } catch (Exception e) {
+            log.error("[RAW] afterConnectionEstablished failed session={} uri={}",
+                    session.getId(), session.getUri(), e);
+            try { session.close(CloseStatus.SERVER_ERROR); } catch (Exception ignore) {}
+        }
+    }
+
+
+public void leave(String roomKey, WebSocketSession session) {
+        Set<WebSocketSession> set = rooms.get(roomKey);
+        if (set == null) return;
+
+        boolean removed = set.remove(session);
+        int size = set.size();
+        if (removed) log.info("[RAW] left session={} roomKey={} size={}", session.getId(),roomKey, size);
+
+        set.remove(session);
+
+        // ✅ race 방지: remove할 때 "아직 같은 set"일 때만 제거
+        if (set.isEmpty()) {
+            rooms.remove(roomKey, set);
+        }
+    }
+
+```
+
+- 위의 코드에서는 같은 토픽(룸)에 들어간 사용자의 수를 로깅하고 있으며 예외가 발생할 경우 원인을 출력하도록 되어있다.
+- leave()메서드는 세션 연결 종료 및 예외 발생시 실행하게 되어있으며 해당 메서드에도 로깅 처리하였다.
+
+```
+# 동시 send 실패 발생
+17:02:24.353 WARN [exec-144] [RAW] send fail roomKey=1:1 session=b508ac... ex=IllegalStateException: TEXT_PARTIAL_WRITING
+17:02:24.353 WARN [exec-21 ] [RAW] send fail roomKey=1:1 session=c1e70c... ex=IllegalStateException: TEXT_PARTIAL_WRITING
+17:02:24.354 WARN [exec-112] [RAW] send fail roomKey=1:1 session=5f57c2... ex=IllegalStateException: TEXT_PARTIAL_WRITING
+17:02:24.357 WARN [exec-119] [RAW] send fail roomKey=1:1 session=dbd197... ex=IllegalStateException: TEXT_PARTIAL_WRITING
+
+
+# 실패 직후 room size 감소(세션 닫힘)
+17:02:24.353 INFO [exec-24 ] [RAW] left session=59c431... roomKey=1:1 size=13
+17:02:24.356 INFO [exec-144] [RAW] left session=0c951d... roomKey=1:1 size=5
+17:02:24.357 INFO [exec-24 ] [RAW] left session=3b9f54... roomKey=1:1 size=2
+17:02:24.359 INFO [exec-144] [RAW] left session=ccdec1... roomKey=1:1 size=0
+
+# 이후 네트워크 오류(세션 불안정 및 클라이언트 연결 리셋 발생)
+17:02:31 WARN [exec-5 ] [RAW] transport error session=a80cce... ex=Connection reset
+17:02:31 WARN [exec-129] [RAW] transport error session=661cae... ex=Connection reset
+
+```
+
+#### 원인 분석 결과
+- 200명 동시 접속 환경에서 브로드캐스트 수행 중, 동일 세션에 대한 동시 sendMessage() 호출로 인해 TEXT_PARTIAL_WRITING 예외가 다수 발생하였다.
+예외 직후 leave()가 연쇄적으로 호출되며 room size가 13 → 0까지 급격히 감소하였다.
+이는 WebSocketSession의 비동기 동시 write 재진입이 세션 제거를 유발하고, 결과적으로 브로드캐스트 전파 범위를 붕괴시키는 현상을 보여준다.
+- 이 때문에 k6 성능 결과에서 raw가 더 낮은 수신량을 가진다는 것을 알 수 있다.
+
+### RAW 동시성 해결
+1. 문제의 핵심은 동일 WebSocketSession 에 대해 멀티스레드 환경에서 sendMessage()가 같은 세션에 동시에 호출되며, Tomcat RemoteEndpoint가 TEXT_PARTIAL_WRITING 상태에서 재진입을 허용하지 않아 예외가 발생하는 것이다.
+2. 해결 방향은 “세션 단위로 send를 직렬화”하는 것이며, 대표적으로 다음 두 가지 접근이 가능하다.
+    1. ```sendMessage``` 호출을 ```synchronized```로 보호
+    2. 세션을 ```ConcurrentWebSocketSessionDecorator```로 감싸 전송을 직렬화 + 버퍼링
+
+#### 차이점
+- synchronized 
+    - 동일 세션에 대한 sendMessage()를 락 기반으로 직렬화한다.
+    - 해당 세션 전송이 느려지면 다른 스레드들은 락을 기다리며 대기(block) 하게 되고, 특히 브로드캐스트 호출이 많이 겹치는 상황에서는 요청 처리 지연이 누적되고 전체 처리량이 떨어질 수 있다.
+- ConcurrentWebSocketSessionDecorator
+    - 세션 단위로 전송을 직렬화하되, 동시에 들어온 전송 요청은 세션별 버퍼에 적재한다.
+    - 버퍼가 쌓이거나 전송이 오래 걸리는 경우, 설정 값(sendTimeLimit, bufferSizeLimit)을 초과하면 예외를 발생시키거나 세션을 종료하여, 특정 느린 세션이 전체 브로드캐스트/시스템 안정성을 끌어내리는 상황을 제한할 수 있다(백프레셔).
+
+따라서 현재 구조에서는 세션을 ConcurrentWebSocketSessionDecorator로 감싸 쓰기 작업을 진행하였다.
+
+#### 변경된 코드
+```java
+int sendTimeLimitMs = 5000;         //시간 제한
+int bufferSizeLimitBytes = 512 * 1024; //버퍼 사이즈 제한
+
+WebSocketSession safeSession = new ConcurrentWebSocketSessionDecorator(session, sendTimeLimitMs, bufferSizeLimitBytes);   
+
+registry.join(roomKey, safeSession);
+```
+
+### RAW 동시성 문제 개선 후 결과
+
+| Type   | Duration | Errors | Received  | Recv/s    | ≤200ms | ≤1000ms |
+| ------ | -------- | ------ | --------- | --------- | ------ | ------- |
+| 개선 전 RAW #1   | 65.93s   | 0      | 6,509     | 99.52    | **1.03%** | 82.89% |
+| 개선 전 RAW #2   | 64.69s   | 0      | 5,346     | 82.64     | **5.76%**  | 100.00% |
+| 개선 후 RAW #3 | 64.61s   | 0      | 2,399,800 | 37,140.33 | 0.00%  | 0.39%   |
+| 개선 후 RAW #4 | 62.90s   | 0      | 2,396,399 | 38,100.29 | 0.38%  | 2.11%   |
+
+- 테스트 결과 RAW또한 예상한 이상적인 수치에 근접하게 수신량이 늘어난 것을 확인할 수 있다.
+
+#### 개선 전 오류량에 대하여
+- 추가로 개선 전 RAW 테스트에서 k6 기준 errors는 0으로 집계되었다.
+- 이는 TextWebSocketHandler의 handleTransportError()를 오버라이드하여, 전송 중 예외 발생 시 세션을 1011(Server Error)로 강제 종료하지 않고 해당 세션만 room registry에서 제거하도록 처리했기 때문이다.
+- 대량 접속 환경에서 1011 close는 연쇄 종료 및 재접속을 유발할 수 있으므로, 문제 세션만 격리하는 전략을 사용하였다.
+- 그 결과 k6에서는 비정상 종료로 판단되지 않아 error는 0으로 집계되었으나, 내부적으로는 세션 격리가 수행되었다.
+
+## 수신 메세지 지연과 구조적 한계
+
+* 두 가지의 테스트 결과, 동일 인스턴스 내 부하 환경에서도 대부분의 수신 메세지가 **1000ms 이상 지연**되는 것으로 확인되었다.
+* 해당 WebSocket 구조는 커서 이동, 하이라이트, 노드 드래그와 같이 **즉각적인 반응성이 요구되는 휘발성 이벤트**에 적용되어 있다.
+* 그러나 현재 구조는 모든 이벤트를 동일하게 브로드캐스트하며, 세션 단위 직렬화 및 버퍼링으로 인해 지연이 누적되는 구조적 한계를 가진다.
+
+### 문제점
+
+* 휘발성 데이터임에도 불구하고 **전량 전파(All-delivery)** 방식을 사용하고 있다.
+* 그 결과, 최신 상태만 중요함에도 이전 이벤트까지 모두 전송되어 **지연이 누적**된다.
+* 실시간 UX 기준(≈200ms 이하)을 충족하는 비율이 매우 낮다.
+
+### 개선 방향
+
+* 모든 데이터를 보장 전달하는 구조에서 벗어나,
+* **최신 상태만 유지하는 전송 전략(Last-value or Drop strategy)** 으로 전환하여
+* 200ms 이하 응답 비율을 높이고자 한다.
+
+## 
+

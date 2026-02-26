@@ -27,6 +27,10 @@ public class CanvasSessionRegistry {
         Set<WebSocketSession> set = rooms.get(roomKey);
         if (set == null) return;
 
+        boolean removed = set.remove(session);
+        int size = set.size();
+        if (removed) log.info("[RAW] left session={} roomKey={} size={}", session.getId(),roomKey, size);
+
         set.remove(session);
 
         // ✅ race 방지: remove할 때 "아직 같은 set"일 때만 제거
