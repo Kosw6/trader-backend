@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -40,8 +41,15 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             RoomIds room = parseRoomIds(session.getUri());
             String roomKey = registry.roomKey(room.teamId(), room.graphId());
 
+            // 세션 write 동시성 방지용 래핑 (세션당 1회)
+            int sendTimeLimitMs = 5000;          // ex: 1s
+            int bufferSizeLimitBytes = 512 * 1024; // ex: 256KB
+            WebSocketSession safeSession =
+                    new ConcurrentWebSocketSessionDecorator(session, sendTimeLimitMs, bufferSizeLimitBytes);
+
             session.getAttributes().put(WsAttrs.ROOM_IDS, room);
             session.getAttributes().put(WsAttrs.ROOM_KEY, roomKey);
+            session.getAttributes().put(WsAttrs.SAFE_SESSION, safeSession);
 
             // JWT 인터셉터에서 userId 주입 안 되었으면 차단
             if (session.getAttributes().get(WsAttrs.USER_ID) == null) {
@@ -49,8 +57,9 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 session.close(CloseStatus.NOT_ACCEPTABLE.withReason("unauthorized"));
                 return;
             }
-            log.info("before:join");
-            registry.join(roomKey, session);
+//            log.info("before:join");
+//            registry.join(roomKey, session);
+            registry.join(roomKey, safeSession);
             // (옵션) 로그: 현재 room size
             log.info("[RAW] joined roomKey={} size={}", roomKey, registry.size(roomKey));
 
@@ -126,15 +135,20 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 session.getId(), session.getUri(), exception.toString());
 
         if (roomKey != null) {
-            registry.leave(roomKey, session);
+            registry.leave(roomKey, safeOf(session));
         }
     }
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String roomKey = (String) session.getAttributes().get(WsAttrs.ROOM_KEY);
-        if (roomKey != null) registry.leave(roomKey, session);
+        if (roomKey != null) registry.leave(roomKey, safeOf(session));
         // log.debug("[RAW] closed session={} status={} roomKey={}", session.getId(), status, roomKey);
+    }
+
+    private WebSocketSession safeOf(WebSocketSession session) {
+        Object v = session.getAttributes().get(WsAttrs.SAFE_SESSION);
+        return (v instanceof WebSocketSession ws) ? ws : session;
     }
 
     private void broadcast(String roomKey, TextMessage payload) {
@@ -143,7 +157,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             if (s == null) continue;
 
             if (!s.isOpen()) {
-                registry.leave(roomKey, s);
+                registry.leave(roomKey, safeOf(s));
                 continue;
             }
 
@@ -152,7 +166,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             } catch (Exception sendEx) {
                 // ✅ send 실패는 흔히 “상대가 이미 끊김”이므로 close(1011) 하지 말고 제거만
                 log.warn("[RAW] send fail roomKey={} session={} ex={}", roomKey, s.getId(), sendEx.toString());
-                registry.leave(roomKey, s);
+                registry.leave(roomKey, safeOf(s));
             }
         }
     }

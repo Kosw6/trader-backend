@@ -8,4 +8,6 @@ public final class WsAttrs {
 
     public static final String USER_ID = "userId";
     public static final String NICKNAME = "nickName";
+
+    public static final String SAFE_SESSION = "SAFE_SESSION";
 }
