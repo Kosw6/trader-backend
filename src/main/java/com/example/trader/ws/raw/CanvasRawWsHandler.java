@@ -57,8 +57,6 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 session.close(CloseStatus.NOT_ACCEPTABLE.withReason("unauthorized"));
                 return;
             }
-//            log.info("before:join");
-//            registry.join(roomKey, session);
             registry.join(roomKey, safeSession);
             // (옵션) 로그: 현재 room size
             log.info("[RAW] joined roomKey={} size={}", roomKey, registry.size(roomKey));
@@ -67,7 +65,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             // ✅ 여기서 1011 close는 “증폭기”가 될 수 있음. 그냥 로그 + close(가능하면 normal)
             log.error("[RAW] afterConnectionEstablished failed session={} uri={}",
                     session.getId(), session.getUri(), e);
-            try { session.close(CloseStatus.SERVER_ERROR); } catch (Exception ignore) {}
+            try { session.close(); } catch (Exception ignore) {}
         }
     }
 
