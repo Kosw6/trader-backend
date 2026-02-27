@@ -24,7 +24,7 @@ public class CanvasRawWsBaseHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) {
         String roomKey = roomKey(session);
         rooms.computeIfAbsent(roomKey, k -> new CopyOnWriteArraySet<>()).add(session);
-        log.info("RAW connected room={} session={}", roomKey, session.getId());
+//        log.info("RAW connected room={} session={}", roomKey, session.getId());
     }
 
     @Override

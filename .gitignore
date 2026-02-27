@@ -46,4 +46,4 @@ out/
 *.iml
 application.yml.env
 .yml
-.json
+k6/outputs/*.json

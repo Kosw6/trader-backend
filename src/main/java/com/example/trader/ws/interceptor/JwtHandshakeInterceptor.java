@@ -61,7 +61,7 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
             attributes.put(WsAttrs.USER_ID, userId);
             attributes.put(WsAttrs.NICKNAME, nickName);
 
-            log.info("WS handshake success: userId={}, nickName={}", userId, nickName);
+//            log.info("WS handshake success: userId={}, nickName={}", userId, nickName);
 
             return true;
 
