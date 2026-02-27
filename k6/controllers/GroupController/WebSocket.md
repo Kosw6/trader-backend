@@ -236,5 +236,11 @@ registry.join(roomKey, safeSession);
 * **최신 상태만 유지하는 전송 전략(Last-value or Drop strategy)** 으로 전환하여
 * 200ms 이하 응답 비율을 높이고자 한다.
 
-## 
+## 1차 개선 DROP, ONLY-LATEST
+- raw,stomp 둘다 CURSOR와 같은 최신 정보만 필요한 데이터는 들어오는 메세지를 방에 따라 ConcurrentHashMap에 담는다.
+- CONTROL과 같이 노드 이동 후 드랍, 노드 수정과 같은 메세지는 LinkedQueue에 담아 순서를 보장하며 전부 보내도록 한다.
+- 이후 각각의 스케쥴러에서 100ms(10HZ),50ms(20HZ),33ms(30HZ)등에 따라 담았던 메세지를 전파한다.
+
+### 문제점
+- 두 테스트 모두 개선 후 
 

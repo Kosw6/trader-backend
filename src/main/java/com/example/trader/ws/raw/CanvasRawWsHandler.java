@@ -20,6 +20,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
 
     private final CanvasSessionRegistry registry;
     private final ObjectMapper objectMapper;
+    private final RawPresenceBroadcaster broadcaster;
 
     private static final String TYPE_CURSOR = "CURSOR";
     private static final String TYPE_DRAG = "DRAG_PREVIEW";
@@ -121,7 +122,16 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         );
 
         TextMessage safeMessage = new TextMessage(objectMapper.writeValueAsString(out));
-        broadcast(roomKey, safeMessage);
+
+        // ✅ 타입별 Drop + Latest
+        if (TYPE_CONTROL.equals(out.type())) {
+            // drop 금지
+            broadcaster.publishReliable(roomKey, safeMessage);
+        } else {
+            // CURSOR/DRAG_PREVIEW: sender(유저)별 latest만 유지
+            String key = makeLatestKey(out.type(), out.userId(), out.nodeId());
+            broadcaster.publishLatest(roomKey, key, safeMessage);
+        }
     }
 
     @Override
@@ -186,5 +196,17 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         return new RoomIds(Long.valueOf(teamIdStr), Long.valueOf(graphIdStr));
     }
 
+    private String makeLatestKey(String type, Long userId, Long nodeId) {
+        // 커서: type:userId
+        // 드래그: type:userId:nodeId (노드별 프리뷰가 필요하면)
+        if (TYPE_CURSOR.equals(type)) {
+            return type + ":" + userId;
+        }
+        if (TYPE_DRAG.equals(type)) {
+            return type + ":" + userId + ":" + (nodeId != null ? nodeId : 0L);
+        }
+        return type + ":" + userId;
+    }
     public record RoomIds(Long teamId, Long graphId) {}
+
 }

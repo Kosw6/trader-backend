@@ -1,6 +1,7 @@
 package com.example.trader.ws.smtop.controller;
 
 import com.example.trader.ws.raw.WsAttrs;
+import com.example.trader.ws.smtop.StompPresenceBroadcaster;
 import com.example.trader.ws.smtop.dto.CursorMessage;
 import com.example.trader.ws.smtop.dto.LockMessage;
 import com.example.trader.ws.smtop.dto.NodeMoveMessage;
@@ -21,6 +22,7 @@ public class CanvasStompController {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final NodeService nodeService;
+    private final StompPresenceBroadcaster stompPresenceBroadcaster;
 
     /**
      * 클라 SEND:
@@ -64,10 +66,15 @@ public class CanvasStompController {
                 in.sentAt()
         );
 
-        messagingTemplate.convertAndSend(
-                "/topic/teams/" + teamId + "/graphs/" + graphId + "/presence",
-                out
-        );
+//        messagingTemplate.convertAndSend(
+//                "/topic/teams/" + teamId + "/graphs/" + graphId + "/presence",
+//                out
+//        );
+        String roomKey = teamId + ":" + graphId;
+
+        // ✅ CURSOR: sender별 latest 덮어쓰기
+        String key = "CURSOR:" + userId;
+        stompPresenceBroadcaster.publishLatest(roomKey, key, out);
     }
 
     /**
