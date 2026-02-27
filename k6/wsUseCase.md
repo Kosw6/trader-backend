@@ -62,6 +62,35 @@ k6 run `
   -e SUMMARY=outputs/raw_cursor.json `
   scripts/ws_raw_cursor.js
 
+서버 jfr
+  k6 run `
+  -e BASE_URL=http://123.143.98.5:8080 `
+  -e USERS_CSV=../data/users_200_server.csv `
+  -e MODE=cursor `
+  -e VUS=200 -e TEST_DURATION_S=60 -e HOLD_MS=60000 `
+  -e TEAM_ID=1 -e GRAPH_ID=1 `
+  -e SENDER_RATIO=0.1 -e RATE=10 -e DURATION_S=30 `
+  -e PAD=200 `
+  -e LAT_OK_MS=200 -e LAT_WARN_MS=1000 `
+  -e RT_OK_200_MIN=0.90 -e RT_OK_1S_MIN=0.99 `
+  -e RT_OK_200_SEND_MIN=0.90 -e RT_OK_200_AFTER_MIN=0.90 `
+  -e SUMMARY=outputs/raw_cursor.json `
+  scripts/ws_raw_cursor.js
+로컬 jfr
+k6 run `
+  -e BASE_URL=http://localhost:8080 `
+  -e USERS_CSV=../data/users_200.csv `
+  -e MODE=cursor `
+  -e VUS=200 -e TEST_DURATION_S=60 -e HOLD_MS=60000 `
+  -e TEAM_ID=1 -e GRAPH_ID=1 `
+  -e SENDER_RATIO=0.1 -e RATE=10 -e DURATION_S=30 `
+  -e PAD=200 `
+  -e LAT_OK_MS=200 -e LAT_WARN_MS=1000 `
+  -e RT_OK_200_MIN=0.90 -e RT_OK_1S_MIN=0.99 `
+  -e RT_OK_200_SEND_MIN=0.90 -e RT_OK_200_AFTER_MIN=0.90 `
+  -e SUMMARY=outputs/raw_cursor.json `
+  scripts/ws_raw_cursor.js
+
 STOMP CURSOR (동일 조건)
 k6 run -e BASE_URL=http://localhost:8080 -e USERS_CSV=../data/users_200.csv -e MODE=cursor -e VUS=200 -e TEST_DURATION_S=60 -e HOLD_MS=60000 -e TEAM_ID=1 -e GRAPH_ID=1 -e SENDER_RATIO=0.1 -e RATE=20 -e DURATION_S=30 -e PAD=200 -e SUMMARY=outputs/stomp_cursor.json scripts/ws_stomp_cursor.js
 
@@ -83,6 +112,21 @@ k6 run `
   -e VUS=200 -e TEST_DURATION_S=60 -e HOLD_MS=60000 `
   -e TEAM_ID=1 -e GRAPH_ID=1 `
   -e SENDER_RATIO=0.1 -e RATE=20 -e DURATION_S=30 `
+  -e PAD=200 `
+  -e LAT_OK_MS=200 -e LAT_WARN_MS=1000 `
+  -e RT_OK_200_MIN=0.90 -e RT_OK_1S_MIN=0.99 `
+  -e RT_OK_200_SEND_MIN=0.90 -e RT_OK_200_AFTER_MIN=0.90 `
+  -e SUMMARY=outputs/stomp_cursor.json `
+  scripts/ws_stomp_cursor.js
+
+로컬jfr stomp
+  k6 run `
+  -e BASE_URL=http://localhost:8080 `
+  -e USERS_CSV=../data/users_200.csv `
+  -e MODE=cursor `
+  -e VUS=200 -e TEST_DURATION_S=60 -e HOLD_MS=60000 `
+  -e TEAM_ID=1 -e GRAPH_ID=1 `
+  -e SENDER_RATIO=0.1 -e RATE=10 -e DURATION_S=30 `
   -e PAD=200 `
   -e LAT_OK_MS=200 -e LAT_WARN_MS=1000 `
   -e RT_OK_200_MIN=0.90 -e RT_OK_1S_MIN=0.99 `

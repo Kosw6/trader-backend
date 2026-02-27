@@ -57,4 +57,8 @@ public class CanvasSessionRegistry {
         Set<WebSocketSession> set = rooms.get(roomKey);
         return set == null ? 0 : set.size();
     }
+
+    public java.util.Set<String> roomKeysSnapshot() {
+        return new java.util.HashSet<>(rooms.keySet());
+    }
 }
