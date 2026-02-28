@@ -2,7 +2,8 @@
 
 | 항목                   | 설정                                                                                                            |
 | -------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 서버 사양                | 4 Core / 16GB / SSD                                                                                           |
+| 서버사양 #1 (개발 환경,로컬 노트북)                | 6 Core / 32GB / SSD <br>-> 기능 비교 및 부하 패턴 분석용                                                                                 |
+| 서버사양 #2 (배포 서버,실험 최종)| 4 Core/16GB/SSD <br>-> Capacity 및 병목 분석용|
 | DB                   | PostgreSQL 17 + TimescaleDB                                                                                   |
 | 커넥션 풀                | HikariCP `maximumPoolSize=150`, `minimumIdle=80`                                                              |
 | 테스트 도구               | k6 v0.52                                                                                                      |
@@ -16,6 +17,8 @@
 | Max Pause Target     | 200ms (`-XX:MaxGCPauseMillis=200`, 기본값)                                                                       |
 | String Deduplication | Disabled (명시 옵션 미사용)                                                                                          |
 | SLO                  | **E2E 수신 지연 200ms 이하 성공률** (`<=200ms`)                                                                        |
+
+※ 로컬 환경은 상대 비교(구조/패턴 분석)에 사용하였으며, 최종 capacity 및 병목 분석은 배포 서버에서 수행하였다.
 
 ---
 
@@ -255,7 +258,8 @@ registry.join(roomKey, safeSession);
 - 두 테스트 모두 drop을 적용 후 200ms내로 들어오는 메세지 비율이 증가 및 동일한 Hz로 서버에서 브로드캐스팅 작업을 하여 항상 안정적인 수신량을 확인할 수 있다.
 
 ### 문제점
-- 메세지 수신의 1000ms이상 걸리는 비율이 raw,stomp 둘다 50프로에 근사하는 문제가 발생하였다.
+- ≤200ms가 48%대로 붕괴
+- 중복 flush 구조로 tail latency 왜곡
 
 #### 1차 개선 구조 및 원인
 - 현재는 다음과 같은 구조를 가진다
@@ -379,3 +383,263 @@ private void flushRoom(String roomKey) {
 1. 불필요한 중복 브로드캐스트 폭증
 2. 네트워크/CPU 리소스 낭비 → tail latency 악화
 3. 메모리 점유 증가(장기적으로 GC/OutOfMemory 위험)
+4. 결과 지표 왜곡(측정 오염)
+
+### 문제 해결 (dirtyFlag추가)
+
+```java
+public class RoomPresenceCoalescer<T>{
+    //더티 플래그 버퍼 추가
+    private final ConcurrentHashMap<String, AtomicBoolean> dirtyByRoom = new ConcurrentHashMap<>();
+
+    /**
+     * ✅ Dirty 기반 + DrainLatest
+     * - dirty=false면 아무것도 안 보냄
+     * - dirty=true면 latest를 "스냅샷 뜨면서 clear" (다음 tick 중복 전송 방지)
+     * - dirty는 여기서 false로 원자적으로 내림
+     */
+    public Collection<T> drainLatestIfDirty(String roomKey) {
+        AtomicBoolean dirty = dirtyByRoom.get(roomKey);
+        if (dirty == null || !dirty.compareAndSet(true, false)) {
+            return List.of();
+        }
+
+        var m = latestByRoom.get(roomKey);
+        if (m == null || m.isEmpty()) return List.of();
+
+        // snapshot + clear (drain)
+        ArrayList<T> out = new ArrayList<>(m.values());
+        m.clear();
+        return out;
+    }
+
+    public void publishLatest(String roomKey, String key, T msg) {
+        latestByRoom.computeIfAbsent(roomKey, rk -> new ConcurrentHashMap<>()).put(key, msg);
+        //더티플래그 추가
+        markDirty(roomKey);
+    }
+
+    private void markDirty(String roomKey) {
+        dirtyByRoom.computeIfAbsent(roomKey, rk -> new AtomicBoolean(false)).set(true);
+    }
+
+    //룸 정리
+    public void clearRoom(String roomKey) {
+        latestByRoom.remove(roomKey);
+        reliableQueueByRoom.remove(roomKey);
+        dirtyByRoom.remove(roomKey);
+    }
+}
+```
+
+#### 더티 플래그 추가 후 테스트 결과
+
+## 🔹 Sender=20 (0.1 × 200)
+
+| Type  | Dirty Flag | Duration | Errors | Received (events) | Recv/s    | ≤200ms     | ≤1000ms |
+| ----- | ---------- | -------- | ------ | ----------------- | --------- | ---------- | ------- |
+| RAW   | ❌ 미적용      | 64.00s   | 0      | 2,392,680         | 37,386.23 | **48.55%** | 51.44%  |
+| STOMP | ❌ 미적용      | 64.03s   | 0      | 2,396,660         | 37,431.44 | **48.21%** | 51.41%  |
+| RAW   | ✅ 적용       | 64.24s   | 0      | 1,958,600         | 30,487.20 | **99.97%** | 100.00% |
+| STOMP | ✅ 적용       | 64.67s   | 0      | 2,028,600         | 31,366.34 | **98.69%** | 100.00% |
+
+---
+
+- 더티 플래그 미적용
+![no_dirty](../../../image/nodirty_raw_20.png)
+- 더티 플래그 적용
+![dirty](../../../image/dirty_raw_20.png)
+
+- 센더의 메세지 전송이 지난 후 플래그를 적용한 이미지는 Memory, allocation이 전송 후 안정화 되는 것을 확인 할 수 있다.
+- 이를 통해 불필요한 중복 브로드캐스트, 메모리 점유, cpu리소스 사용을 제거하였다.
+
+---
+
+### 🔎 Dirty Flag 도입 후 테스트 결과 해석
+
+* 미적용 시 ≤200ms가 **48% 수준으로 붕괴하였다.**
+* 적용 후 ≤200ms **99% 이상 회복하였다.**
+* 미적용에서는 송신 이후에도 동일 최신값이 매 tick 재전송되어 recv/s가 **성능**이 아니라 **중복**이었다
+
+# 최종 STOMP VS RAW 비교
+두 WebSocket 구조를 동일한 조건(200명 접속, Rate=20Hz)에서 구축하고
+부하 및 런타임 분석을 통해 최종 채택 구조를 결정하였다.
+
+## 테스트/비교 목차
+1. 송신자 20/40명의 테스트 k6결과
+2. 송신자 40명의 테스트 jfr및 jmc를 이용한 런타임 분석
+3. 최종 채택과 이유
+### 1.송신자 20/40명 테스트 결과(Room=200,Rate=20Hz)
+| Sender | Type  | Duration | Errors | Received (events) | Recv/s    | ≤200ms     | ≤1000ms |
+| ------ | ----- | -------- | ------ | ----------------- | --------- | ---------- | ------- |
+| 20     | RAW   | 64.24s   | 0      | 1,958,600         | 30,487.20 | **99.97%** | 100.00% |
+| 20     | STOMP | 64.67s   | 0      | 2,028,600         | 31,366.34 | **98.69%** | 100.00% |
+| 40     | RAW   | 62.03s   | 0      | 2,713,236         | 43,744.17 | **89.89%** | 100.00% |
+| 40     | STOMP | 61.43s   | 0      | 2,443,877         | 39,785.70 | **78.04%** | 99.94%  |
+
+#### 분석
+
+- 송신자 20명 구간에서는 두 구조가 유사한 성능을 보였다.
+
+- 송신자 40명 고부하 구간에서 차이가 명확하게 발생했다.
+
+- STOMP는 ≤200ms 비율이 약 12%p 하락하였다.
+
+- RAW는 동일 조건에서 더 높은 실시간 응답률을 유지하였다
+
+### 2.송신자 40명 jfr, jmc분석
+
+|Type|Received|≤200ms|CPU Peek(JVM+App)|Byte[] TopAlloc|GC Total|GC Pause|
+|-------|-------|-------|-------|-------|-------|-------|
+|STOMP|2,443,877|**78.04%**|55.6%|999Mib(37.6%)|473.923ms|260.919ms|
+|RAW|2,713,236|**89.89%**|39.7%|1003MiB(46.4%)|820.713ms|301.644ms|
+
+#### 런타임 분석 결과
+
+* **STOMP는 CPU 사용률이 높다 (55.6%)**
+
+  * 프레임 인코딩/디코딩
+  * 브로커 라우팅 오버헤드
+  * 메시지 매핑 비용
+
+* **RAW는 CPU는 낮지만 GC Total이 더 높음**
+
+  * 직접 fanout 구조
+  * JSON 직렬화 과정에서 Byte[] 생성 반복
+
+그러나,
+
+> GC 증가에도 불구하고 RAW는 CPU saturation이 발생하지 않았으며
+> 결과적으로 ≤200ms 실시간 응답률을 더 높게 유지하였다.
+
+정리하자면
+
+* STOMP는 CPU-bound 경향
+* RAW는 할당이 다소 무겁지만 CPU-light 경향을 보인다.
+
+### 3. 최종 채택 및 이유
+#### 채택: **RAW WebSocket 구조**
+
+#### 채택 근거
+
+1. 고부하(40 sender) 환경에서 더 높은 실시간 응답률 유지
+2. CPU 사용률이 낮아 확장성 측면에서 유리
+3. 프로토콜 계층이 단순하여 처리 경로가 짧다.
+4. 요구사항 : **빠르고 가벼운 실시간 전송**
+
+>따라서, 현재 요구사항에 더 적합한 구조는 RAW 방식으로 판단하였다.
+
+다만 RAW는 운영에서 메시지 규약/재시도/개인큐/ACK 등은 직접 구현 비용이 있기에 단순한 알람등의 브로드캐스트는 STOMP를 적용하는 것도 고려된다.
+
+## (부록) 단일룸 환경이 아닌 멀티룸 환경에서 테스트
+단일 룸에서의 fanout 집중 현상이 실제 운영 환경에서도 동일하게 발생하는지 확인하기 위해,
+총 접속 인원은 동일하게 유지한 채 룸을 분산하여 테스트를 진행하였다.
+
+#### 테스트 조건
+
+- VU = 200
+- SenderRatio = 0.2 (총 40명)
+- Rate = 20Hz
+- Duration = 30s
+- Latest-Only + DirtyFlag 적용
+- 멀티룸의 유저는 룸 개수에 맞춰 나눠지며 센더 또한 룸의 유저수에 따라 나뉨
+
+### 단일룸(1 Room) VS 멀티룸(5 room)
+| Rooms | Users/Room | Senders/Room | Received (events) | Recv/s | ≤200ms      | ≤1000ms |
+| ----- | ---------- | ------------ | ----------------- | ------ | ----------- | ------- |
+| 1     | 200        | 40           | 2,821,600         | 44,238 | **92.45%**  | 100%    |
+| 5     | 40         | 8            | 949,480           | 15,114 | **100.00%** | 100%    |
+
+---
+
+### 🔎 멀티룸 테스트 결과 요약
+
+* 동일 총 접속 인원(200명), 동일 송신률(20Hz) 조건에서
+  단일룸(200명)과 팀/그래프 단위로 분리된 멀티룸(40명 × 5개)을 비교하였다.
+
+* 멀티룸 구조에서는 각 팀/그래프별로 브로드캐스트 범위가 분리되므로
+  단일룸 대비 fanout 집중도가 낮아진다.
+
+* 그 결과, 단일룸 환경에서는 ≤200ms 비율이 약 92% 수준이었던 반면,
+  팀/그래프 단위로 분리된 멀티룸 환경에서는 **≤200ms가 100%로 안정적으로 유지**되었다.
+
+* 수신 이벤트 총량이 감소한 것은 성능 저하가 아니라,
+  각 사용자가 해당 팀/그래프의 이벤트만 수신하도록 설계된
+  도메인 구조상 정상적인 동작이다.
+
+> 즉, 팀/그래프 단위 룸 분리는 단순한 성능 최적화가 아니라,
+> 도메인 경계를 기반으로 브로드캐스트 범위를 자연스럽게 제한하여
+> 실시간성을 더 안정적으로 유지하는 구조임을 확인하였다.
+
+## 배포 서버 기준 RAW 20Hz Capacity 테스트 요약
+
+#### 조건
+- Rate: 20Hz 고정
+- Sender Ratio: ≈ 0.1
+- 서버: 배포 서버 (4 Core / 16GB)
+- 목표 SLO: ≤200ms ≥ 90%
+
+### 결과 요약 표
+
+| Room Size | Sender | Fanout (room×sender×20) | ≤200ms     | ≤1000ms | 판정    |
+| --------- | ------ | ----------------------- | ---------- | ------- | ----- |
+| 200       | 20     | 80,000 send/s           | **1.15%**  | 8.20%   | ❌ 붕괴  |
+| 150       | 15     | 45,000 send/s           | **0.73%**  | 7.82%   | ❌ 붕괴  |
+| 125       | 12~13  | 31,250 send/s           | **22.64%** | 30.96%  | ❌ 불충분 |
+| 110       | 11     | 24,200 send/s           | **57.64%** | 95.35%  | ⚠ 경계  |
+| 100       | 20     | 40,000 send/s           | **3.15%**  | 29.73%  | ❌ 붕괴  |
+| 100       | 10     | 20,000 send/s           | **98.47%** | 99.99%  | ✅ 통과  |
+
+#### 개발환경, 배포환경간 차이
+개발 환경은 구조 비교 및 병목 패턴 분석용으로 CPU 여유가 충분했으며,
+Dirty + Drop 적용 시 99% 이상 SLO를 만족하였다.
+반면 배포 환경은 4 Core 자원 제한 하에서 실제 운영 조건을 가정한 capacity 스윕을 수행하였으며, fanout 20,000 send/s 이상에서 CPU saturation으로 SLO가 붕괴하였다.
+### 해석
+1. 병목은 Rate가 아닌 Fanout이다
+- fanout ≈ roomSize x sender x 20Hz -> 개발환경에서는 80,000 send/s도 무리없었지만 배포환경에서는 해당 SLO가 붕괴되었다.
+2. SLO 통과 기준
+- 배포 서버는 약 20,000 send/s 수준에서 안정되었다.
+3. 동일한 룸 크기여도 Sender가 늘어나면 붕괴되었다.
+- 즉, 동시 활성자 수가 더 치명적이었다.
+
+### Capacity관련 
+#### 1. SLO 기반 방 인원 상한 정의
+배포 서버 기준 fanout 20,000 send/s 이하에서 SLO를 만족하였다. 실제 서비스는 평균 sender 비율을 0.1 이하로 가정할 경우,
+
+roomSize × (roomSize × 0.1) × 20 ≤ 20,000
+
+이를 기반으로 역산하면 roomSize ≈ 100 이하가 안정 범위이며,
+안전 마진을 고려하여 50명으로 제한하였다.
+
+#### 2. 네트워크 영향 배제 및 병목 지점 식별
+테스트 환경은 클라이언트와 서버가 동일 LAN 환경이 아니므로
+실제 인터넷 환경에서는 RTT 변동이 존재할 수 있다.
+
+그러나 본 실험의 병목은 네트워크가 아닌 서버 내부 fanout 처리량에서 발생함을 fanout 스윕 결과를 통해 확인하였다.
+
+#### 3. Worst-Case 가정 및 실제 사용 패턴 고려
+실제 사용 패턴에서 커서 이동은 지속적인 20Hz 유지 상태보다 간헐적 burst 형태로 발생할 가능성이 높다.
+
+따라서 본 실험은 worst-case 시나리오를 가정한 것이며, 실제 평균 부하는 이보다 낮을 것으로 예상된다
+
+#### 4. 운영 정책 반영 및 확장 전략
+본 실험을 통해 단순 최대 접속자 수가 아닌, room fanout 기반 SLO 안정 구간(≈ 20,000 send/s 이하) 을 정의하였다.
+
+이를 바탕으로 다음과 같은 운영 정책을 수립하였다.
+
+1. 방 인원 상한 설정
+    - 20Hz 유지
+    - 평균 Sender 비율 0.1 가정
+    - fanout ≤ 20,000 send/s 유지
+이를 토대로 안정 마진을 잡아 방당 50명으로 제한하였다.
+
+2. 확장 전략 (Scale-out)
+현재 구조는 단일 인스턴스 기준으로 잡은 운영 정책이며 차후 다음과 같이 확장이 가능하다.
+    - 룸 단위 분산
+    - WebSocket 인스턴스 수평 확장
+    - Redis Pub/Sub 또는 Broker 기반 fanout 분산
+
+3. 실시간 UX 보완 전략
+Worst-case 부하 상황에서도 사용자 경험을 유지하기 위해 다음과 같이 전략 적용하였다.
+    - 클라이언트 측 cursor interpolation 적용(클라에서 좌표를 선처럼 이어주는 방식)
+    - Drop/Latest-only 전략 유지

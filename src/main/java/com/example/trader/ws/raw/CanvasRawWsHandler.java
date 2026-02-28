@@ -32,19 +32,19 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         try {
-            log.info("[RAW] open session={} uri={} principal={} cookie={}",
-                    session.getId(),
-                    session.getUri(),
-                    (session.getPrincipal() != null ? session.getPrincipal().getName() : null),
-                    session.getHandshakeHeaders().getFirst("Cookie")
-            );
+//            log.info("[RAW] open session={} uri={} principal={} cookie={}",
+//                    session.getId(),
+//                    session.getUri(),
+//                    (session.getPrincipal() != null ? session.getPrincipal().getName() : null),
+//                    session.getHandshakeHeaders().getFirst("Cookie")
+//            );
 
             RoomIds room = parseRoomIds(session.getUri());
             String roomKey = registry.roomKey(room.teamId(), room.graphId());
 
             // 세션 write 동시성 방지용 래핑 (세션당 1회)
-            int sendTimeLimitMs = 5000;          // ex: 1s
-            int bufferSizeLimitBytes = 512 * 1024; // ex: 256KB
+            int sendTimeLimitMs = 100;          // ex: 1s
+            int bufferSizeLimitBytes = 128 * 1024; // ex: 256KB
             WebSocketSession safeSession =
                     new ConcurrentWebSocketSessionDecorator(session, sendTimeLimitMs, bufferSizeLimitBytes);
 
@@ -60,7 +60,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             }
             registry.join(roomKey, safeSession);
             // (옵션) 로그: 현재 room size
-            log.info("[RAW] joined roomKey={} size={}", roomKey, registry.size(roomKey));
+//            log.info("[RAW] joined roomKey={} size={}", roomKey, registry.size(roomKey));
 
         } catch (Exception e) {
             // ✅ 여기서 1011 close는 “증폭기”가 될 수 있음. 그냥 로그 + close(가능하면 normal)
@@ -121,16 +121,11 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 in.sentAt()
         );
 
-        TextMessage safeMessage = new TextMessage(objectMapper.writeValueAsString(out));
-
-        // ✅ 타입별 Drop + Latest
         if (TYPE_CONTROL.equals(out.type())) {
-            // drop 금지
-            broadcaster.publishReliable(roomKey, safeMessage);
+            broadcaster.publishReliable(roomKey, out);     // ✅ DTO 그대로
         } else {
-            // CURSOR/DRAG_PREVIEW: sender(유저)별 latest만 유지
             String key = makeLatestKey(out.type(), out.userId(), out.nodeId());
-            broadcaster.publishLatest(roomKey, key, safeMessage);
+            broadcaster.publishLatest(roomKey, key, out);  // ✅ DTO 그대로
         }
     }
 

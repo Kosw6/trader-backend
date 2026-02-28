@@ -1,9 +1,12 @@
 package com.example.trader.ws.raw;
 
+import com.example.trader.ws.common.PresenceBatch;
 import com.example.trader.ws.common.RoomPresenceCoalescer;
+import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -17,10 +20,11 @@ import java.util.concurrent.*;
 public class RawPresenceBroadcaster {
 
     private final CanvasSessionRegistry registry;
+    private final ObjectMapper objectMapper;
 
     // flush 100ms => 10Hz 전파 (원하면 50ms => 20Hz)
-    private final RoomPresenceCoalescer<TextMessage> coalescer =
-            new RoomPresenceCoalescer<>(10, 2000);
+    private final RoomPresenceCoalescer<RawCursorMessage> coalescer =
+            new RoomPresenceCoalescer<>(2000);
 
     private final ScheduledExecutorService flusher = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "raw-presence-flusher");
@@ -28,17 +32,21 @@ public class RawPresenceBroadcaster {
         return t;
     });
 
+    @Value("${RAW_FLUSH_PERIOD:50}")
+    long period;
+    @Value("${RAW_FLUSH_INITIALDELAY:0}")
+    long initialDelay;
     // room별로 주기 flush (여기서는 간단히 전체 룸을 주기적으로 flush)
     // 룸 수가 많아지면 roomKey별 active set으로 최적화 가능
     {
-        flusher.scheduleAtFixedRate(this::flushAllRoomsSafe, 0, 33, TimeUnit.MILLISECONDS);
+        flusher.scheduleAtFixedRate(this::flushAllRoomsSafe, 0, 50, TimeUnit.MILLISECONDS);
     }
 
-    public void publishLatest(String roomKey, String key, TextMessage msg) {
+    public void publishLatest(String roomKey, String key, RawCursorMessage msg) {
         coalescer.publishLatest(roomKey, key, msg);
     }
 
-    public void publishReliable(String roomKey, TextMessage msg) {
+    public void publishReliable(String roomKey, RawCursorMessage msg) {
         coalescer.publishReliable(roomKey, msg);
     }
 
@@ -54,25 +62,51 @@ public class RawPresenceBroadcaster {
     }
 
     private void flushRoom(String roomKey) {
-        List<WebSocketSession> sessions = registry.snapshot(roomKey);
+        var sessions = registry.snapshot(roomKey);
         if (sessions.isEmpty()) return;
 
-        coalescer.flushRoom(roomKey, (TextMessage msg) -> {
-            // msg 하나를 room 내 모든 세션으로 전파
+        // 1) reliable 먼저 개별 전송(순서 보장)
+        for (RawCursorMessage m : coalescer.drainReliable(roomKey)) {
+            TextMessage tm = toText(m);
+            fanout(sessions, roomKey, tm);
+        }
 
-            for (WebSocketSession s : sessions) {
-                if (s == null) continue;
-                if (!s.isOpen()) {
-                    registry.leave(roomKey, s);
-                    continue;
-                }
-                try {
-                    s.sendMessage(msg);
-                } catch (Exception sendEx) {
-                    log.warn("[RAW] send fail roomKey={} session={} ex={}", roomKey, s.getId(), sendEx.toString());
-                    registry.leave(roomKey, s);
-                }
-            }
-        });
+        // 2) latest는 배치로 1건 전송 + 변경 있으면
+        var latest = coalescer.drainLatestIfDirty(roomKey);
+        if (!latest.isEmpty()) {
+            TextMessage batch = toText(makeBatch(roomKey, latest));
+            fanout(sessions, roomKey, batch);
+//            if ((System.currentTimeMillis() / 1000) % 5 == 0) {
+//                log.info("[RAW] batch sent roomKey={} items={}", roomKey, latest.size());
+//            }
+        }
+    }
+
+    private TextMessage toText(Object o) {
+        try { return new TextMessage(objectMapper.writeValueAsString(o)); }
+        catch (Exception e) { throw new RuntimeException(e); }
+    }
+
+    private void fanout(List<WebSocketSession> sessions, String roomKey, TextMessage msg) {
+        for (WebSocketSession s : sessions) {
+            if (s == null) continue;
+            if (!s.isOpen()) { registry.leave(roomKey, s); continue; }
+            try { s.sendMessage(msg); }
+            catch (Exception ex) { registry.leave(roomKey, s); }
+        }
+    }
+
+    private PresenceBatch makeBatch(String roomKey, java.util.Collection<RawCursorMessage> latest) {
+        // roomKey "team:graph"
+        String[] parts = roomKey.split(":");
+        Long teamId = Long.valueOf(parts[0]);
+        Long graphId = Long.valueOf(parts[1]);
+
+        var items = new java.util.ArrayList<PresenceBatch.CursorItem>(latest.size());
+        for (RawCursorMessage m : latest) {
+            if (!"CURSOR".equals(m.type())) continue; // drag도 넣고 싶으면 분리
+            items.add(new PresenceBatch.CursorItem(m.userId(), m.nickName(), m.x(), m.y(), m.sentAt()));
+        }
+        return new PresenceBatch("PRESENCE_BATCH", teamId, graphId, System.currentTimeMillis(), items);
     }
 }

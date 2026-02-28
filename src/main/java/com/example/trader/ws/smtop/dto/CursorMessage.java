@@ -1,7 +1,7 @@
 package com.example.trader.ws.smtop.dto;
 
 public record CursorMessage(
-        String cursor, Long teamId,
+        String type, Long teamId,
         Long graphId,
         Long userId,
         String nickName,

@@ -1,10 +1,14 @@
 package com.example.trader.ws.smtop;
 
 import com.example.trader.ws.common.RoomPresenceCoalescer;
+import com.example.trader.ws.common.PresenceBatch;
+import com.example.trader.ws.smtop.dto.CursorMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Set;
 import java.util.concurrent.*;
 
@@ -15,7 +19,7 @@ public class StompPresenceBroadcaster {
     private final SimpMessagingTemplate messagingTemplate;
 
     private final RoomPresenceCoalescer<Object> coalescer =
-            new RoomPresenceCoalescer<>(50, 2000);
+            new RoomPresenceCoalescer<>( 2000);
 
     private final ScheduledExecutorService flusher = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "stomp-presence-flusher");
@@ -27,7 +31,7 @@ public class StompPresenceBroadcaster {
 
     public StompPresenceBroadcaster(SimpMessagingTemplate messagingTemplate) {
         this.messagingTemplate = messagingTemplate;
-        flusher.scheduleAtFixedRate(this::flushActiveRoomsSafe, 0, 33, TimeUnit.MILLISECONDS);
+        flusher.scheduleAtFixedRate(this::flushActiveRoomsSafe, 0, 50, TimeUnit.MILLISECONDS);
     }
 
     public void markRoomActive(String roomKey) {
@@ -56,15 +60,51 @@ public class StompPresenceBroadcaster {
     }
 
     private void flushRoom(String roomKey) {
-        // roomKey = teamId:graphId 형태로 가정
         String[] parts = roomKey.split(":");
         if (parts.length != 2) return;
-        String teamId = parts[0];
-        String graphId = parts[1];
+        Long teamId = Long.valueOf(parts[0]);
+        Long graphId = Long.valueOf(parts[1]);
 
         String topic = "/topic/teams/" + teamId + "/graphs/" + graphId + "/presence";
 
-        coalescer.flushRoom(roomKey, msg -> messagingTemplate.convertAndSend(topic, msg));
+        // reliable 먼저(개별)
+        for (Object m : coalescer.drainReliable(roomKey)) {
+            messagingTemplate.convertAndSend(topic, m);
+        }
+
+        // latest는 배치 1건
+        var latest = coalescer.drainLatestIfDirty(roomKey);
+        if (!latest.isEmpty()) {
+            PresenceBatch batch = makeBatch(teamId, graphId, latest);
+            if (batch != null) {
+                messagingTemplate.convertAndSend(topic, batch);
+            }
+//            messagingTemplate.convertAndSend(topic, batch);
+        }
+    }
+
+    private PresenceBatch makeBatch(Long teamId, Long graphId, Collection<Object> latest) {
+        var items = new ArrayList<PresenceBatch.CursorItem>(latest.size());
+
+        for (Object o : latest) {
+            if (o instanceof CursorMessage m && "CURSOR".equals(m.type())) {
+                items.add(new PresenceBatch.CursorItem(
+                        m.userId(), m.nickName(), m.x(), m.y(), m.sentAt()
+                ));
+            }
+        }
+
+        if (items.isEmpty()) {
+            return null;   // 실제 보낼 게 없으면 null
+        }
+
+        return new PresenceBatch(
+                "PRESENCE_BATCH",
+                teamId,
+                graphId,
+                System.currentTimeMillis(),
+                items
+        );
     }
 }
 
