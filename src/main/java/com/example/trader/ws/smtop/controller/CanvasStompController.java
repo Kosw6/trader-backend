@@ -23,6 +23,7 @@ public class CanvasStompController {
     private final SimpMessagingTemplate messagingTemplate;
     private final NodeService nodeService;
     private final StompPresenceBroadcaster stompPresenceBroadcaster;
+    private CursorMessage out;
 
     /**
      * 클라 SEND:

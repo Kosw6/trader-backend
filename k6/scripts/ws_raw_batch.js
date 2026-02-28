@@ -16,7 +16,7 @@ const BASE_HTTP_ENV = __ENV.BASE_URL || "http://localhost:8080";
 
 const TOTAL_VUS = Number(__ENV.VUS || 10);
 
-// durations
+// duration-ish
 const TEST_DURATION_S = Number(__ENV.TEST_DURATION_S || 60);
 const HOLD_MS = Number(__ENV.HOLD_MS || TEST_DURATION_S * 1000);
 
@@ -35,52 +35,57 @@ const PAD_STR = PAD_LEN > 0 ? "x".repeat(PAD_LEN) : null;
 const NODE_ID_MIN = Number(__ENV.NODE_ID_MIN || 1);
 const NODE_ID_MAX = Number(__ENV.NODE_ID_MAX || 1000);
 
-const SUMMARY_OUT = __ENV.SUMMARY || "outputs/raw_cursor.json";
+const SUMMARY_OUT = __ENV.SUMMARY || "outputs/ws_raw_summary.json";
 
 // ---- latency bucket thresholds (ms) ----
 const LAT_OK_MS = Number(__ENV.LAT_OK_MS || 200);
 const LAT_WARN_MS = Number(__ENV.LAT_WARN_MS || 1000);
 
-// ---- realtime rate thresholds ----
-const RT_OK_200_MIN = Number(__ENV.RT_OK_200_MIN || 0.9);
-const RT_OK_1S_MIN = Number(__ENV.RT_OK_1S_MIN || 0.99);
+// ---- realtime rate thresholds (env override 가능) ----
+const RT_OK_200_MIN = Number(__ENV.RT_OK_200_MIN || 0.9); // 90%
+const RT_OK_1S_MIN = Number(__ENV.RT_OK_1S_MIN || 0.99); // 99%
 const RT_OK_200_SEND_MIN = Number(__ENV.RT_OK_200_SEND_MIN || 0.9);
 const RT_OK_200_AFTER_MIN = Number(__ENV.RT_OK_200_AFTER_MIN || 0.9);
 
-// ✅ open()은 init stage에서만
+// ✅ open()은 init stage(전역)에서만
 const USERS_CSV_TEXT = open(USERS_CSV_PATH);
 
-// debug
-const DUMP_RECV = (__ENV.DUMP_RECV || "0") === "1";
-const DUMP_RECV_LIMIT = Number(__ENV.DUMP_RECV_LIMIT || 10);
-const DUMP_ERR = (__ENV.DUMP_ERR || "0") === "1";
-const DUMP_ERR_LIMIT = Number(__ENV.DUMP_ERR_LIMIT || 20);
-
-// ---------------- Metrics ----------------
+// Metrics
 const raw_connect_ms = new Trend("raw_connect_ms", true);
+
+const raw_phase_during_cnt = new Counter("raw_phase_during_cnt");
+const raw_phase_after_cnt = new Counter("raw_phase_after_cnt");
 
 const raw_latency_ms = new Trend("raw_latency_ms", true);
 const raw_latency_during_send_ms = new Trend("raw_latency_during_send_ms", true);
 const raw_latency_after_send_ms = new Trend("raw_latency_after_send_ms", true);
 
 const raw_sent = new Counter("raw_sent");
+
+// ✅ recv: 논리 이벤트(배치면 items 개수만큼)
 const raw_recv = new Counter("raw_recv");
+// ✅ recv frames: 물리 수신 프레임 수
+const raw_recv_frames = new Counter("raw_recv_frames");
 
 // bucket counters
 const raw_lat_le_200ms = new Counter("raw_lat_le_200ms");
 const raw_lat_le_1s = new Counter("raw_lat_le_1s");
 const raw_lat_gt_1s = new Counter("raw_lat_gt_1s");
 
-// realtime success rates (threshold용)
-const raw_rt_ok_200 = new Rate("raw_rt_ok_200");
-const raw_rt_ok_1s = new Rate("raw_rt_ok_1s");
+// realtime success rates (threshold 걸기용)
+const raw_rt_ok_200 = new Rate("raw_rt_ok_200"); // lat<=200ms
+const raw_rt_ok_1s = new Rate("raw_rt_ok_1s"); // lat<=1000ms
 const raw_rt_ok_200_during_send = new Rate("raw_rt_ok_200_during_send");
 const raw_rt_ok_200_after_send = new Rate("raw_rt_ok_200_after_send");
 
-// diagnostics
+// 진단용(정상이라면 count≈VUS)
 const raw_open = new Counter("raw_open");
 const raw_close = new Counter("raw_close");
 const raw_errors = new Counter("raw_errors");
+
+const DUMP_ERR = Number(__ENV.DUMP_ERR || 0);
+const DUMP_ERR_LIMIT = Number(__ENV.DUMP_ERR_LIMIT || 20);
+let errDumped = 0;
 
 export const options = {
   scenarios: {
@@ -96,6 +101,7 @@ export const options = {
     raw_connect_ms: ["p(95)<2000"],
     ...(MODE === "cursor"
       ? {
+          raw_latency_ms: ["p(95)<120", "p(99)<250"],
           raw_rt_ok_200: [`rate>${RT_OK_200_MIN}`],
           raw_rt_ok_1s: [`rate>${RT_OK_1S_MIN}`],
           raw_rt_ok_200_during_send: [`rate>${RT_OK_200_SEND_MIN}`],
@@ -106,7 +112,6 @@ export const options = {
   summaryTrendStats: ["avg", "min", "max", "p(50)", "p(95)", "p(99)"],
 };
 
-// ---------------- helpers ----------------
 function cookieHeaderFromResponse(res) {
   const parts = [];
   const jar = res.cookies || {};
@@ -117,6 +122,31 @@ function cookieHeaderFromResponse(res) {
     parts.push(`${name}=${v}`);
   }
   return parts.join("; ");
+}
+
+function recordLatency(lat, tags, phaseTags, metrics) {
+  if (!(lat >= 0 && lat < 60_000)) return;
+
+  const { LAT_OK_MS, LAT_WARN_MS } = metrics;
+
+  metrics.latency.add(lat, tags);
+
+  if (lat <= LAT_OK_MS) metrics.le200.add(1, tags);
+  else if (lat <= LAT_WARN_MS) metrics.le1s.add(1, tags);
+  else metrics.gt1s.add(1, tags);
+
+  metrics.rt200.add(lat <= LAT_OK_MS, tags);
+  metrics.rt1s.add(lat <= LAT_WARN_MS, tags);
+
+  if (phaseTags?.inSendWindow === true) {
+    metrics.phaseDuringCnt.add(1, tags);
+    metrics.latDuring.add(lat, tags);
+    metrics.rt200During.add(lat <= LAT_OK_MS, tags);
+  } else if (phaseTags?.inSendWindow === false) {
+    metrics.phaseAfterCnt.add(1, tags);
+    metrics.latAfter.add(lat, tags);
+    metrics.rt200After.add(lat <= LAT_OK_MS, tags);
+  }
 }
 
 export function setup() {
@@ -189,7 +219,7 @@ function buildCursorPayload() {
   return msg;
 }
 
-// drift-correcting loop
+// drift-correcting loop (k6 ws socket.setTimeout 기반)
 function startDriftLoop(socket, { hz, durationMs, onTick, onDone }) {
   const intervalMs = Math.max(1, Math.round(1000 / hz));
   const start = Date.now();
@@ -217,7 +247,6 @@ function startDriftLoop(socket, { hz, durationMs, onTick, onDone }) {
   return () => (cancelled = true);
 }
 
-// ---------------- test ----------------
 export default function (data) {
   const baseHttp = data.base;
   const baseWs = baseHttp.replace(/^http/, "ws");
@@ -239,11 +268,12 @@ export default function (data) {
   ws.connect(wsUrl, params, (socket) => {
     let cancel = null;
 
-    let openedAtMs = null;
-    const sendWindowMs = SEND_DURATION_S * 1000;
+    // 기준 시각들
+    let openedAtMs = null;      // ws open
+    let sendStartAtMs = null;   // sender: 첫 send 시각
+    let firstRecvAtMs = null;   // receiver(or sender): 첫 수신 시각 (k6-only 트릭)
 
-    let recvDumped = 0;
-    let errDumped = 0;
+    const sendWindowMs = SEND_DURATION_S * 1000;
 
     socket.on("open", () => {
       raw_open.add(1);
@@ -267,6 +297,7 @@ export default function (data) {
           hz: RATE_HZ,
           durationMs: SEND_DURATION_S * 1000,
           onTick: () => {
+            if (sendStartAtMs == null) sendStartAtMs = Date.now(); // ✅ 첫 send 기준점
             socket.send(JSON.stringify(buildCursorPayload()));
             raw_sent.add(1, { role: "sender" });
           },
@@ -275,67 +306,68 @@ export default function (data) {
     });
 
     socket.on("message", (msgText) => {
-      raw_recv.add(1, { role: sender ? "sender" : "receiver" });
+      // ✅ 물리 프레임 카운트
+      raw_recv_frames.add(1, { role: sender ? "sender" : "receiver" });
+
       if (MODE !== "cursor") return;
 
+      // ✅ receiver 기준점 보정: 첫 수신 시각
+      if (firstRecvAtMs == null) firstRecvAtMs = Date.now();
+
       let msg = null;
-      try {
-        msg = JSON.parse(msgText);
-      } catch {
-        if (DUMP_RECV && recvDumped < DUMP_RECV_LIMIT) {
-          console.log(
-            JSON.stringify({
-              vu: __VU,
-              iter: __ITER,
-              role: sender ? "sender" : "receiver",
-              note: "raw message is not JSON",
-              preview: String(msgText || "").slice(0, 500),
-            })
-          );
-          recvDumped += 1;
-        }
+      try { msg = JSON.parse(msgText); } catch { return; }
+
+      const tags = { role: sender ? "sender" : "receiver" };
+
+      // ✅ phase 기준점 통일(옵션 A + 트릭)
+      //  - sender: sendStartAtMs(첫 send)
+      //  - receiver: firstRecvAtMs(첫 수신)
+      const phaseStartAt = sender ? sendStartAtMs : firstRecvAtMs;
+      let inSendWindow = null;
+      if (phaseStartAt != null) {
+        const elapsed = Date.now() - phaseStartAt;
+        inSendWindow = elapsed <= sendWindowMs;
+      } else if (openedAtMs != null) {
+        // 혹시 phaseStartAt이 null인 극단 케이스 fallback
+        const elapsed = Date.now() - openedAtMs;
+        inSendWindow = elapsed <= sendWindowMs;
+      }
+
+      const metrics = {
+        LAT_OK_MS, LAT_WARN_MS,
+        latency: raw_latency_ms,
+        latDuring: raw_latency_during_send_ms,
+        latAfter: raw_latency_after_send_ms,
+        le200: raw_lat_le_200ms,
+        le1s: raw_lat_le_1s,
+        gt1s: raw_lat_gt_1s,
+        rt200: raw_rt_ok_200,
+        rt1s: raw_rt_ok_1s,
+        rt200During: raw_rt_ok_200_during_send,
+        rt200After: raw_rt_ok_200_after_send,
+        phaseDuringCnt: raw_phase_during_cnt,
+  phaseAfterCnt: raw_phase_after_cnt,
+      };
+
+      // ✅ 1) 단일 CURSOR
+      if (msg?.type === "CURSOR" && typeof msg?.sentAt === "number") {
+        raw_recv.add(1, tags);
+        const lat = Date.now() - msg.sentAt;
+        recordLatency(lat, tags, { inSendWindow }, metrics);
         return;
       }
 
-      if (DUMP_RECV && recvDumped < DUMP_RECV_LIMIT) {
-        console.log(
-          JSON.stringify({
-            vu: __VU,
-            iter: __ITER,
-            role: sender ? "sender" : "receiver",
-            type: msg?.type,
-            hasSentAt: typeof msg?.sentAt === "number",
-            keys: msg ? Object.keys(msg).slice(0, 30) : [],
-          })
-        );
-        recvDumped += 1;
-      }
+      // ✅ 2) 배치 PRESENCE_BATCH
+      if (msg?.type === "PRESENCE_BATCH" && Array.isArray(msg?.cursors)) {
+        const n = msg.cursors.length;
+        if (n > 0) raw_recv.add(n, tags);
 
-      if (typeof msg?.sentAt !== "number") return;
-
-      const lat = Date.now() - msg.sentAt;
-      if (!(lat >= 0 && lat < 60_000)) return;
-
-      raw_latency_ms.add(lat, { role: sender ? "sender" : "receiver" });
-
-      if (lat <= LAT_OK_MS) raw_lat_le_200ms.add(1, { role: sender ? "sender" : "receiver" });
-      else if (lat <= LAT_WARN_MS) raw_lat_le_1s.add(1, { role: sender ? "sender" : "receiver" });
-      else raw_lat_gt_1s.add(1, { role: sender ? "sender" : "receiver" });
-
-      raw_rt_ok_200.add(lat <= LAT_OK_MS, { role: sender ? "sender" : "receiver" });
-      raw_rt_ok_1s.add(lat <= LAT_WARN_MS, { role: sender ? "sender" : "receiver" });
-
-      if (openedAtMs != null) {
-        const elapsed = Date.now() - openedAtMs;
-        const inSendWindow = elapsed <= sendWindowMs;
-
-        if (inSendWindow) {
-          raw_latency_during_send_ms.add(lat, { role: sender ? "sender" : "receiver" });
-          raw_rt_ok_200_during_send.add(lat <= LAT_OK_MS, { role: sender ? "sender" : "receiver" });
-        } else {
-          raw_latency_after_send_ms.add(lat, { role: sender ? "sender" : "receiver" });
-          raw_rt_ok_200_after_send.add(lat <= LAT_OK_MS, { role: sender ? "sender" : "receiver" });
+        for (const it of msg.cursors) {
+          if (!it || typeof it.sentAt !== "number") continue;
+          const lat = Date.now() - it.sentAt;
+          recordLatency(lat, tags, { inSendWindow }, metrics);
         }
+        return;
       }
     });
 
@@ -395,6 +427,7 @@ export function handleSummary(data) {
 
   const mSent = metric(data, "raw_sent");
   const mRecv = metric(data, "raw_recv");
+  const mRecvFrames = metric(data, "raw_recv_frames");
   const mConn = metric(data, "raw_connect_ms");
 
   const mLat = metric(data, "raw_latency_ms");
@@ -414,8 +447,12 @@ export function handleSummary(data) {
   const mRt200Send = metric(data, "raw_rt_ok_200_during_send");
   const mRt200After = metric(data, "raw_rt_ok_200_after_send");
 
+  const mPhaseDuring = metric(data, "raw_phase_during_cnt");
+  const mPhaseAfter = metric(data, "raw_phase_after_cnt");
+
   const sent = vCount(mSent);
   const recv = vCount(mRecv);
+  const recvFrames = vCount(mRecvFrames);
 
   const ok = vCount(mOk);
   const warn = vCount(mWarn);
@@ -432,8 +469,13 @@ export function handleSummary(data) {
   lines.push(`=== RAW Summary (MODE=${MODE}) ===`);
   lines.push(`duration: ${num(durS, 2)}s`);
   lines.push(`open: ${vCount(mOpen)} / close: ${vCount(mClose)} / errors: ${vCount(mErr)}`);
-  lines.push(`sent: ${sent} / received: ${recv}`);
-  lines.push(`sent/s: ${num(sent / durS, 2)} / recv/s: ${num(recv / durS, 2)}`);
+  lines.push(`sent: ${sent} / received(events): ${recv} / received(frames): ${recvFrames}`);
+  lines.push(
+    `sent/s: ${num(sent / durS, 2)} / recv_events/s: ${num(recv / durS, 2)} / recv_frames/s: ${num(
+      recvFrames / durS,
+      2
+    )}`
+  );
 
   if (mConn) {
     lines.push(
@@ -451,13 +493,33 @@ export function handleSummary(data) {
     );
   }
 
+  if (MODE === "cursor" && mLatSend && vCount(mLatSend) > 0) {
+    lines.push(
+      `latency(send-window ${SEND_DURATION_S}s) count=${vCount(mLatSend)} p50=${num(t(mLatSend, "p(50)"), 1)} p95=${num(
+        t(mLatSend, "p(95)"),
+        1
+      )} p99=${num(t(mLatSend, "p(99)"), 1)}`
+    );
+  }
+
+  if (MODE === "cursor" && mLatAfter && vCount(mLatAfter) > 0) {
+    lines.push(
+      `latency(after-send) count=${vCount(mLatAfter)} p50=${num(t(mLatAfter, "p(50)"), 1)} p95=${num(
+        t(mLatAfter, "p(95)"),
+        1
+      )} p99=${num(t(mLatAfter, "p(99)"), 1)}`
+    );
+  }
+
   if (MODE === "cursor") {
     const pct = (x) => (bucketTotal > 0 ? num((x / bucketTotal) * 100, 2) : "—");
 
     lines.push(
       `latency buckets(ms): <=${LAT_OK_MS}=${ok} (${pct(ok)}%) / <=${LAT_WARN_MS}=${warn} (${pct(warn)}%) / >${LAT_WARN_MS}=${bad} (${pct(bad)}%)`
     );
-
+    lines.push(
+      `phase samples: during=${vCount(mPhaseDuring)} / after=${vCount(mPhaseAfter)}`
+    );
     const r200 = rateVal(mRt200);
     const r1s = rateVal(mRt1s);
     const r200Send = rateVal(mRt200Send);
@@ -467,7 +529,10 @@ export function handleSummary(data) {
       `realtime rates: ok<=${LAT_OK_MS}=${r200 == null ? "—" : num(r200 * 100, 2) + "%"} (min ${num(
         RT_OK_200_MIN * 100,
         2
-      )}%) / ok<=${LAT_WARN_MS}=${r1s == null ? "—" : num(r1s * 100, 2) + "%"} (min ${num(RT_OK_1S_MIN * 100, 2)}%)`
+      )}%) / ok<=${LAT_WARN_MS}=${r1s == null ? "—" : num(r1s * 100, 2) + "%"} (min ${num(
+        RT_OK_1S_MIN * 100,
+        2
+      )}%)`
     );
 
     lines.push(
