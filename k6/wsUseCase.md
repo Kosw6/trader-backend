@@ -299,7 +299,7 @@ k6 run `
   k6 run `
   -e VUS=200 `
   -e ROOMS=5 `
-  -e ROOM_METRICS=1 `
+  -e ROOM_METRICS=0 `
   -e BASE_URL=http://localhost:8080 `
   -e USERS_CSV=../data/users_200.csv `
   -e RATE=20 `
@@ -314,3 +314,44 @@ k6 run `
   -e LAT_WARN_MS=1000 `
   -e SUMMARY=outputs/raw_multi_5room_diag.json `
   scripts/ws_multiroom_raw_batch.js
+
+
+
+  k6 run `
+  -e BASE_URL=http://123.143.98.7:8080 `
+  -e USERS_CSV=../data/users_200_server.csv `
+  -e MODE=cursor `
+  -e VUS=200 -e TEST_DURATION_S=60 -e HOLD_MS=60000 `
+  -e TEAM_ID=1 -e GRAPH_ID=1 `
+  -e SENDER_RATIO=0.1 -e RATE=20 -e DURATION_S=30 `
+  -e PAD=200 `
+  -e LAT_OK_MS=200 -e LAT_WARN_MS=1000 `
+  -e RT_OK_200_MIN=0.90 -e RT_OK_1S_MIN=0.99 `
+  -e RT_OK_200_SEND_MIN=0.90 -e RT_OK_200_AFTER_MIN=0.90 `
+  -e SUMMARY=outputs/raw_cursor.json `
+  scripts/ws_raw_batch.js
+
+  k6 run `
+  -e BASE_URL=http://123.143.98.7:8080 `
+  -e USERS_CSV=../data/users_200_server.csv `
+  -e MODE=cursor `
+  -e VUS=100 -e TEST_DURATION_S=60 -e HOLD_MS=60000 `
+  -e TEAM_ID=1 -e GRAPH_ID=1 `
+  -e SENDER_RATIO=0.1 -e RATE=20 -e DURATION_S=30 `
+  -e PAD=200 `
+  -e LAT_OK_MS=200 -e LAT_WARN_MS=1000 `
+  -e RT_OK_200_MIN=0.90 -e RT_OK_1S_MIN=0.99 `
+  -e RT_OK_200_SEND_MIN=0.90 -e RT_OK_200_AFTER_MIN=0.90 `
+  -e SUMMARY=outputs/raw_cursor.json `
+  scripts/ws_raw_batch.js
+
+  === RAW Summary (MODE=cursor) ===
+duration: 64.04s
+open: 100 / close: 100 / errors: 0
+sent: 6000 / received(events): 547592 / received(frames): 59264
+sent/s: 93.70 / recv_events/s: 8551.36 / recv_frames/s: 925.48
+connect(ms) count=0 avg=113.1 p50=101.0 p95=190.3 p99=206.2
+latency buckets(ms): <=200=539199 (98.47%) / <=1000=8362 (1.53%) / >1000=31 (0.01%)
+phase samples: during=547526 / after=66
+realtime rates: ok<=200=98.47% (min 90.00%) / ok<=1000=99.99% (min 99.00%)
+realtime rates by phase: during-send ok<=200=98.47% (min 90.00%), after-send ok<=200=100.00% (min 90.00%)
