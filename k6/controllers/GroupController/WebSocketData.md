@@ -241,3 +241,101 @@ latency buckets(ms): <=200=1904646 (76.08%) / <=1000=590212 (23.57%) / >1000=874
 phase samples: during=2501695 / after=1905
 realtime rates: ok<=200=76.08% (min 90.00%) / ok<=1000=99.65% (min 99.00%)
 realtime rates by phase: during-send ok<=200=76.07% (min 90.00%), after-send ok<=200=78.74% (min 90.00%)
+
+
+
+
+배포raw
+
+룸200 센더 20, 20HZ
+=== RAW Summary (MODE=cursor) ===
+duration: 63.07s
+open: 200 / close: 200 / errors: 0
+sent: 12000 / received(events): 662390 / received(frames): 41989
+sent/s: 190.26 / recv_events/s: 10502.08 / recv_frames/s: 665.73
+connect(ms) count=0 avg=190.0 p50=177.0 p95=356.0 p99=368.1
+latency buckets(ms): <=200=7602 (1.15%) / <=1000=46689 (7.05%) / >1000=608099 (91.80%)
+phase samples: during=596874 / after=65516
+realtime rates: ok<=200=1.15% (min 90.00%) / ok<=1000=8.20% (min 99.00%)
+realtime rates by phase: during-send ok<=200=1.27% (min 90.00%), after-send ok<=200=0.00% (min 90.00%)
+
+
+룸100 센더 10 rate 20
+=== RAW Summary (MODE=cursor) ===
+duration: 63.37s
+open: 100 / close: 100 / errors: 0
+sent: 6000 / received(events): 582042 / received(frames): 60180
+sent/s: 94.69 / recv_events/s: 9185.26 / recv_frames/s: 949.71
+connect(ms) count=0 avg=116.5 p50=127.0 p95=200.1 p99=208.0
+latency buckets(ms): <=200=582038 (100.00%) / <=1000=4 (0.00%) / >1000=0 (0.00%)
+phase samples: during=581747 / after=295
+realtime rates: ok<=200=100.00% (min 90.00%) / ok<=1000=100.00% (min 99.00%)
+realtime rates by phase: during-send ok<=200=100.00% (min 90.00%), after-send ok<=200=100.00% (min 90.00%)
+
+
+
+룸100 센더 20 rate20
+
+=== RAW Summary (MODE=cursor) ===
+duration: 63.70s
+open: 100 / close: 100 / errors: 0
+sent: 12000 / received(events): 563318 / received(frames): 34790
+sent/s: 188.37 / recv_events/s: 8842.84 / recv_frames/s: 546.13
+connect(ms) count=0 avg=103.2 p50=105.5 p95=157.0 p99=160.0
+latency buckets(ms): <=200=17724 (3.15%) / <=1000=149764 (26.59%) / >1000=395830 (70.27%)
+phase samples: during=545043 / after=18275
+realtime rates: ok<=200=3.15% (min 90.00%) / ok<=1000=29.73% (min 99.00%)
+realtime rates by phase: during-send ok<=200=3.25% (min 90.00%), after-send ok<=200=0.01% (min 90.00%)
+
+150 센더 15 late20
+=== RAW Summary (MODE=cursor) ===
+duration: 66.33s
+open: 150 / close: 150 / errors: 0
+sent: 9000 / received(events): 573397 / received(frames): 48483
+sent/s: 135.69 / recv_events/s: 8645.21 / recv_frames/s: 730.99
+connect(ms) count=0 avg=97.7 p50=87.0 p95=200.5 p99=222.2
+latency buckets(ms): <=200=4187 (0.73%) / <=1000=40625 (7.08%) / >1000=528585 (92.18%)
+phase samples: during=538570 / after=34827
+realtime rates: ok<=200=0.73% (min 90.00%) / ok<=1000=7.82% (min 99.00%)
+realtime rates by phase: during-send ok<=200=0.78% (min 90.00%), after-send ok<=200=0.00% (min 90.00%)
+
+
+
+125
+
+=== RAW Summary (MODE=cursor) ===
+duration: 62.71s
+open: 125 / close: 125 / errors: 0
+sent: 7800 / received(events): 606285 / received(frames): 55195
+sent/s: 124.37 / recv_events/s: 9667.51 / recv_frames/s: 880.11
+connect(ms) count=0 avg=74.7 p50=78.0 p95=101.8 p99=108.0
+latency buckets(ms): <=200=137259 (22.64%) / <=1000=50425 (8.32%) / >1000=418601 (69.04%)
+phase samples: during=577804 / after=28481
+realtime rates: ok<=200=22.64% (min 90.00%) / ok<=1000=30.96% (min 99.00%)
+realtime rates by phase: during-send ok<=200=23.76% (min 90.00%), after-send ok<=200=0.00% (min 90.00%)
+
+110명 센더 11, 레이트 20
+
+=== RAW Summary (MODE=cursor) ===
+duration: 62.33s
+open: 110 / close: 110 / errors: 0
+sent: 6600 / received(events): 559643 / received(frames): 61122
+sent/s: 105.88 / recv_events/s: 8978.21 / recv_frames/s: 980.56
+connect(ms) count=0 avg=56.6 p50=54.0 p95=95.6 p99=101.9
+latency buckets(ms): <=200=322596 (57.64%) / <=1000=210997 (37.70%) / >1000=26050 (4.65%)
+phase samples: during=557866 / after=1777
+realtime rates: ok<=200=57.64% (min 90.00%) / ok<=1000=95.35% (min 99.00%)
+realtime rates by phase: during-send ok<=200=57.51% (min 90.00%), after-send ok<=200=99.49% (min 90.00%)
+
+100명 센더 10명 레이트 20
+
+  === RAW Summary (MODE=cursor) ===
+duration: 64.04s
+open: 100 / close: 100 / errors: 0
+sent: 6000 / received(events): 547592 / received(frames): 59264
+sent/s: 93.70 / recv_events/s: 8551.36 / recv_frames/s: 925.48
+connect(ms) count=0 avg=113.1 p50=101.0 p95=190.3 p99=206.2
+latency buckets(ms): <=200=539199 (98.47%) / <=1000=8362 (1.53%) / >1000=31 (0.01%)
+phase samples: during=547526 / after=66
+realtime rates: ok<=200=98.47% (min 90.00%) / ok<=1000=99.99% (min 99.00%)
+realtime rates by phase: during-send ok<=200=98.47% (min 90.00%), after-send ok<=200=100.00% (min 90.00%)

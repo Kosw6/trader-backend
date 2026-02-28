@@ -6,6 +6,7 @@ import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -31,6 +32,10 @@ public class RawPresenceBroadcaster {
         return t;
     });
 
+    @Value("${RAW_FLUSH_PERIOD:50}")
+    long period;
+    @Value("${RAW_FLUSH_INITIALDELAY:0}")
+    long initialDelay;
     // room별로 주기 flush (여기서는 간단히 전체 룸을 주기적으로 flush)
     // 룸 수가 많아지면 roomKey별 active set으로 최적화 가능
     {
