@@ -91,6 +91,35 @@ k6 run `
   -e SUMMARY=outputs/raw_cursor.json `
   scripts/ws_raw_cursor.js
 
+k6 run `
+  -e BASE_URL=http://localhost:8080 `
+  -e USERS_CSV=../data/users_200.csv `
+  -e MODE=cursor `
+  -e VUS=200 -e TEST_DURATION_S=60 -e HOLD_MS=60000 `
+  -e TEAM_ID=1 -e GRAPH_ID=1 `
+  -e SENDER_RATIO=0.1 -e RATE=20 -e DURATION_S=30 `
+  -e PAD=200 `
+  -e LAT_OK_MS=200 -e LAT_WARN_MS=1000 `
+  -e RT_OK_200_MIN=0.90 -e RT_OK_1S_MIN=0.99 `
+  -e RT_OK_200_SEND_MIN=0.90 -e RT_OK_200_AFTER_MIN=0.90 `
+  -e SUMMARY=outputs/raw_cursor.json `
+  scripts/ws_raw_batch.js
+
+
+  k6 run `
+  -e BASE_URL=http://localhost:8080 `
+  -e USERS_CSV=../data/users_200.csv `
+  -e MODE=cursor `
+  -e VUS=200 -e TEST_DURATION_S=60 -e HOLD_MS=60000 `
+  -e TEAM_ID=1 -e GRAPH_ID=1 `
+  -e SENDER_RATIO=0.2 -e RATE=20 -e DURATION_S=30 `
+  -e PAD=200 `
+  -e LAT_OK_MS=200 -e LAT_WARN_MS=1000 `
+  -e RT_OK_200_MIN=0.90 -e RT_OK_1S_MIN=0.99 `
+  -e RT_OK_200_SEND_MIN=0.90 -e RT_OK_200_AFTER_MIN=0.90 `
+  -e SUMMARY=outputs/raw_cursor.json `
+  scripts/ws_raw_batch.js
+
 STOMP CURSOR (동일 조건)
 k6 run -e BASE_URL=http://localhost:8080 -e USERS_CSV=../data/users_200.csv -e MODE=cursor -e VUS=200 -e TEST_DURATION_S=60 -e HOLD_MS=60000 -e TEAM_ID=1 -e GRAPH_ID=1 -e SENDER_RATIO=0.1 -e RATE=20 -e DURATION_S=30 -e PAD=200 -e SUMMARY=outputs/stomp_cursor.json scripts/ws_stomp_cursor.js
 
@@ -119,6 +148,8 @@ k6 run `
   -e SUMMARY=outputs/stomp_cursor.json `
   scripts/ws_stomp_cursor.js
 
+
+
 로컬jfr stomp
   k6 run `
   -e BASE_URL=http://localhost:8080 `
@@ -133,6 +164,20 @@ k6 run `
   -e RT_OK_200_SEND_MIN=0.90 -e RT_OK_200_AFTER_MIN=0.90 `
   -e SUMMARY=outputs/stomp_cursor.json `
   scripts/ws_stomp_cursor.js
+
+    k6 run `
+  -e BASE_URL=http://localhost:8080 `
+  -e USERS_CSV=../data/users_200.csv `
+  -e MODE=cursor `
+  -e VUS=200 -e TEST_DURATION_S=60 -e HOLD_MS=60000 `
+  -e TEAM_ID=1 -e GRAPH_ID=1 `
+  -e SENDER_RATIO=0.2 -e RATE=20 -e DURATION_S=30 `
+  -e PAD=200 `
+  -e LAT_OK_MS=200 -e LAT_WARN_MS=1000 `
+  -e RT_OK_200_MIN=0.90 -e RT_OK_1S_MIN=0.99 `
+  -e RT_OK_200_SEND_MIN=0.90 -e RT_OK_200_AFTER_MIN=0.90 `
+  -e SUMMARY=outputs/stomp_cursor.json `
+  scripts/ws_stomp_batch.js
 
 개발서버-받은 시간에 따라 처리
 k6 run `
@@ -171,3 +216,101 @@ k6 run -e BASE_URL=http://localhost:8080 -e MODE=cursor -e VUS=200 -e TEST_DURAT
 ΔAlloc = Alloc(cursor) - Alloc(baseline)
 
 ΔGC = GC(cursor) - GC(baseline)
+
+
+- raw 멀티룸
+
+- 룸 다섯개 고정분산, 개중 센더 각 방마다 20프로
+k6 run `
+  -e VUS=200 -e ROOMS=5 `
+  -e BASE_URL=http://localhost:8080 `
+  -e USERS_CSV=../data/users_200.csv `
+  -e RATE=20 -e DURATION_S=30 `
+  -e SENDER_RATIO=0.2 `
+  -e PAD=200 `
+-e TEAM_ID=1 `
+-e GRAPH_ID_BASE=1 `
+-e TEST_DURATION_S=60 -e HOLD_MS=60000 `
+-e LAT_OK_MS=200 -e LAT_WARN_MS=1000 `
+-e RT_OK_200_MIN=0.90 -e RT_OK_1S_MIN=0.99 `
+-e RT_OK_200_SEND_MIN=0.90 -e RT_OK_200_AFTER_MIN=0.90`
+  scripts/ws_multiroom_raw_batch.js
+
+- 룸 1갶, 개중 센더 각 방마다 20프로
+
+k6 run `
+  -e VUS=200 `
+  -e ROOMS=1 `
+  -e ROOM_METRICS=0 `
+  -e BASE_URL=http://localhost:8080 `
+  -e USERS_CSV=../data/users_200.csv `
+  -e RATE=20 `
+  -e DURATION_S=30 `
+  -e SENDER_RATIO=0.2 `
+  -e PAD=200 `
+  -e TEAM_ID=1 `
+  -e GRAPH_ID_BASE=1 `
+  -e TEST_DURATION_S=60 `
+  -e HOLD_MS=60000 `
+  -e LAT_OK_MS=200 `
+  -e LAT_WARN_MS=1000 `
+  -e SUMMARY=outputs/raw_multi_1room_light.json `
+  scripts/ws_multiroom_raw_batch.js
+
+  k6 run `
+  -e VUS=200 `
+  -e ROOMS=1 `
+  -e ROOM_METRICS=0 `
+  -e BASE_URL=http://localhost:8080 `
+  -e USERS_CSV=../data/users_200.csv `
+  -e RATE=20 `
+  -e DURATION_S=30 `
+  -e SENDER_RATIO=0.2 `
+  -e PAD=200 `
+  -e TEAM_ID=1 `
+  -e GRAPH_ID_BASE=1 `
+  -e TEST_DURATION_S=60 `
+  -e HOLD_MS=60000 `
+  -e LAT_OK_MS=200 `
+  -e LAT_WARN_MS=1000 `
+  -e SUMMARY=outputs/raw_multi_1room_light.json `
+  scripts/ws_multiroom_raw_batch.js
+
+
+k6 run `
+  -e VUS=400 `
+  -e ROOMS=5 `
+  -e ROOM_METRICS=0 `
+  -e BASE_URL=http://localhost:8080 `
+  -e USERS_CSV=../data/users_200.csv `
+  -e RATE=20 `
+  -e DURATION_S=30 `
+  -e SENDER_RATIO=0.2 `
+  -e PAD=200 `
+  -e TEAM_ID=1 `
+  -e GRAPH_ID_BASE=1 `
+  -e TEST_DURATION_S=60 `
+  -e HOLD_MS=60000 `
+  -e LAT_OK_MS=200 `
+  -e LAT_WARN_MS=1000 `
+  -e SUMMARY=outputs/raw_multi_1room_light.json `
+  scripts/ws_multiroom_raw_batch.js
+
+  k6 run `
+  -e VUS=200 `
+  -e ROOMS=5 `
+  -e ROOM_METRICS=1 `
+  -e BASE_URL=http://localhost:8080 `
+  -e USERS_CSV=../data/users_200.csv `
+  -e RATE=20 `
+  -e DURATION_S=30 `
+  -e SENDER_RATIO=0.2 `
+  -e PAD=200 `
+  -e TEAM_ID=1 `
+  -e GRAPH_ID_BASE=1 `
+  -e TEST_DURATION_S=60 `
+  -e HOLD_MS=60000 `
+  -e LAT_OK_MS=200 `
+  -e LAT_WARN_MS=1000 `
+  -e SUMMARY=outputs/raw_multi_5room_diag.json `
+  scripts/ws_multiroom_raw_batch.js

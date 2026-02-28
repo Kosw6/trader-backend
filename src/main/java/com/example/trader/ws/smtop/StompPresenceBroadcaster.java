@@ -31,7 +31,7 @@ public class StompPresenceBroadcaster {
 
     public StompPresenceBroadcaster(SimpMessagingTemplate messagingTemplate) {
         this.messagingTemplate = messagingTemplate;
-        flusher.scheduleAtFixedRate(this::flushActiveRoomsSafe, 0, 100, TimeUnit.MILLISECONDS);
+        flusher.scheduleAtFixedRate(this::flushActiveRoomsSafe, 0, 50, TimeUnit.MILLISECONDS);
     }
 
     public void markRoomActive(String roomKey) {
@@ -73,13 +73,13 @@ public class StompPresenceBroadcaster {
         }
 
         // latest는 배치 1건
-        var latest = coalescer.snapshotLatest(roomKey);
+        var latest = coalescer.drainLatestIfDirty(roomKey);
         if (!latest.isEmpty()) {
             PresenceBatch batch = makeBatch(teamId, graphId, latest);
             if (batch != null) {
                 messagingTemplate.convertAndSend(topic, batch);
             }
-            messagingTemplate.convertAndSend(topic, batch);
+//            messagingTemplate.convertAndSend(topic, batch);
         }
     }
 

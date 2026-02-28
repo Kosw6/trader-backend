@@ -2,7 +2,8 @@
 
 | 항목                   | 설정                                                                                                            |
 | -------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 서버 사양                | 4 Core / 16GB / SSD                                                                                           |
+| 서버사양 #1 (개발 환경,로컬 노트북)                | 6 Core / 32GB / SSD <br>-> 기능 비교 및 부하 패턴 분석용                                                                                 |
+| 서버사양 #2 (배포 서버,실험 최종)| 4 Core/16GB/SSD <br>-> Capacity 및 병목 분석용|
 | DB                   | PostgreSQL 17 + TimescaleDB                                                                                   |
 | 커넥션 풀                | HikariCP `maximumPoolSize=150`, `minimumIdle=80`                                                              |
 | 테스트 도구               | k6 v0.52                                                                                                      |
@@ -16,6 +17,8 @@
 | Max Pause Target     | 200ms (`-XX:MaxGCPauseMillis=200`, 기본값)                                                                       |
 | String Deduplication | Disabled (명시 옵션 미사용)                                                                                          |
 | SLO                  | **E2E 수신 지연 200ms 이하 성공률** (`<=200ms`)                                                                        |
+
+※ 로컬 환경은 상대 비교(구조/패턴 분석)에 사용하였으며, 최종 capacity 및 병목 분석은 배포 서버에서 수행하였다.
 
 ---
 
