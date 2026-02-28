@@ -43,8 +43,8 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             String roomKey = registry.roomKey(room.teamId(), room.graphId());
 
             // 세션 write 동시성 방지용 래핑 (세션당 1회)
-            int sendTimeLimitMs = 5000;          // ex: 1s
-            int bufferSizeLimitBytes = 512 * 1024; // ex: 256KB
+            int sendTimeLimitMs = 100;          // ex: 1s
+            int bufferSizeLimitBytes = 128 * 1024; // ex: 256KB
             WebSocketSession safeSession =
                     new ConcurrentWebSocketSessionDecorator(session, sendTimeLimitMs, bufferSizeLimitBytes);
 

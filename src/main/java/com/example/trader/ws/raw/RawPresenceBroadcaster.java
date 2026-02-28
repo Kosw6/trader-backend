@@ -34,7 +34,7 @@ public class RawPresenceBroadcaster {
     // room별로 주기 flush (여기서는 간단히 전체 룸을 주기적으로 flush)
     // 룸 수가 많아지면 roomKey별 active set으로 최적화 가능
     {
-        flusher.scheduleAtFixedRate(this::flushAllRoomsSafe, 0, 100, TimeUnit.MILLISECONDS);
+        flusher.scheduleAtFixedRate(this::flushAllRoomsSafe, 0, 50, TimeUnit.MILLISECONDS);
     }
 
     public void publishLatest(String roomKey, String key, RawCursorMessage msg) {
@@ -66,11 +66,14 @@ public class RawPresenceBroadcaster {
             fanout(sessions, roomKey, tm);
         }
 
-        // 2) latest는 배치로 1건 전송
-        var latest = coalescer.snapshotLatest(roomKey);
+        // 2) latest는 배치로 1건 전송 + 변경 있으면
+        var latest = coalescer.drainLatestIfDirty(roomKey);
         if (!latest.isEmpty()) {
             TextMessage batch = toText(makeBatch(roomKey, latest));
             fanout(sessions, roomKey, batch);
+//            if ((System.currentTimeMillis() / 1000) % 5 == 0) {
+//                log.info("[RAW] batch sent roomKey={} items={}", roomKey, latest.size());
+//            }
         }
     }
 

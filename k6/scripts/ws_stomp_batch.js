@@ -110,6 +110,8 @@ export function setup() {
 // ---------------- Metrics ----------------
 const stomp_ws_open_ms = new Trend("stomp_ws_open_ms", true);
 const stomp_ready_ms = new Trend("stomp_ready_ms", true);
+const stomp_phase_during_cnt = new Counter("stomp_phase_during_cnt");
+const stomp_phase_after_cnt = new Counter("stomp_phase_after_cnt");
 
 const stomp_latency_ms = new Trend("stomp_latency_ms", true);
 const stomp_latency_during_send_ms = new Trend("stomp_latency_during_send_ms", true);
@@ -120,17 +122,17 @@ const stomp_lat_le_200ms = new Counter("stomp_lat_le_200ms");
 const stomp_lat_le_1s = new Counter("stomp_lat_le_1s");
 const stomp_lat_gt_1s = new Counter("stomp_lat_gt_1s");
 
-// ✅ realtime success Rates (threshold 걸기용)
-const stomp_rt_ok_200 = new Rate("stomp_rt_ok_200"); // lat<=200ms
-const stomp_rt_ok_1s = new Rate("stomp_rt_ok_1s"); // lat<=1000ms
+// ✅ realtime success Rates
+const stomp_rt_ok_200 = new Rate("stomp_rt_ok_200");
+const stomp_rt_ok_1s = new Rate("stomp_rt_ok_1s");
 const stomp_rt_ok_200_during_send = new Rate("stomp_rt_ok_200_during_send");
 const stomp_rt_ok_200_after_send = new Rate("stomp_rt_ok_200_after_send");
 
 const stomp_sent = new Counter("stomp_sent");
 
-// ✅ recv는 “논리 이벤트” 기준(배치면 items 개수만큼)
+// ✅ recv: 논리 이벤트(배치면 items 개수만큼)
 const stomp_recv = new Counter("stomp_recv");
-// ✅ 프레임(물리 수신) 기준도 따로
+// ✅ recv frames: 물리 STOMP MESSAGE 프레임 수
 const stomp_recv_frames = new Counter("stomp_recv_frames");
 
 const stomp_connected_frames = new Counter("stomp_connected_frames");
@@ -273,9 +275,11 @@ function recordLatency(lat, tags, inSendWindow) {
   stomp_rt_ok_1s.add(lat <= LAT_WARN_MS, tags);
 
   if (inSendWindow === true) {
+    stomp_phase_during_cnt.add(1, tags);
     stomp_latency_during_send_ms.add(lat, tags);
     stomp_rt_ok_200_during_send.add(lat <= LAT_OK_MS, tags);
   } else if (inSendWindow === false) {
+    stomp_phase_after_cnt.add(1, tags);
     stomp_latency_after_send_ms.add(lat, tags);
     stomp_rt_ok_200_after_send.add(lat <= LAT_OK_MS, tags);
   }
@@ -309,7 +313,10 @@ export default function (data) {
     let cancel = null;
     let readyMarked = false;
 
-    let connectedAtMs = null; // CONNECTED 받은 시각
+    let connectedAtMs = null;     // CONNECTED 받은 시각(참고용)
+    let sendStartAtMs = null;     // sender: 첫 SEND 시각(phase 기준점)
+    let firstMessageAtMs = null;  // receiver(or sender): 첫 MESSAGE 수신 시각(트릭)
+
     const sendWindowMs = SEND_DURATION_S * 1000;
 
     let dumpCount = 0;
@@ -364,6 +371,7 @@ export default function (data) {
               hz: RATE_HZ,
               durationMs: SEND_DURATION_S * 1000,
               onTick: () => {
+                if (sendStartAtMs == null) sendStartAtMs = Date.now(); // ✅ 첫 SEND 기준점
                 socket.send(
                   stompFrame(
                     "SEND",
@@ -376,10 +384,13 @@ export default function (data) {
             });
           }
         } else if (fr.command === "MESSAGE") {
-          // ✅ 프레임 기준 recv
+          // ✅ 물리 프레임 recv
           stomp_recv_frames.add(1, { role: sender ? "sender" : "receiver" });
 
           if (MODE !== "cursor") continue;
+
+          // ✅ receiver 기준점 보정: 첫 MESSAGE 수신 시각
+          if (firstMessageAtMs == null) firstMessageAtMs = Date.now();
 
           let msg = null;
           try {
@@ -429,28 +440,34 @@ export default function (data) {
 
           const tags = { role: sender ? "sender" : "receiver" };
 
+          // ✅ phase 기준점 통일(옵션 A + 트릭)
+          //  - sender: sendStartAtMs(첫 SEND)
+          //  - receiver: firstMessageAtMs(첫 MESSAGE 수신)
+          const phaseStartAt = sender ? sendStartAtMs : firstMessageAtMs;
           let inSendWindow = null;
-          if (connectedAtMs != null) {
-            const elapsedSinceConnected = Date.now() - connectedAtMs;
-            inSendWindow = elapsedSinceConnected <= sendWindowMs;
+          if (phaseStartAt != null) {
+            const elapsed = Date.now() - phaseStartAt;
+            inSendWindow = elapsed <= sendWindowMs;
+          } else if (connectedAtMs != null) {
+            // fallback
+            const elapsed = Date.now() - connectedAtMs;
+            inSendWindow = elapsed <= sendWindowMs;
           }
 
           // ✅ 단일 CURSOR
           if (msg?.type === "CURSOR" && typeof msg?.sentAt === "number") {
-            stomp_recv.add(1, tags); // 논리 이벤트 1개
+            stomp_recv.add(1, tags);
             const lat = Date.now() - msg.sentAt;
             recordLatency(lat, tags, inSendWindow);
             continue;
           }
 
-          // ✅ 배치 PRESENCE_BATCH (cursors[])
-          // 서버 DTO가 items로 오면 items도 함께 처리
-          const arr =
-            Array.isArray(msg?.cursors) ? msg.cursors : Array.isArray(msg?.items) ? msg.items : null;
+          // ✅ 배치 PRESENCE_BATCH (cursors[] or items[])
+          const arr = Array.isArray(msg?.cursors) ? msg.cursors : Array.isArray(msg?.items) ? msg.items : null;
 
           if (msg?.type === "PRESENCE_BATCH" && Array.isArray(arr)) {
             const n = arr.length;
-            if (n > 0) stomp_recv.add(n, tags); // 논리 이벤트: item 개수만큼
+            if (n > 0) stomp_recv.add(n, tags);
 
             for (const it of arr) {
               if (!it || typeof it.sentAt !== "number") continue;
@@ -482,7 +499,15 @@ export default function (data) {
     socket.on("error", (e) => {
       stomp_errors.add(1);
       if (DUMP_RECV) {
-        console.log(JSON.stringify({ vu: __VU, iter: __ITER, role: sender ? "sender" : "receiver", ev: "ws:error", err: String(e) }));
+        console.log(
+          JSON.stringify({
+            vu: __VU,
+            iter: __ITER,
+            role: sender ? "sender" : "receiver",
+            ev: "ws:error",
+            err: String(e),
+          })
+        );
       }
     });
 
@@ -560,6 +585,9 @@ export function handleSummary(data) {
   const mRt200Send = metric(data, "stomp_rt_ok_200_during_send");
   const mRt200After = metric(data, "stomp_rt_ok_200_after_send");
 
+  const mPhaseDuring = metric(data, "stomp_phase_during_cnt");
+  const mPhaseAfter = metric(data, "stomp_phase_after_cnt");
+
   const mConnFrames = metric(data, "stomp_connected_frames");
   const mErr = metric(data, "stomp_errors");
   const mOpen = metric(data, "stomp_open");
@@ -585,7 +613,12 @@ export function handleSummary(data) {
   lines.push(`duration: ${num(durS, 2)}s`);
   lines.push(`open: ${vCount(mOpen)} / close: ${vCount(mClose)} / errors: ${vCount(mErr)}`);
   lines.push(`sent: ${sent} / received(events): ${recv} / received(frames): ${recvFrames}`);
-  lines.push(`sent/s: ${num(sent / durS, 2)} / recv_events/s: ${num(recv / durS, 2)} / recv_frames/s: ${num(recvFrames / durS, 2)}`);
+  lines.push(
+    `sent/s: ${num(sent / durS, 2)} / recv_events/s: ${num(recv / durS, 2)} / recv_frames/s: ${num(
+      recvFrames / durS,
+      2
+    )}`
+  );
   lines.push(`CONNECTED frames: ${vCount(mConnFrames)}`);
 
   if (mWs) {
@@ -637,7 +670,9 @@ export function handleSummary(data) {
     lines.push(
       `latency buckets(ms): <=${LAT_OK_MS}=${ok} (${pct(ok)}%) / <=${LAT_WARN_MS}=${warn} (${pct(warn)}%) / >${LAT_WARN_MS}=${bad} (${pct(bad)}%)`
     );
-
+    lines.push(
+      `phase samples: during=${vCount(mPhaseDuring)} / after=${vCount(mPhaseAfter)}`
+    );
     const r200 = rateVal(mRt200);
     const r1s = rateVal(mRt1s);
     const r200Send = rateVal(mRt200Send);

@@ -53,12 +53,19 @@ const USERS_CSV_TEXT = open(USERS_CSV_PATH);
 // Metrics
 const raw_connect_ms = new Trend("raw_connect_ms", true);
 
+const raw_phase_during_cnt = new Counter("raw_phase_during_cnt");
+const raw_phase_after_cnt = new Counter("raw_phase_after_cnt");
+
 const raw_latency_ms = new Trend("raw_latency_ms", true);
 const raw_latency_during_send_ms = new Trend("raw_latency_during_send_ms", true);
 const raw_latency_after_send_ms = new Trend("raw_latency_after_send_ms", true);
 
 const raw_sent = new Counter("raw_sent");
+
+// ✅ recv: 논리 이벤트(배치면 items 개수만큼)
 const raw_recv = new Counter("raw_recv");
+// ✅ recv frames: 물리 수신 프레임 수
+const raw_recv_frames = new Counter("raw_recv_frames");
 
 // bucket counters
 const raw_lat_le_200ms = new Counter("raw_lat_le_200ms");
@@ -81,8 +88,6 @@ const DUMP_ERR_LIMIT = Number(__ENV.DUMP_ERR_LIMIT || 20);
 let errDumped = 0;
 
 export const options = {
-  // ✅ STOMP와 동일하게 "연결된 VU 수"를 실험 단위로 만들려면
-  // 각 VU가 1번만 실행되도록 iterations로 고정하는 게 제일 안전함.
   scenarios: {
     one_conn_per_vu: {
       executor: "per-vu-iterations",
@@ -97,8 +102,6 @@ export const options = {
     ...(MODE === "cursor"
       ? {
           raw_latency_ms: ["p(95)<120", "p(99)<250"],
-
-          // ✅ 실시간 성공률 threshold (원하면 완화/해제 가능)
           raw_rt_ok_200: [`rate>${RT_OK_200_MIN}`],
           raw_rt_ok_1s: [`rate>${RT_OK_1S_MIN}`],
           raw_rt_ok_200_during_send: [`rate>${RT_OK_200_SEND_MIN}`],
@@ -122,7 +125,6 @@ function cookieHeaderFromResponse(res) {
 }
 
 function recordLatency(lat, tags, phaseTags, metrics) {
-  // sanity
   if (!(lat >= 0 && lat < 60_000)) return;
 
   const { LAT_OK_MS, LAT_WARN_MS } = metrics;
@@ -137,9 +139,11 @@ function recordLatency(lat, tags, phaseTags, metrics) {
   metrics.rt1s.add(lat <= LAT_WARN_MS, tags);
 
   if (phaseTags?.inSendWindow === true) {
+    metrics.phaseDuringCnt.add(1, tags);
     metrics.latDuring.add(lat, tags);
     metrics.rt200During.add(lat <= LAT_OK_MS, tags);
   } else if (phaseTags?.inSendWindow === false) {
+    metrics.phaseAfterCnt.add(1, tags);
     metrics.latAfter.add(lat, tags);
     metrics.rt200After.add(lat <= LAT_OK_MS, tags);
   }
@@ -147,7 +151,7 @@ function recordLatency(lat, tags, phaseTags, metrics) {
 
 export function setup() {
   const base = BASE_HTTP_ENV;
-  const userLimit = Number(__ENV.USER_LIMIT || 0); // 0이면 전체
+  const userLimit = Number(__ENV.USER_LIMIT || 0);
 
   const lines = USERS_CSV_TEXT.split(/\r?\n/).filter(Boolean);
 
@@ -248,7 +252,6 @@ export default function (data) {
   const baseWs = baseHttp.replace(/^http/, "ws");
   const sessions = data.sessions;
 
-  // VU별 세션 선택(계정 수 < VU 수면 순환)
   const idx = (__VU - 1) % sessions.length;
   const sess = sessions[idx];
 
@@ -260,14 +263,16 @@ export default function (data) {
     tags: { proto: "raw", mode: MODE, user: sess.loginId, role: sender ? "sender" : "receiver" },
   };
 
-  // RAW endpoint
   const wsUrl = `${baseWs}/ws/canvas-raw?teamId=${TEAM_ID}&graphId=${GRAPH_ID}`;
 
   ws.connect(wsUrl, params, (socket) => {
     let cancel = null;
 
-    // open 기준 시각(구간 분리용)
-    let openedAtMs = null;
+    // 기준 시각들
+    let openedAtMs = null;      // ws open
+    let sendStartAtMs = null;   // sender: 첫 send 시각
+    let firstRecvAtMs = null;   // receiver(or sender): 첫 수신 시각 (k6-only 트릭)
+
     const sendWindowMs = SEND_DURATION_S * 1000;
 
     socket.on("open", () => {
@@ -279,22 +284,20 @@ export default function (data) {
         role: sender ? "sender" : "receiver",
       });
 
-      // ✅ baseline/cursor 공통: HOLD_MS 후 close (VU당 1회 연결 유지)
       socket.setTimeout(() => {
         try {
           socket.close();
         } catch (_) {}
       }, HOLD_MS);
 
-      // ✅ baseline은 송신 없음
       if (MODE === "baseline") return;
 
-      // ✅ cursor: sender만 DURATION_S 동안 송신
       if (sender) {
         cancel = startDriftLoop(socket, {
           hz: RATE_HZ,
           durationMs: SEND_DURATION_S * 1000,
           onTick: () => {
+            if (sendStartAtMs == null) sendStartAtMs = Date.now(); // ✅ 첫 send 기준점
             socket.send(JSON.stringify(buildCursorPayload()));
             raw_sent.add(1, { role: "sender" });
           },
@@ -303,58 +306,70 @@ export default function (data) {
     });
 
     socket.on("message", (msgText) => {
-  if (MODE !== "cursor") return;
+      // ✅ 물리 프레임 카운트
+      raw_recv_frames.add(1, { role: sender ? "sender" : "receiver" });
 
-  let msg = null;
-  try { msg = JSON.parse(msgText); } catch { return; }
+      if (MODE !== "cursor") return;
 
-  const tags = { role: sender ? "sender" : "receiver" };
+      // ✅ receiver 기준점 보정: 첫 수신 시각
+      if (firstRecvAtMs == null) firstRecvAtMs = Date.now();
 
-  // phase split
-  let inSendWindow = null;
-  if (openedAtMs != null) {
-    const elapsed = Date.now() - openedAtMs;
-    inSendWindow = elapsed <= sendWindowMs;
-  }
+      let msg = null;
+      try { msg = JSON.parse(msgText); } catch { return; }
 
-  const metrics = {
-    LAT_OK_MS, LAT_WARN_MS,
-    latency: raw_latency_ms,
-    latDuring: raw_latency_during_send_ms,
-    latAfter: raw_latency_after_send_ms,
-    le200: raw_lat_le_200ms,
-    le1s: raw_lat_le_1s,
-    gt1s: raw_lat_gt_1s,
-    rt200: raw_rt_ok_200,
-    rt1s: raw_rt_ok_1s,
-    rt200During: raw_rt_ok_200_during_send,
-    rt200After: raw_rt_ok_200_after_send,
-  };
+      const tags = { role: sender ? "sender" : "receiver" };
 
-  // ✅ 1) 단일 CURSOR
-  if (msg?.type === "CURSOR" && typeof msg?.sentAt === "number") {
-    raw_recv.add(1, tags); // 논리 이벤트 1개
-    const lat = Date.now() - msg.sentAt;
-    recordLatency(lat, tags, { inSendWindow }, metrics);
-    return;
-  }
+      // ✅ phase 기준점 통일(옵션 A + 트릭)
+      //  - sender: sendStartAtMs(첫 send)
+      //  - receiver: firstRecvAtMs(첫 수신)
+      const phaseStartAt = sender ? sendStartAtMs : firstRecvAtMs;
+      let inSendWindow = null;
+      if (phaseStartAt != null) {
+        const elapsed = Date.now() - phaseStartAt;
+        inSendWindow = elapsed <= sendWindowMs;
+      } else if (openedAtMs != null) {
+        // 혹시 phaseStartAt이 null인 극단 케이스 fallback
+        const elapsed = Date.now() - openedAtMs;
+        inSendWindow = elapsed <= sendWindowMs;
+      }
 
-  // ✅ 2) 배치 PRESENCE_BATCH
-  if (msg?.type === "PRESENCE_BATCH" && Array.isArray(msg?.cursors)) {
-    // 논리 이벤트: 커서 item 개수만큼
-    const n = msg.cursors.length;
-    if (n > 0) raw_recv.add(n, tags);
+      const metrics = {
+        LAT_OK_MS, LAT_WARN_MS,
+        latency: raw_latency_ms,
+        latDuring: raw_latency_during_send_ms,
+        latAfter: raw_latency_after_send_ms,
+        le200: raw_lat_le_200ms,
+        le1s: raw_lat_le_1s,
+        gt1s: raw_lat_gt_1s,
+        rt200: raw_rt_ok_200,
+        rt1s: raw_rt_ok_1s,
+        rt200During: raw_rt_ok_200_during_send,
+        rt200After: raw_rt_ok_200_after_send,
+        phaseDuringCnt: raw_phase_during_cnt,
+  phaseAfterCnt: raw_phase_after_cnt,
+      };
 
-    for (const it of msg.cursors) {
-      if (!it || typeof it.sentAt !== "number") continue;
-      const lat = Date.now() - it.sentAt;
-      recordLatency(lat, tags, { inSendWindow }, metrics);
-    }
-    return;
-  }
+      // ✅ 1) 단일 CURSOR
+      if (msg?.type === "CURSOR" && typeof msg?.sentAt === "number") {
+        raw_recv.add(1, tags);
+        const lat = Date.now() - msg.sentAt;
+        recordLatency(lat, tags, { inSendWindow }, metrics);
+        return;
+      }
 
-  // 그 외 타입은 무시(또는 디버그)
-});
+      // ✅ 2) 배치 PRESENCE_BATCH
+      if (msg?.type === "PRESENCE_BATCH" && Array.isArray(msg?.cursors)) {
+        const n = msg.cursors.length;
+        if (n > 0) raw_recv.add(n, tags);
+
+        for (const it of msg.cursors) {
+          if (!it || typeof it.sentAt !== "number") continue;
+          const lat = Date.now() - it.sentAt;
+          recordLatency(lat, tags, { inSendWindow }, metrics);
+        }
+        return;
+      }
+    });
 
     socket.on("error", (e) => {
       raw_errors.add(1);
@@ -412,6 +427,7 @@ export function handleSummary(data) {
 
   const mSent = metric(data, "raw_sent");
   const mRecv = metric(data, "raw_recv");
+  const mRecvFrames = metric(data, "raw_recv_frames");
   const mConn = metric(data, "raw_connect_ms");
 
   const mLat = metric(data, "raw_latency_ms");
@@ -431,8 +447,12 @@ export function handleSummary(data) {
   const mRt200Send = metric(data, "raw_rt_ok_200_during_send");
   const mRt200After = metric(data, "raw_rt_ok_200_after_send");
 
+  const mPhaseDuring = metric(data, "raw_phase_during_cnt");
+  const mPhaseAfter = metric(data, "raw_phase_after_cnt");
+
   const sent = vCount(mSent);
   const recv = vCount(mRecv);
+  const recvFrames = vCount(mRecvFrames);
 
   const ok = vCount(mOk);
   const warn = vCount(mWarn);
@@ -449,8 +469,13 @@ export function handleSummary(data) {
   lines.push(`=== RAW Summary (MODE=${MODE}) ===`);
   lines.push(`duration: ${num(durS, 2)}s`);
   lines.push(`open: ${vCount(mOpen)} / close: ${vCount(mClose)} / errors: ${vCount(mErr)}`);
-  lines.push(`sent: ${sent} / received: ${recv}`);
-  lines.push(`sent/s: ${num(sent / durS, 2)} / recv/s: ${num(recv / durS, 2)}`);
+  lines.push(`sent: ${sent} / received(events): ${recv} / received(frames): ${recvFrames}`);
+  lines.push(
+    `sent/s: ${num(sent / durS, 2)} / recv_events/s: ${num(recv / durS, 2)} / recv_frames/s: ${num(
+      recvFrames / durS,
+      2
+    )}`
+  );
 
   if (mConn) {
     lines.push(
@@ -492,7 +517,9 @@ export function handleSummary(data) {
     lines.push(
       `latency buckets(ms): <=${LAT_OK_MS}=${ok} (${pct(ok)}%) / <=${LAT_WARN_MS}=${warn} (${pct(warn)}%) / >${LAT_WARN_MS}=${bad} (${pct(bad)}%)`
     );
-
+    lines.push(
+      `phase samples: during=${vCount(mPhaseDuring)} / after=${vCount(mPhaseAfter)}`
+    );
     const r200 = rateVal(mRt200);
     const r1s = rateVal(mRt1s);
     const r200Send = rateVal(mRt200Send);
@@ -502,7 +529,10 @@ export function handleSummary(data) {
       `realtime rates: ok<=${LAT_OK_MS}=${r200 == null ? "—" : num(r200 * 100, 2) + "%"} (min ${num(
         RT_OK_200_MIN * 100,
         2
-      )}%) / ok<=${LAT_WARN_MS}=${r1s == null ? "—" : num(r1s * 100, 2) + "%"} (min ${num(RT_OK_1S_MIN * 100, 2)}%)`
+      )}%) / ok<=${LAT_WARN_MS}=${r1s == null ? "—" : num(r1s * 100, 2) + "%"} (min ${num(
+        RT_OK_1S_MIN * 100,
+        2
+      )}%)`
     );
 
     lines.push(
