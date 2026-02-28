@@ -241,6 +241,141 @@ registry.join(roomKey, safeSession);
 - CONTROL과 같이 노드 이동 후 드랍, 노드 수정과 같은 메세지는 LinkedQueue에 담아 순서를 보장하며 전부 보내도록 한다.
 - 이후 각각의 스케쥴러에서 100ms(10HZ),50ms(20HZ),33ms(30HZ)등에 따라 담았던 메세지를 전파한다.
 
-### 문제점
-- 두 테스트 모두 개선 후 
+### DROP,Latest-Only + Scheduler 적용 후 테스트 결과
+- 두 테스트 모두 DROP, ONLY-LATEST를 적용 후 테스트 결과 아래와 같이 나왔다.
 
+| Type                      | Duration | Errors | Received             | Recv/s                 | ≤200ms     | ≤1000ms |
+| ------------------------- | -------- | ------ | -------------------- | ---------------------- | ---------- | ------- |
+| RAW | 64.61s   | 0      | 2,399,800 | 37,140.33 | 0.00%  | 0.39%   |
+| STOMP | 62.66s   | 0      | 1,799,164 | 28,713.92 | **0.30%**  | 1.19%   |
+| RAW(drop)   | 64.00s   | 0      | 2,392,680            | 37,386.23              | **48.55%** | 2.89%  |
+| STOMP(drop) | 64.03s   | 0      | 2,396,660 *(events)* | 37,431.44 *(events/s)* | **48.21%** | 3.20%  |
+
+
+- 두 테스트 모두 drop을 적용 후 200ms내로 들어오는 메세지 비율이 증가 및 동일한 Hz로 서버에서 브로드캐스팅 작업을 하여 항상 안정적인 수신량을 확인할 수 있다.
+
+### 문제점
+- 메세지 수신의 1000ms이상 걸리는 비율이 raw,stomp 둘다 50프로에 근사하는 문제가 발생하였다.
+
+#### 1차 개선 구조 및 원인
+- 현재는 다음과 같은 구조를 가진다
+ 1. 메세지 수신 후 키값 생성후 버퍼 전달
+ 2. 버퍼 적재(휘발성,최신->ConcurrentHashMap 적재, 노드 수정 등 메세지 유실X->LinkedQueue적재)
+ 3. 스케쥴링 및 Flush
+<details>
+  <summary>📜 1. 메세지 수신 시에 버퍼 적재(Coalescing) (클릭하여 보기)</summary>
+
+```java
+// 메시지를 모아두는 버퍼 레이어
+public class RoomPresenceCoalescer<T> {
+
+    // roomKey → (senderKey → latestMessage)
+    private final ConcurrentHashMap<String, ConcurrentHashMap<String, T>> latestByRoom
+            = new ConcurrentHashMap<>();
+
+    // 메시지 수신 시 roomKey + senderKey 기준으로 덮어씀
+    public void publishLatest(String roomKey, String key, T msg) {
+        latestByRoom
+            .computeIfAbsent(roomKey, rk -> new ConcurrentHashMap<>())
+            .put(key, msg); // 동일 sender는 항상 최신 1개만 유지
+    }
+}
+```
+</details>
+
+- 같은 유저가 보내도 맵에는 ```ex)key = CURSOR:101``` 1개만 남는다.
+
+
+<details>
+  <summary>📜 2. WebSocket 수신부에서 버퍼로 전달 (클릭하여 보기)</summary>
+
+```java
+@Override
+protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+
+    RawCursorMessage out = new RawCursorMessage(...);
+
+    if (TYPE_CONTROL.equals(out.type())) {
+        // Drop 금지 (신뢰 전송)
+        broadcaster.publishReliable(roomKey, safeMessage);
+    } else {
+        // sender별 key 생성
+        String key = makeLatestKey(out.type(), out.userId(), out.nodeId());
+
+        // 최신 메시지 버퍼에 저장 (즉시 전송 X)
+        broadcaster.publishLatest(roomKey, key, safeMessage);
+    }
+}
+```
+
+</details>
+
+
+<details>
+  <summary>3️⃣ 스케줄링 + Flush (실제 배치 전송 구간) (클릭하여 보기)</summary>
+
+
+```java
+// RawPresenceBroadcaster
+private final ScheduledExecutorService flusher =
+        Executors.newSingleThreadScheduledExecutor();
+
+{
+    // 33ms마다 전체 룸 flush (≈ 30Hz)
+    flusher.scheduleAtFixedRate(
+            this::flushAllRoomsSafe,
+            0,
+            33,
+            TimeUnit.MILLISECONDS
+    );
+}
+```
+
+</details>
+
+
+<details>
+  <summary>4. Flush구현 (클릭하여 보기)</summary>
+
+
+```java
+
+//flsuh작업이 도는 도중에 다른 쓰레드에서 룸 생성,삭제등 충돌 문제를 막기 위해 짧게 복사하여 처리
+private void flushAllRoomsSafe() {
+        try {
+            for (String roomKey : registry.roomKeysSnapshot()) {
+                flushRoom(roomKey);
+            }
+        } catch (Exception e) {
+            log.warn("[RAW] flushAllRoomsSafe error: {}", e.toString());
+        }
+    }
+
+private void flushRoom(String roomKey) {
+
+    List<WebSocketSession> sessions = registry.snapshot(roomKey);
+    if (sessions.isEmpty()) return;
+
+    coalescer.flushRoom(roomKey, (TextMessage msg) -> {
+
+        for (WebSocketSession s : sessions) {
+            if (!s.isOpen()) continue;
+
+            try {
+                s.sendMessage(msg);
+            } catch (Exception e) {
+                registry.leave(roomKey, s);
+            }
+        }
+    });
+}
+```
+
+</details>
+
+#### 문제 원인
+- 위 구조의 3번 스케줄링 + Flush에서 문제가 발생하게 된다
+- HashMap에 들어간 메세지는 지워지지 않으므로 이미 보낸 메세지여도 지정한 시간마다 계속하여 보내게 되는 문제가 발생하게 된다.
+1. 불필요한 중복 브로드캐스트 폭증
+2. 네트워크/CPU 리소스 낭비 → tail latency 악화
+3. 메모리 점유 증가(장기적으로 GC/OutOfMemory 위험)
