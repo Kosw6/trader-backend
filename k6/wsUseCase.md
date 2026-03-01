@@ -345,13 +345,3 @@ k6 run `
   -e SUMMARY=outputs/raw_cursor.json `
   scripts/ws_raw_batch.js
 
-  === RAW Summary (MODE=cursor) ===
-duration: 64.04s
-open: 100 / close: 100 / errors: 0
-sent: 6000 / received(events): 547592 / received(frames): 59264
-sent/s: 93.70 / recv_events/s: 8551.36 / recv_frames/s: 925.48
-connect(ms) count=0 avg=113.1 p50=101.0 p95=190.3 p99=206.2
-latency buckets(ms): <=200=539199 (98.47%) / <=1000=8362 (1.53%) / >1000=31 (0.01%)
-phase samples: during=547526 / after=66
-realtime rates: ok<=200=98.47% (min 90.00%) / ok<=1000=99.99% (min 99.00%)
-realtime rates by phase: during-send ok<=200=98.47% (min 90.00%), after-send ok<=200=100.00% (min 90.00%)

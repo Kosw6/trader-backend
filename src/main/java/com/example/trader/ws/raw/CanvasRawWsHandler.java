@@ -32,13 +32,6 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         try {
-//            log.info("[RAW] open session={} uri={} principal={} cookie={}",
-//                    session.getId(),
-//                    session.getUri(),
-//                    (session.getPrincipal() != null ? session.getPrincipal().getName() : null),
-//                    session.getHandshakeHeaders().getFirst("Cookie")
-//            );
-
             RoomIds room = parseRoomIds(session.getUri());
             String roomKey = registry.roomKey(room.teamId(), room.graphId());
 
@@ -109,8 +102,9 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         }
 
         // server authoritative 정규화
+        //TODO:노드 이동시에는 클라에서 해당 센더의 커서대신 노드의 아이디와 x,y좌표를 넘겨야 함
         RawCursorMessage out = new RawCursorMessage(
-                in.type(),
+                in.type(),//커서,드래그,컨트롤 -> 커서와 드래그는 latest로 넘기는데 클라에서 type수신해서 렌더링
                 room.teamId(),
                 room.graphId(),
                 userId,
@@ -121,9 +115,9 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 in.sentAt()
         );
 
-        if (TYPE_CONTROL.equals(out.type())) {
+        if (TYPE_CONTROL.equals(out.type())) {//컨트롤:필수 이벤트
             broadcaster.publishReliable(roomKey, out);     // ✅ DTO 그대로
-        } else {
+        } else {//커서,드래그 포함
             String key = makeLatestKey(out.type(), out.userId(), out.nodeId());
             broadcaster.publishLatest(roomKey, key, out);  // ✅ DTO 그대로
         }
@@ -153,7 +147,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         Object v = session.getAttributes().get(WsAttrs.SAFE_SESSION);
         return (v instanceof WebSocketSession ws) ? ws : session;
     }
-
+    //정합성 이벤트 ex)노드 드래그 앤 드롭(좌표수정 후 DB반영), 노드 수정, 엣지 연결등 -> 즉각 UX반영 해야 하기 때문
     private void broadcast(String roomKey, TextMessage payload) {
         // ✅ snapshot으로 안전하게 순회
         for (WebSocketSession s : registry.snapshot(roomKey)) {
