@@ -36,7 +36,7 @@
           {
             "name": "heavy",
             "executor": "constant-arrival-rate",
-            "rate": 290,
+            "rate": 300,
             "preAllocatedVUs": 200,
             "maxVUs": 700,
             "duration": "90s",
