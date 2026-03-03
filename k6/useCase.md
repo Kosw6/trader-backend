@@ -37,6 +37,8 @@ k6 run -e BASE_URL=http://172.30.1.78:8080 -e CONTROLLERS=NodeController -e VARI
 k6 run -e BASE_URL=http://172.30.1.78:8080 -e CONTROLLERS=StockController -e ENDPOINTS=range -e VARIANTS=warmup scripts/apiAuto.js
 k6 run -e BASE_URL=http://172.30.1.78:8080 -e CONTROLLERS=GraphController -e VARIANTS=heavy scripts/apiAuto.js
 
+k6 run -e BASE_URL=http://123.143.98.9:8080 -e CONTROLLERS=StockController -e ENDPOINTS=range -e VARIANTS=warmup scripts/apiAuto.js
+
 ### 웜업없이
 
 k6 run -e BASE_URL=http://172.30.1.78:8080 -e CONTROLLERS=NodeController -e VARIANTS=light -e NO_WARMUP=1 scripts/apiAuto.js
@@ -169,3 +171,6 @@ k6 run -e BASE_URL=http://172.30.1.78:8080 -e CONTROLLERS=NodeController -e ENDP
 { "id": "380129" },
 { "id": "390129" }
 ]
+
+
+k6 run -e BASE_URL=http://192.168.60.49:8080 -e CONTROLLERS=StockController -e ENDPOINTS=range -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js

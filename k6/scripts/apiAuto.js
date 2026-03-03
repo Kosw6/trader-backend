@@ -3,8 +3,18 @@ import { check } from "k6";
 import { SharedArray } from "k6/data";
 import { Trend } from "k6/metrics";
 
+/**
+ * HTTP Runner (endpoints.json 기반) + params.json 기반 파라미터 분배
+ * ✅ AUTH: Cookie 기반 (Bearer 토큰 제거)
+ *
+ * - setup(): 1회 로그인 → cookie 확보 (summary anchor용 testStartTs 포함)
+ * - VU별: 최초 1회 로그인 → VU_COOKIE 저장 → 모든 요청에 Cookie 헤더 부여
+ */
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  RNG helper
+// ──────────────────────────────────────────────────────────────────────────────
 function seededPick(n, seed) {
-  // 간단 LCG
   let x = seed >>> 0;
   x = (1664525 * x + 1013904223) >>> 0;
   return x % n;
@@ -24,8 +34,7 @@ const USERS = new SharedArray("users", () => {
     const [loginId, password, id] = line.split(",");
     if (loginId && password) out.push({ loginId, password, id });
   }
-  if (!out.length)
-    throw new Error("users.csv 로드 실패: 유효한 행이 없습니다.");
+  if (!out.length) throw new Error("users.csv 로드 실패: 유효한 행이 없습니다.");
   return out;
 });
 
@@ -87,6 +96,7 @@ const cfg = new SharedArray("endpoints", () =>
 //  Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 const RT_STAGE = new Trend("rt_stage", true);
+
 function extractFirstVar(pathTpl, qsTpl) {
   const both = `${pathTpl || ""} ${qsTpl || ""}`;
   const m = both.match(/{{\s*([\w]+)\s*}}/);
@@ -145,24 +155,40 @@ function sanitize(s) {
   return s.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
+// ✅ STOMP에서 쓰던 쿠키 추출 (res.cookies → "a=b; c=d")
+function cookieHeaderFromResponse(res) {
+  const parts = [];
+  const jar = res.cookies || {};
+  for (const [name, arr] of Object.entries(jar)) {
+    if (!arr || !arr.length) continue;
+    const v = arr[0]?.value;
+    if (v == null) continue;
+    parts.push(`${name}=${v}`);
+  }
+  return parts.join("; ");
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
-//  Setup (bootstrap token for summary timeline anchor)
+//  Setup (bootstrap cookie for summary timeline anchor)
 // ──────────────────────────────────────────────────────────────────────────────
 export function setup() {
+  const jar = http.cookieJar();
   const res = http.post(
     `${BASE}/api/login/signin`,
     JSON.stringify({
       loginId: __ENV.USER || "login_34",
       password: __ENV.PASS || "pw_e369853df766fa44e1ed0ff613f563bd",
     }),
-    { headers: { "Content-Type": "application/json" }, tags: { phase: "auth" } }
+    { headers: { "Content-Type": "application/json" }, jar, tags: { phase: "auth" } }
   );
   if (res.status !== 200)
     throw new Error(`로그인 실패: ${res.status} ${res.body}`);
-  const token = JSON.parse(res.body).accessToken;
+
+  const cookie = cookieHeaderFromResponse(res);
+  if (!cookie) throw new Error(`setup 쿠키 비어있음 status=${res.status} body=${res.body}`);
+
   return {
-    token,
-    headers: { Authorization: `Bearer ${token}` },
+    cookie, // (필요하면 활용 가능)
     testStartTs: Date.now(),
   };
 }
@@ -170,30 +196,37 @@ export function setup() {
 // ──────────────────────────────────────────────────────────────────────────────
 //  VU-local auth (each VU logs in once, from users.csv filtered pool)
 // ──────────────────────────────────────────────────────────────────────────────
-let VU_TOKEN = null,
-  VU_HEADERS = null,
-  VU_USER = null; // {loginId,password,id}
+let VU_COOKIE = null;
+let VU_USER = null; // {loginId,password,id}
 const VU_PARAM_IDX = {}; // rr counters per endpoint scope
 let ACTIVE_USER_SET = null,
   FILTERED_USERS = null;
 
 function loginPerVUFromCSV() {
-  if (VU_TOKEN) return;
+  if (VU_COOKIE) return;
+
   const pool = FILTERED_USERS || USERS;
   const idx = (__VU - 1) % pool.length;
   const { loginId, password, id } = pool[idx];
+
+  const jar = http.cookieJar();
   const res = http.post(
     `${BASE}/api/login/signin`,
     JSON.stringify({ loginId, password }),
-    { headers: { "Content-Type": "application/json" }, tags: { phase: "auth" } }
+    { headers: { "Content-Type": "application/json" }, jar, tags: { phase: "auth" } }
   );
   if (res.status !== 200)
     throw new Error(
       `로그인 실패(VU=${__VU}, loginId=${loginId}): ${res.status} ${res.body}`
     );
-  const token = JSON.parse(res.body).accessToken;
-  VU_TOKEN = token;
-  VU_HEADERS = { Authorization: `Bearer ${token}` };
+
+  const cookie = cookieHeaderFromResponse(res);
+  if (!cookie)
+    throw new Error(
+      `쿠키 비어있음(VU=${__VU}, loginId=${loginId}): ${res.status} ${res.body}`
+    );
+
+  VU_COOKIE = cookie;
   VU_USER = { loginId, password, id: String(id ?? "").trim() };
 }
 
@@ -201,8 +234,10 @@ function loginPerVUFromCSV() {
 //  Flatten endpoints (+ auto-inject warmup if missing)
 // ──────────────────────────────────────────────────────────────────────────────
 const all = [];
+
 for (const c of cfg) {
   if (CONTROLLERS.length && !CONTROLLERS.includes(c.controller)) continue;
+
   for (const ep of c.endpoints) {
     if (ENDPOINTS.length && !ENDPOINTS.includes(ep.name)) continue;
 
@@ -244,18 +279,18 @@ for (const c of cfg) {
         ? renderTemplate(ep.qsTemplate, combo)
         : ep.qs || "";
       const url = `${BASE}${c.base}${renderedPath}${qs ? "?" + qs : ""}`;
-      const comboName = needsTemplate
-        ? comboLabel(combo, ep.paramLabels)
-        : null;
+      const comboName = needsTemplate ? comboLabel(combo, ep.paramLabels) : null;
 
       const variants = Array.isArray(ep.variants) ? ep.variants : [];
       const picked = [];
+
       for (const v of variants) {
         const wantThisVariant =
           !VARIANTS.length ||
           VARIANTS.includes(v.name) ||
           (!NO_WARMUP && v.name === "warmup");
         if (!wantThisVariant) continue;
+
         picked.push(v);
         const item = {
           ...baseItem,
@@ -335,6 +370,7 @@ for (const c of cfg) {
 // Fast lookup + active users filtering
 const allMap = {};
 for (const it of all) allMap[it.key] = it;
+
 if (STRICT_PARAMS) {
   const activeMapKeys = new Set(all.map((it) => `${it.controller}.${it.name}`));
   ACTIVE_USER_SET = new Set();
@@ -361,7 +397,6 @@ for (const ep of all) {
 }
 const perRateMap = {};
 if (DISTRIBUTE_RATE) {
-  // 그룹별로 정확히 합계=baseRate가 되도록 분배
   const grouped = {};
   for (const ep of all) {
     const g = `${ep.controller}.${ep.name}::${ep.variant || "-"}`;
@@ -371,7 +406,7 @@ if (DISTRIBUTE_RATE) {
     const baseRate = Number(groupBaseRate[g] || 0);
     const n = eps.length;
     const q = Math.floor(baseRate / n);
-    let r = baseRate - q * n; // remainder
+    let r = baseRate - q * n;
     for (const ep of eps) {
       const add = r > 0 ? 1 : 0;
       perRateMap[ep.key] = Math.max(1, q + add);
@@ -386,12 +421,11 @@ for (const it of all) {
   if (String(it.variant).toLowerCase() !== "warmup") continue;
   const mapKey = `${it.controller}.${it.name}`;
   let sec = 0;
-  // 1) stages가 있으면 duration 합산
+
   const stages = it._overrides?.stages || it._defaults?.stages || null;
   if (Array.isArray(stages) && stages.length) {
     sec = stages.reduce((acc, s) => acc + toSeconds(s.duration || "0s"), 0);
   } else {
-    // 2) 아니면 duration 사용
     const dur = it._overrides?.duration || it._defaults?.duration || "";
     sec = toSeconds(dur) || 0;
   }
@@ -414,8 +448,9 @@ const thresholds = {
   // ▼ 아래 3줄: 태그달린 서브메트릭을 Summary에 강제로 생성
   "http_req_duration{phase:main}": ["p(95)<100000"], // 더미
   "http_reqs{phase:main}": ["rate>0"], // 더미
-  "rt_stage{phase:main}": ["p(95)<100000"], // 더미(heavy에도 노출)
+  "rt_stage{phase:main}": ["p(95)<100000"], // 더미
 };
+
 function mergeThresholds(thrObj, scenarioName, thrSpec) {
   if (!thrSpec || typeof thrSpec !== "object") return;
   for (const [metric, arr] of Object.entries(thrSpec)) {
@@ -437,6 +472,7 @@ for (const ep of all) {
     ep._defaults.executor ||
     EXECUTOR
   ).trim();
+
   const baseRate = Number(ep._overrides?.rate ?? ep._defaults.rate ?? RATE);
   const rate =
     execType === "constant-arrival-rate" && DISTRIBUTE_RATE
@@ -450,11 +486,14 @@ for (const ep of all) {
       ep._defaults.vus ??
       VUS
   );
+
   const maxVUs = Number(
     ep._overrides?.maxVUs ?? ep._defaults.maxVUs ?? MAX_VUS
   );
+
   const duration = ep._overrides?.duration || ep._defaults.duration || DURATION;
   const startTime = ep._overrides?.startTime;
+
   const mapKey = `${ep.controller}.${ep.name}`;
   const autoStartTime =
     !startTime &&
@@ -464,7 +503,7 @@ for (const ep of all) {
       ? `${warmupOffsetByTarget[mapKey]}s`
       : null;
 
-  // ✅ phase 태그를 모든 시나리오에 강제 (warmup vs main)
+  // ✅ phase 태그 강제
   const isWarmVariant = String(ep.variant || "").toLowerCase() === "warmup";
   const phaseTag = isWarmVariant ? "warmup" : "main";
 
@@ -473,8 +512,9 @@ for (const ep of all) {
     TARGET: mapKey,
     VARIANT: ep.variant || "",
     COMBO: ep.combo || "",
-    SCENARIO: scenarioName, // ✅ 요청 단계에서 태깅에 사용
+    SCENARIO: scenarioName,
   };
+
   const common = {
     exec: "dispatch",
     env,
@@ -483,8 +523,8 @@ for (const ep of all) {
       controller: ep.controller,
       endpoint: mapKey,
       variant: ep.variant || "",
-      scenario: scenarioName, // 시나리오 태그도 부여
-      phase: phaseTag, // ✅ 항상 부여(서브메트릭 생성 보장)
+      scenario: scenarioName,
+      phase: phaseTag,
     },
     ...(startTime || autoStartTime
       ? { startTime: startTime || autoStartTime }
@@ -502,7 +542,8 @@ for (const ep of all) {
       ...common,
     };
   } else if (execType === "ramping-arrival-rate") {
-    const rawStages = ep._overrides?.stages ??
+    const rawStages =
+      ep._overrides?.stages ??
       ep._defaults?.stages ?? [{ target: rate, duration: "1m" }];
     const startRate = Number(
       ep._overrides?.startRate ?? ep._defaults?.startRate ?? 10
@@ -510,6 +551,7 @@ for (const ep of all) {
     const timeUnit = ep._overrides?.timeUnit ?? ep._defaults?.timeUnit ?? "1s";
     const stageDurS = rawStages.map((s) => toSeconds(s.duration));
     const stageTargets = rawStages.map((s) => Number(s.target));
+
     scenarios[scenarioName] = {
       executor: "ramping-arrival-rate",
       startRate,
@@ -520,12 +562,12 @@ for (const ep of all) {
       ...common,
       env: {
         ...env,
-        STAGE_DURS: stageDurS.join(","), // "90,90,90,..."
-        STAGE_TARGETS: stageTargets.join(","), // "40,80,120,..."
+        STAGE_DURS: stageDurS.join(","),
+        STAGE_TARGETS: stageTargets.join(","),
         START_OFFSET_S: "0",
       },
     };
-    // ✅ per-stage 서브메트릭을 summary에 노출시키기 위한 더미 threshold
+
     for (let i = 0; i < rawStages.length; i++) {
       thresholds[`rt_stage{stage:${i},scenario:${scenarioName}}`] = [
         "p(95)<100000",
@@ -561,6 +603,7 @@ export const options = {
   thresholds,
   summaryTrendStats: ["avg", "min", "max", "p(90)", "p(95)"],
 };
+
 if (DEBUG) console.log("SCENARIOS:", Object.keys(scenarios).join(", "));
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -568,6 +611,7 @@ if (DEBUG) console.log("SCENARIOS:", Object.keys(scenarios).join(", "));
 // ──────────────────────────────────────────────────────────────────────────────
 export function dispatch(data) {
   loginPerVUFromCSV();
+
   const key = __ENV.KEY;
   const ep = allMap[key];
   if (!ep) throw new Error(`No endpoint matched KEY=${key}`);
@@ -576,6 +620,7 @@ export function dispatch(data) {
   const userId = String((VU_USER && VU_USER.id) || "");
   const needsTpl =
     hasTemplateBraces(ep.rawPath) || hasTemplateBraces(ep.rawQsTemplate);
+
   const firstVar = extractFirstVar(ep.rawPath, ep.rawQsTemplate);
   const defaultCombos = cartesianParams(ep.rawParams || {});
   const userMap = PARAMS[mapKey] || {};
@@ -592,12 +637,14 @@ export function dispatch(data) {
 
   let candidates = null;
   const perUser = userMap[userId];
+
   if (Array.isArray(perUser) && perUser.length) candidates = perUser.slice();
   else if (perUser && typeof perUser === "object") candidates = [perUser];
   else if (perUser != null) {
     const o = toObj(perUser);
     if (o) candidates = [o];
   }
+
   if (!candidates) {
     const cst = userMap.const;
     if (Array.isArray(cst) && cst.length) {
@@ -611,6 +658,7 @@ export function dispatch(data) {
       if (o) candidates = [o];
     }
   }
+
   if (!candidates) {
     if (STRICT_PARAMS && needsTpl) {
       console.warn(`[SKIP] no params for user=${userId} on ${mapKey}`);
@@ -622,49 +670,29 @@ export function dispatch(data) {
   // 워밍/메인 분기: 메인은 시드 고정 선택(재현성), 워밍은 랜덤 그대로
   let chosen, pickIdx;
   const isWarm = String(__ENV.VARIANT || "").toLowerCase() === "warmup";
+
   if (isWarm || !__ENV.MAIN_SEED) {
     pickIdx = Math.floor(Math.random() * candidates.length);
     chosen = candidates[pickIdx];
   } else {
-    // 시드에 VU/ITER를 섞어 요청별 분산 유지 (같은 런이면 같은 분포)
     const seedBase = Number(__ENV.MAIN_SEED) || 12345;
     const seed = (seedBase ^ (__VU * 1_000_003) ^ __ITER) >>> 0;
     pickIdx = seededPick(candidates.length, seed);
     chosen = candidates[pickIdx];
   }
 
-  // if (DEBUG) {
-  //   const poolType = userMap[userId]
-  //     ? `user:${userId}`
-  //     : userMap.const
-  //     ? "const(shared)"
-  //     : "fallback";
-  //   console.log(
-  //     `[PARAM] ${mapKey} VU=${__VU} ${poolType} ` +
-  //       `pick=${pickIdx}/${candidates.length} → ${JSON.stringify(chosen)}`
-  //   );
-  // }
-
   const renderedPath = needsTpl
     ? renderTemplate(ep.rawPath, chosen)
     : ep.rawPath;
+
   const qs = needsTpl
     ? renderTemplate(ep.rawQsTemplate, chosen)
     : ep.rawQsTemplate || "";
+
   const finalUrl = `${BASE}${ep.base}${normalizePath(renderedPath)}${
     qs ? "?" + qs : ""
   }`;
 
-  // DEBUG 모드일 때 현재 요청 URL 출력
-  if (DEBUG) {
-    const v = __ENV.VARIANT || "";
-    const sc = __ENV.SCENARIO || "";
-    // console.log(
-    //   `[REQ] ${ep.method} ${finalUrl}  (scenario=${sc}${
-    //     v ? `, variant=${v}` : ""
-    //   })`
-    // );
-  }
   // ── Stage index 계산(요청 태그에 반영)
   const testStartTs = data?.testStartTs || 0;
   const startOffset = Number(__ENV.START_OFFSET_S || 0);
@@ -672,9 +700,11 @@ export function dispatch(data) {
     0,
     Math.floor((Date.now() - testStartTs) / 1000) - startOffset
   );
+
   const dursStr = __ENV.STAGE_DURS || "";
   const durs = dursStr ? dursStr.split(",").map(Number) : [];
   let stageIdx = 0;
+
   if (durs.length) {
     let acc = 0;
     for (let i = 0; i < durs.length; i++) {
@@ -691,9 +721,10 @@ export function dispatch(data) {
   const isWarmVariant = String(__ENV.VARIANT || "").toLowerCase() === "warmup";
   const phaseTag = isWarmVariant ? "warmup" : "main";
 
+  // ✅ Cookie 기반 헤더 주입 (Authorization 제거)
   const params = {
     headers: {
-      ...(VU_HEADERS || {}),
+      Cookie: VU_COOKIE,
       ...(ep._defaults.headers || {}),
       ...(ep._overrides?.headers || {}),
     },
@@ -702,9 +733,9 @@ export function dispatch(data) {
       endpoint: mapKey,
       combo: __ENV.COMBO || "",
       variant: __ENV.VARIANT || "",
-      stage: String(stageIdx), // ✅ 스테이지 태그
-      scenario: __ENV.SCENARIO || "", // ✅ 시나리오 태그
-      phase: phaseTag, // ✅ 항상 동일한 phase
+      stage: String(stageIdx),
+      scenario: __ENV.SCENARIO || "",
+      phase: phaseTag,
     },
     responseType: DROP_BODIES ? "none" : "text",
     redirects: 0,
@@ -730,6 +761,7 @@ export function dispatch(data) {
 
   RT_STAGE.add(res.timings.duration, params.tags);
   check(res, { "status is 200": (r) => r.status === 200 });
+
   if (res.status >= 400) {
     const e = extractError(res);
     const variantStr = params.tags.variant ? ` / ${params.tags.variant}` : "";
@@ -741,10 +773,9 @@ export function dispatch(data) {
     ]
       .filter(Boolean)
       .join(" ");
+
     console.error(
-      `[FAIL] ${params.tags.endpoint}${
-        variantStr ? ` [${variantStr}]` : ""
-      } ${meta}\n→ ${e.msg}\nBODY=${res.body}`
+      `[FAIL] ${params.tags.endpoint}${variantStr ? ` [${variantStr}]` : ""} ${meta}\n→ ${e.msg}\nBODY=${res.body}`
     );
   }
 }
@@ -755,12 +786,10 @@ export function dispatch(data) {
 export function handleSummary(data) {
   if (String(__ENV.DEBUG || "0") === "1") {
     const metrics = data.metrics || {};
-    // 전체 키 샘플
     console.log(
       "ALL METRIC KEYS (first 30):",
       Object.keys(metrics).slice(0, 30)
     );
-    // 우리가 찾는 두 축만 별도로
     console.log(
       "DURATION series:",
       Object.keys(metrics).filter((k) => k.startsWith("http_req_duration{"))
@@ -774,15 +803,13 @@ export function handleSummary(data) {
       Object.keys(metrics).filter((k) => k.startsWith("rt_stage{"))
     );
   }
+
   if (data.setup_data) data.setup_data = { redacted: true };
 
-  // ---- helpers --------------------------------------------------------------
   const get = (path, fb) =>
     path.split(".").reduce((o, k) => (o && k in o ? o[k] : undefined), data) ??
     fb;
 
-  // k6 summary에는 태그별 서브메트릭이 "metric{tag:val,...}" 키로 들어옵니다.
-  // 예: "http_req_duration{phase:main,scenario:XXX}"
   function pickMetricByTags(metricBase, includeTags = [], scenario = null) {
     const metrics = data.metrics || {};
     const keys = Object.keys(metrics).filter((k) => {
@@ -816,7 +843,6 @@ export function handleSummary(data) {
 
   const scenario = __ENV.SUMMARY_SCENARIO || null;
 
-  // ---- Overall (기존 전체 요약; 참고용으로 계속 남김) -------------------------
   const overall = {
     avg:
       get("metrics.http_req_duration.values.avg") ??
@@ -831,13 +857,11 @@ export function handleSummary(data) {
       get("metrics.http_req_failed.value"),
   };
 
-  // ---- phase:main 전용 집계 -------------------------------------------------
   const tagFilters = ["phase:main"];
   const tagFiltersWithSc = scenario
     ? [...tagFilters, `scenario:${scenario}`]
     : tagFilters;
 
-  // http_req_duration (avg, p95)
   const durSeries = pickMetricByTags(
     "http_req_duration",
     tagFiltersWithSc,
@@ -856,17 +880,14 @@ export function handleSummary(data) {
     readNum(dur, ["values.p(95)"]) ??
     null;
 
-  // http_reqs (rate)
   const rpsSeries = pickMetricByTags("http_reqs", tagFiltersWithSc, scenario);
   rpsSeries.sort(
     (a, b) => (b.v?.values?.count ?? 0) - (a.v?.values?.count ?? 0)
   );
   const rpsVal = rpsSeries[0]?.v?.values || rpsSeries[0]?.v || null;
 
-  // k6가 출력하는 “전체 테스트 기간 평균 rps”
   const mainRps_testAvg = readNum(rpsVal, ["rate", "values.rate"]);
 
-  // ✅ 활성 구간(phase:main 시나리오들의 duration 합)으로 보정한 rps
   function toSecondsStr(d) {
     const m = String(d).match(/^(\d+)(ms|s|m|h)$/);
     if (!m) return 0;
@@ -880,29 +901,21 @@ export function handleSummary(data) {
       ? n * 60
       : n * 3600;
   }
+
   let activeMainSeconds = 0;
   for (const [, sc] of Object.entries(scenarios)) {
     const isMain = sc?.tags?.phase === "main";
     if (isMain) activeMainSeconds += toSecondsStr(sc.duration || "0s");
   }
-  // phase:main 요청 수
+
   const mainCount =
     (rpsVal && (rpsVal.count ?? rpsVal.values?.count)) ??
     data.metrics?.["http_reqs{phase:main}"]?.values?.count ??
     0;
 
-  console.log(`[DEBUG] mainCount=${mainCount}`);
-  console.log(
-    `[DEBUG] expectedCount(rate*duration)=${
-      (Number(__ENV.RATE || 0) || 40) * 30
-    }`
-  );
-  const runMs = data.state?.testRunDurationMs;
-  console.log(`[DEBUG] testRunDurationMs=${runMs}`);
   const mainRps_active =
     activeMainSeconds > 0 ? mainCount / activeMainSeconds : null;
-  console.log(`[DEBUG] mainRps_active=${mainRps_active}`);
-  // http_req_failed (rate)
+
   const failSeries = pickMetricByTags(
     "http_req_failed",
     tagFiltersWithSc,
@@ -918,10 +931,9 @@ export function handleSummary(data) {
     "values.rate",
     "values.value",
   ]);
-  const safeMainFailRate = mainFailRate == null ? 0 : mainFailRate; // ✅ 시리즈 없으면 0으로 처리
+  const safeMainFailRate = mainFailRate == null ? 0 : mainFailRate;
 
-  // ---- per-stage p95 (rt_stage, phase:main 전용) -----------------------------
-  const stageBest = {}; // stageIdx -> p95(ms)의 최대 관측치
+  const stageBest = {};
   const metrics = data.metrics || {};
   for (const [key, v] of Object.entries(metrics)) {
     if (!key.startsWith("rt_stage{")) continue;
@@ -942,10 +954,7 @@ export function handleSummary(data) {
     .map(Number)
     .sort((a, b) => a - b);
 
-  // ---- 출력 -----------------------------------------------------------------
   const lines = [];
-
-  // (1) phase:main 전용 요약
   lines.push("=== k6 Summary (phase:main) ===");
   lines.push(`avg latency: ${toMs(mainAvg)} ms`);
   lines.push(`p95 latency: ${toMs(mainP95)} ms`);
@@ -959,12 +968,10 @@ export function handleSummary(data) {
 
   if (stageIdxs.length) {
     lines.push("per-stage p95 (phase:main):");
-    for (const i of stageIdxs)
-      lines.push(`  stage ${i}: ${toMs(stageBest[i])}`);
+    for (const i of stageIdxs) lines.push(`  stage ${i}: ${toMs(stageBest[i])}`);
     lines.push("");
   }
 
-  // (2) 참고: 전체 구간(워밍 포함) 요약도 함께 출력(원하면 제거 가능)
   lines.push("=== k6 Summary (overall) ===");
   lines.push(`avg latency: ${toMs(overall.avg)} ms`);
   lines.push(`p95 latency: ${toMs(overall.p95)} ms`);
@@ -972,12 +979,11 @@ export function handleSummary(data) {
   lines.push(`fail rate: ${toPct(overall.failRate)}`);
   lines.push("");
 
-  // 파일 출력용 원본은 민감정보 최소화
   const cloned = JSON.parse(JSON.stringify(data));
   if (cloned.setup_data) cloned.setup_data = { redacted: true };
 
   return {
-    [__ENV.SUMMARY || "outputs/summary.json"]: JSON.stringify(cloned, null, 2),
+    [__ENV.SUMMARY || SUMMARY_OUT]: JSON.stringify(cloned, null, 2),
     stdout: lines.join("\n"),
   };
 }
@@ -990,11 +996,13 @@ function short(s, n = 400) {
   const str = String(s);
   return str.length > n ? str.slice(0, n) + "…" : str;
 }
+
 function extractError(res) {
   let json = null;
   try {
     json = JSON.parse(res.body);
   } catch (_) {}
+
   const msg =
     (json &&
       (json.message ||
@@ -1005,12 +1013,15 @@ function extractError(res) {
         json.reason)) ||
     (json && json.errors && short(JSON.stringify(json.errors), 300)) ||
     short(res.body, 300);
+
   const path = json && (json.path || json.instance);
   const ts = json && (json.timestamp || json.time);
+
   const trace =
     (json && (json.traceId || json.trace || json.errorId)) ||
     res.headers["x-request-id"] ||
     res.headers["x-amzn-requestid"] ||
     res.headers["x-correlation-id"];
+
   return { msg, path, ts, trace };
 }
