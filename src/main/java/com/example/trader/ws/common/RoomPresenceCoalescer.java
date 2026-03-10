@@ -34,7 +34,7 @@ public class RoomPresenceCoalescer<T> {
     /** 신뢰(순서 보장): enqueue */
     public void publishReliable(String roomKey, T msg) {
         reliableQueueByRoom.computeIfAbsent(roomKey, rk -> new ConcurrentLinkedQueue<>()).add(msg);
-        markDirty(roomKey);
+        markDirty(roomKey);//e
     }
     /***/
     private void markDirty(String roomKey) {

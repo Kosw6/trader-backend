@@ -3,6 +3,7 @@ package com.example.trader.controller;
 import com.example.trader.dto.RequestUserDto;
 import com.example.trader.dto.ResponseUserDto;
 import com.example.trader.entity.User;
+import com.example.trader.security.details.UserContext;
 import com.example.trader.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -12,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @Tag(name = "USER API", description = "유저관련 관련 API")
@@ -54,5 +56,11 @@ public class UserController {
     public ResponseEntity deleteUser(@Parameter(name = "id",description = "유저ID")@PathVariable Long id){
         userService.deleteUser(id);
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity getCurrentUser(@AuthenticationPrincipal UserContext userContext) {
+        ResponseUserDto dto = ResponseUserDto.of(userService.findUserByUserId(userContext.getUserDto().getId()));
+        return ResponseEntity.ok(dto);
     }
 }
