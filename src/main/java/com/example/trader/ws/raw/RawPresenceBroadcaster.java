@@ -4,6 +4,7 @@ import com.example.trader.ws.common.PresenceBatch;
 import com.example.trader.ws.common.RoomPresenceCoalescer;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,12 +35,16 @@ public class RawPresenceBroadcaster {
 
     @Value("${RAW_FLUSH_PERIOD:50}")
     long period;
-    @Value("${RAW_FLUSH_INITIALDELAY:0}")
+    @Value("${RAW_FLUSH_INITIALDELAY:1}")
     long initialDelay;
     // room별로 주기 flush (여기서는 간단히 전체 룸을 주기적으로 flush)
     // 룸 수가 많아지면 roomKey별 active set으로 최적화 가능
-    {
-        flusher.scheduleAtFixedRate(this::flushAllRoomsSafe, 0, 50, TimeUnit.MILLISECONDS);
+    @PostConstruct
+    public void start() {
+        if (period <= 0) throw new IllegalArgumentException("RAW_FLUSH_PERIOD must be > 0, was " + period);
+        if (initialDelay < 0) throw new IllegalArgumentException("RAW_FLUSH_INITIALDELAY must be >= 0, was " + initialDelay);
+
+        flusher.scheduleAtFixedRate(this::flushAllRoomsSafe, initialDelay, period, TimeUnit.MILLISECONDS);
     }
 
     public void publishLatest(String roomKey, String key, RawCursorMessage msg) {

@@ -104,4 +104,10 @@ public class NotifycationService {
                 ownerId, NotificationRelatedType.JOIN_REQUEST, joinRequestId
         );
     }
+
+    public int markTeamNotificationAsReadFast(Long ownerId, Long teamId) {
+        return notifycationRepository.markAsReadByRelated(
+                ownerId, NotificationRelatedType.TEAM, teamId
+        );
+    }
 }
