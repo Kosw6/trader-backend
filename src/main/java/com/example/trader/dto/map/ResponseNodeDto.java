@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 
 @Getter
 @Builder
+@lombok.extern.jackson.Jacksonized //기본 생성자 없을 때 builder구조에서 직/역직렬화
 public class ResponseNodeDto {
     private Long id;
     private double x;

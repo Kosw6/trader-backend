@@ -2,12 +2,15 @@ package com.example.trader.config;
 
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.example.trader.dto.map.PageNodesCacheDto;
+import com.example.trader.dto.map.ResponseGraphDto;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.databind.jsontype.PolymorphicTypeValidator;
-import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.cache.CacheManager;
@@ -21,52 +24,70 @@ import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.cache.RedisCacheWriter;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.core.*;
-import org.springframework.data.redis.serializer.*;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 @Slf4j
 @Configuration
 @EnableCaching
 public class RedisConfig {
 
-    /* ===== 공통 직렬화기 ===== */
-    private GenericJackson2JsonRedisSerializer jsonSerializer(){
-        PolymorphicTypeValidator ptv = LaissezFaireSubTypeValidator.instance;
-        ObjectMapper om = JsonMapper.builder()
+    /** 공통 ObjectMapper - default typing 없음 */
+    @Bean
+    public ObjectMapper redisObjectMapper() {
+        return JsonMapper.builder()
                 .addModule(new JavaTimeModule())
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-                .activateDefaultTyping(ptv, ObjectMapper.DefaultTyping.NON_FINAL, JsonTypeInfo.As.PROPERTY) // ✅ 타입정보
                 .build();
-        return new GenericJackson2JsonRedisSerializer(om);
-    }
-    private RedisSerializationContext.SerializationPair<Object> jsonPair() {
-        return RedisSerializationContext.SerializationPair.fromSerializer(jsonSerializer());
     }
 
-    /** Redis가 살아있으면 RedisCacheManager, 아니면 ConcurrentMapCacheManager로 폴백 */
+    /** 캐시별 serializer pair 생성 */
+    private RedisSerializationContext.SerializationPair<Object> pair(
+            ObjectMapper om, Class<?> type
+    ) {
+        Jackson2JsonRedisSerializer<?> serializer = new Jackson2JsonRedisSerializer<>(om, type);
+        @SuppressWarnings("unchecked")
+        RedisSerializationContext.SerializationPair<Object> pair =
+                (RedisSerializationContext.SerializationPair<Object>)
+                        RedisSerializationContext.SerializationPair.fromSerializer(
+                                (Jackson2JsonRedisSerializer<Object>) serializer
+                        );
+        return pair;
+    }
+
     @Bean
-    public CacheManager cacheManager(ObjectProvider<RedisConnectionFactory> cfProvider) {
+    public CacheManager cacheManager(
+            ObjectProvider<RedisConnectionFactory> cfProvider,
+            ObjectMapper redisObjectMapper
+    ) {
         RedisConnectionFactory cf = cfProvider.getIfAvailable();
 
         if (cf != null && redisReachable(cf)) {
-            // 기본/캐시별 TTL & 직렬화
-            RedisCacheConfiguration defaults = RedisCacheConfiguration.defaultCacheConfig()
+            RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                     .prefixCacheNameWith("trader::")
                     .disableCachingNullValues()
-                    .serializeValuesWith(jsonPair())
                     .entryTtl(Duration.ofMinutes(10));
 
             Map<String, RedisCacheConfiguration> perCache = new HashMap<>();
-            perCache.put("stockAfter", defaults.entryTtl(Duration.ofMinutes(5)));
-            perCache.put("fastCache",  defaults.entryTtl(Duration.ofMinutes(1)));
-            perCache.put("slowCache",  defaults.entryTtl(Duration.ofHours(1)));
 
-//            log.info("Using RedisCacheManager (Redis reachable).");
+            perCache.put("graphDetail",
+                    defaultConfig
+                            .entryTtl(Duration.ofMinutes(10))
+                            .serializeValuesWith(pair(redisObjectMapper, ResponseGraphDto.class))
+            );
+
+            perCache.put("pageNodes",
+                    defaultConfig
+                            .entryTtl(Duration.ofMinutes(30))
+                            .serializeValuesWith(pair(redisObjectMapper, PageNodesCacheDto.class))
+            );
+
+
             return RedisCacheManager.builder(RedisCacheWriter.nonLockingRedisCacheWriter(cf))
-                    .cacheDefaults(defaults)
+                    .cacheDefaults(defaultConfig)
                     .withInitialCacheConfigurations(perCache)
                     .build();
         }
@@ -85,7 +106,6 @@ public class RedisConfig {
         }
     }
 
-    /** 런타임 중 Redis 에러가 나도 비즈니스 계속 진행하도록 경고만 찍고 무시 */
     @Bean
     public CacheErrorHandler cacheErrorHandler() {
         return new CacheErrorHandler() {
@@ -101,12 +121,10 @@ public class RedisConfig {
             public void handleCacheClearError(RuntimeException e, org.springframework.cache.Cache cache) {
                 log.warn("Cache CLEAR error cache={}: {}", n(cache), e.toString());
             }
-            private String n(org.springframework.cache.Cache c){ return c!=null? c.getName():"unknown"; }
+            private String n(org.springframework.cache.Cache c){ return c != null ? c.getName() : "unknown"; }
         };
     }
 
-
-/** 문자열 전용 템플릿 (간단 카운터/락 등에 편함) */
     @Bean
     public StringRedisTemplate stringRedisTemplate(RedisConnectionFactory cf) {
         var tpl = new StringRedisTemplate(cf);
@@ -114,15 +132,26 @@ public class RedisConfig {
         return tpl;
     }
 
-    /** 객체용 RedisTemplate (값 JSON 직렬화) */
+    /**
+     * 주의:
+     * RedisTemplate<String, Object> 를 유지하면 다시 Object 역직렬화 문제가 생길 수 있음
+     * 가능하면 typed RedisTemplate 또는 별도 serializer를 쓰는 게 안전
+     */
     @Bean
-    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory cf) {
+    public RedisTemplate<String, Object> redisTemplate(
+            RedisConnectionFactory cf,
+            ObjectMapper redisObjectMapper
+    ) {
         var tpl = new RedisTemplate<String, Object>();
         tpl.setConnectionFactory(cf);
         tpl.setKeySerializer(new StringRedisSerializer());
-        tpl.setValueSerializer(jsonSerializer());
+
+        Jackson2JsonRedisSerializer<Object> valueSerializer =
+                new Jackson2JsonRedisSerializer<>(redisObjectMapper, Object.class);
+
+        tpl.setValueSerializer(valueSerializer);
         tpl.setHashKeySerializer(new StringRedisSerializer());
-        tpl.setHashValueSerializer(jsonSerializer());
+        tpl.setHashValueSerializer(valueSerializer);
         tpl.afterPropertiesSet();
         return tpl;
     }

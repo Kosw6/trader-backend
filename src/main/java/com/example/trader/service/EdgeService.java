@@ -14,8 +14,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-
 @Service
 @RequiredArgsConstructor
 public class EdgeService {
@@ -23,6 +21,7 @@ public class EdgeService {
     private final EdgeRepository edgeRepository;
     private final PageRepository pageRepository;
     private final NodeRepository nodeRepository;
+    private final GraphCacheService graphCacheService;
 
     // ------------------------
     // TEAM METHODS
@@ -30,25 +29,19 @@ public class EdgeService {
 
     @Transactional
     public ResponseEdgeDto createTeamEdge(Long teamId, Long graphId, RequestEdgeDto dto) {
-
-        // 1) graph가 팀 소속인지(빠른 검증)
         if (!pageRepository.existsByIdAndDirectoryTeamId(graphId, teamId)) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
 
-        // 2) source/target이 (team, graph)에 속하는지 검증 + 조회
         Node source = nodeRepository.findTeamNode(dto.getSourceId(), graphId, teamId)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
         Node target = nodeRepository.findTeamNode(dto.getTargetId(), graphId, teamId)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
 
-        // 3) 중복 엣지 체크는 "해당 graph 내에서만" (권장)
         if (edgeRepository.existsInPageBySourceTarget(graphId, dto.getSourceId(), dto.getTargetId())) {
             throw new IllegalArgumentException("sourceNode and targetNode edge already exist in this graph");
         }
 
-        // 4) page 엔티티는 굳이 findById로 가져올 필요 없이 proxy로도 OK
-        // 하지만 안전하게 팀소속 검증은 이미 했으니 getReference로 성능 챙김 가능
         Page page = pageRepository.getReferenceById(graphId);
 
         Edge edge = Edge.builder()
@@ -66,30 +59,26 @@ public class EdgeService {
                 .build();
 
         Edge saved = edgeRepository.save(edge);
+        graphCacheService.evictGraph(graphId);
         return toResponseDto(saved);
     }
 
     @Transactional
     public ResponseEdgeDto updateTeamEdge(Long teamId, Long graphId, Long edgeId, RequestEdgeDto dto) {
-
-        // 1) edge가 (team, graph)에 속하는지 검증 + 조회
         Edge toDelete = edgeRepository.findByIdInTeamGraph(edgeId, graphId, teamId)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
 
-        // 2) source/target도 (team, graph)에 속하는지 검증 + 조회
         Node source = nodeRepository.findTeamNode(dto.getSourceId(), graphId, teamId)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
         Node target = nodeRepository.findTeamNode(dto.getTargetId(), graphId, teamId)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
 
-        // 3) (선택) 중복 엣지 체크: 자신(edgeId) 제외하고 같은 source-target 있는지
         if (edgeRepository.existsInPageBySourceTarget(graphId, dto.getSourceId(), dto.getTargetId())
                 && !(toDelete.getSource().getId().equals(dto.getSourceId())
                 && toDelete.getTarget().getId().equals(dto.getTargetId()))) {
             throw new IllegalArgumentException("sourceNode and targetNode edge already exist in this graph");
         }
 
-        // 4) 너 기존 정책대로 "삭제 후 재생성"
         edgeRepository.delete(toDelete);
         edgeRepository.flush();
 
@@ -110,36 +99,47 @@ public class EdgeService {
                 .build();
 
         Edge saved = edgeRepository.save(edge);
+        graphCacheService.evictGraph(graphId);
         return toResponseDto(saved);
     }
 
     @Transactional
     public void deleteTeamEdge(Long teamId, Long graphId, Long edgeId) {
-
         Edge edge = edgeRepository.findByIdInTeamGraph(edgeId, graphId, teamId)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
 
         edgeRepository.delete(edge);
+        graphCacheService.evictGraph(graphId);
     }
 
+    // ------------------------
+    // PERSONAL METHODS
+    // ------------------------
 
     @Transactional
-    public ResponseEdgeDto createEdge(RequestEdgeDto dto, Long pageId) {
-        Page page = pageRepository.findById(pageId)
-                .orElseThrow(() -> new IllegalArgumentException("Page not found"));
-
-        if(edgeRepository.existsBySourceIdAndTargetId(dto.getSourceId(), dto.getTargetId())){
-            throw new IllegalArgumentException("souceNode and targetNode already exist");
+    public ResponseEdgeDto createEdge(RequestEdgeDto dto, Long pageId, Long userId) {
+        // 1) page 소유권 체크
+        if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
 
+        // 2) source / target 조회
         Node source = nodeRepository.findById(dto.getSourceId())
                 .orElseThrow(() -> new IllegalArgumentException("sourceNode not found"));
         Node target = nodeRepository.findById(dto.getTargetId())
                 .orElseThrow(() -> new IllegalArgumentException("targetNode not found"));
 
-        if(!source.getPage().equals(target.getPage())){
-            throw new IllegalArgumentException("sourceNodePage and targetNodePage must be equal");
+        // 3) source / target 이 둘 다 해당 page에 속하는지 검증
+        if (!source.getPage().getId().equals(pageId) || !target.getPage().getId().equals(pageId)) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
+
+        // 4) 같은 page 안에서만 중복 edge 체크
+        if (edgeRepository.existsInPageBySourceTarget(pageId, dto.getSourceId(), dto.getTargetId())) {
+            throw new IllegalArgumentException("sourceNode and targetNode already exist in this page");
+        }
+
+        Page page = pageRepository.getReferenceById(pageId);
 
         Edge edge = Edge.builder()
                 .source(source)
@@ -156,24 +156,83 @@ public class EdgeService {
                 .build();
 
         Edge saved = edgeRepository.save(edge);
+        graphCacheService.evictGraph(pageId);
         return toResponseDto(saved);
     }
 
     @Transactional
-    public ResponseEdgeDto updateEdge(Long id, RequestEdgeDto dto, Long pageId) {
-        Edge toDelete = edgeRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Edge not found"));
-        if (!toDelete.getPage().getId().equals(pageId)) {
-            throw new IllegalArgumentException("Edge does not belong to the page");
+    public ResponseEdgeDto updateEdge(Long edgeId, RequestEdgeDto dto, Long pageId, Long userId) {
+        // 1) page 소유권 체크
+        if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
-        edgeRepository.deleteById(id);
+
+        // 2) 기존 edge가 해당 page에 속하는지 확인
+        Edge toDelete = edgeRepository.findById(edgeId)
+                .orElseThrow(() -> new IllegalArgumentException("Edge not found"));
+
+        if (!toDelete.getPage().getId().equals(pageId)) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+        }
+
+        // 3) 새 source / target 검증
+        Node source = nodeRepository.findById(dto.getSourceId())
+                .orElseThrow(() -> new IllegalArgumentException("sourceNode not found"));
+        Node target = nodeRepository.findById(dto.getTargetId())
+                .orElseThrow(() -> new IllegalArgumentException("targetNode not found"));
+
+        if (!source.getPage().getId().equals(pageId) || !target.getPage().getId().equals(pageId)) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+        }
+
+        // 4) 자기 자신 제외 중복 체크
+        if (edgeRepository.existsInPageBySourceTarget(pageId, dto.getSourceId(), dto.getTargetId())
+                && !(toDelete.getSource().getId().equals(dto.getSourceId())
+                && toDelete.getTarget().getId().equals(dto.getTargetId()))) {
+            throw new IllegalArgumentException("sourceNode and targetNode already exist in this page");
+        }
+
+        edgeRepository.delete(toDelete);
         edgeRepository.flush();
-        return createEdge(dto, pageId);
+
+        Page page = pageRepository.getReferenceById(pageId);
+
+        Edge edge = Edge.builder()
+                .source(source)
+                .target(target)
+                .type(dto.getType())
+                .label(dto.getLabel())
+                .sourceHandle(dto.getSourceHandle())
+                .targetHandle(dto.getTargetHandle())
+                .page(page)
+                .animated(dto.isAnimated())
+                .stroke(dto.getStroke())
+                .strokeWidth(dto.getStrokeWidth())
+                .variant(dto.getVariant())
+                .build();
+
+        Edge saved = edgeRepository.save(edge);
+        graphCacheService.evictGraph(pageId);
+        return toResponseDto(saved);
     }
 
     @Transactional
-    public void deleteEdge(Long id) {
-        edgeRepository.deleteById(id);
+    public void deleteEdge(Long pageId, Long edgeId, Long userId) {
+        // 1) page 소유권 체크
+        if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+        }
+
+        // 2) edge가 해당 page에 속하는지 확인
+        Edge edge = edgeRepository.findById(edgeId)
+                .orElseThrow(() -> new IllegalArgumentException("Edge not found"));
+
+        if (!edge.getPage().getId().equals(pageId)) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+        }
+
+        edgeRepository.delete(edge);
+        graphCacheService.evictGraph(pageId);
     }
 
     private ResponseEdgeDto toResponseDto(Edge edge) {
@@ -193,4 +252,3 @@ public class EdgeService {
                 .build();
     }
 }
-

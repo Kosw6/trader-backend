@@ -17,13 +17,13 @@ import org.apache.commons.lang3.RandomStringUtils;
 @Transactional
 public class UserService {
     private final UserRepository userRepository;
-    @Cacheable(cacheNames = "userById",key = "#userId",unless = "#result == null")
+//    @Cacheable(cacheNames = "userById",key = "#userId",unless = "#result == null")
     @Transactional(readOnly = true)
     public User findUserByUserId(Long userId) {
         return userRepository.findById(userId).orElseThrow(()->{
             throw new BaseException(BaseResponseStatus.USER_NOT_FOUND);});
     }
-    @Cacheable(cacheNames = "userByLoginId",key = "#loginId",unless = "#result == null")
+//    @Cacheable(cacheNames = "userByLoginId",key = "#loginId",unless = "#result == null")
     @Transactional(readOnly = true)
     public User findUserByLoginId(String loginId) {
         return userRepository.findByLoginId(loginId).orElseThrow();

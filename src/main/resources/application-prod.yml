@@ -26,11 +26,12 @@ spring:
       host: localhost   # 도커 컴포즈 redis 사용 시 그대로
       port: 6379
       timeout: 500ms
-    cache:
-      redis:
-        time-to-live: 10m
-        key-prefix: "demo::"
-        cache-null-values: false
+  cache:
+    redis:
+      time-to-live: 2m
+      key-prefix: "demo::"
+      cache-null-values: false
+      use-key-prefix: true
   security:
     oauth2:
       client:

@@ -39,8 +39,8 @@ public class TeamNodesController {
     }
     //노드 생성
     @PostMapping
-    public ResponseEntity<ResponseNodeDto> createTeamNode(@RequestBody RequestNodeDto dto, @PathVariable Long graphId,@PathVariable Long teamId) {
-        ResponseNodeDto saved = nodeService.createTeamNode(dto,teamId, graphId);
+    public ResponseEntity<ResponseNodeDto> createTeamNode(@RequestBody RequestNodeDto dto, @PathVariable Long graphId,@PathVariable Long teamId,@AuthenticationPrincipal UserContext context) {
+        ResponseNodeDto saved = nodeService.createTeamNode(dto,teamId, graphId,context.getUserDto().getId());
         return ResponseEntity.ok(saved);
     }
     //노드 수정
@@ -49,15 +49,16 @@ public class TeamNodesController {
             @PathVariable Long nodeId,
             @PathVariable Long graphId,
             @PathVariable Long teamId,
-            @RequestBody RequestNodeDto dto
+            @RequestBody RequestNodeDto dto,
+            @AuthenticationPrincipal UserContext context
     ) {
-        ResponseNodeDto responseNodeDto = nodeService.updateTeamNode(nodeId, graphId,teamId,dto);
+        ResponseNodeDto responseNodeDto = nodeService.updateTeamNode(teamId,graphId,nodeId,context.getUserDto().getId(),dto);
         return ResponseEntity.ok(responseNodeDto);
     }
 
     // 노드 단건 조회, 여러건 조회는 teamGraph에서 노드, 엣지 한번에 긁어오는 매핑 이용
     @GetMapping("/{nodeId}")
-    public ResponseEntity<ResponseNodeDto> getNode(@PathVariable Long nodeId,@PathVariable Long teamId) {
-        return ResponseEntity.ok(nodeService.findTeamNodeById(nodeId,teamId));
+    public ResponseEntity<ResponseNodeDto> getNode(@PathVariable Long graphId,@PathVariable Long nodeId,@PathVariable Long teamId) {
+        return ResponseEntity.ok(nodeService.findTeamNodeById(graphId,nodeId,teamId));
     }
 }
