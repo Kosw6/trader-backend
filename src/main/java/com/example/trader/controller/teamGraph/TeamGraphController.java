@@ -1,5 +1,6 @@
 package com.example.trader.controller.teamGraph;
 
+import com.example.trader.common.interceptor.TeamMemberRequired;
 import com.example.trader.dto.map.ResponseGraphDto;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.service.GraphService;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@TeamMemberRequired
 @RestController
 @RequestMapping("/api/teams/{teamId}/graphs")
 @RequiredArgsConstructor

@@ -47,7 +47,7 @@ public class TeamMemberInterceptor implements HandlerInterceptor {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
 
-        // 현재 로그인 유저 id 가져오기 (너의 UserContext 기준)
+        // 현재 로그인 유저 id 가져오기
         Long userId = extractUserId();
         if (userId == null) throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
 
@@ -56,7 +56,8 @@ public class TeamMemberInterceptor implements HandlerInterceptor {
         if (!isMember) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
-
+        request.setAttribute("authorizedTeamId", teamId);
+        request.setAttribute("authorizedUserId", userId);
         return true;
     }
 
@@ -64,7 +65,6 @@ public class TeamMemberInterceptor implements HandlerInterceptor {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || auth.getPrincipal() == null) return null;
 
-        // 너가 쓰는 @AuthenticationPrincipal UserContext 가 principal로 들어온다는 가정
         if (auth.getPrincipal() instanceof com.example.trader.security.details.UserContext uc) {
             return uc.getUserDto().getId();
         }

@@ -2,53 +2,48 @@ package com.example.trader.controller;
 
 import com.example.trader.dto.map.RequestEdgeDto;
 import com.example.trader.dto.map.ResponseEdgeDto;
+import com.example.trader.security.details.UserContext;
 import com.example.trader.service.EdgeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 @RestController
-@RequestMapping("/api/edges")
+@RequestMapping("/api/pages/{pageId}/edges")
 @RequiredArgsConstructor
 public class EdgeController {
 
     private final EdgeService edgeService;
 
-//    // 특정 페이지의 엣지 전체 조회
-//    @GetMapping("/page/{pageId}")
-//    public ResponseEntity<List<ResponseEdgeDto>> getEdgesByPage(@PathVariable Long pageId) {
-//        return ResponseEntity.ok(edgeService.findAllByPageId(pageId));
-//    }
-//
-//    // 엣지 단건 조회
-//    @GetMapping("/{id}")
-//    public ResponseEntity<ResponseEdgeDto> getEdge(@PathVariable Long id) {
-//        return ResponseEntity.ok(edgeService.findById(id));
-//    }
-
-    // 엣지 생성
-    @PostMapping("/page/{pageId}")
-    public ResponseEntity<ResponseEdgeDto> createEdge(@RequestBody RequestEdgeDto dto, @PathVariable Long pageId) {
-        ResponseEdgeDto saved = edgeService.createEdge(dto, pageId);
+    @PostMapping
+    public ResponseEntity<ResponseEdgeDto> createEdge(
+            @PathVariable Long pageId,
+            @RequestBody RequestEdgeDto dto,
+            @AuthenticationPrincipal UserContext user
+    ) {
+        ResponseEdgeDto saved = edgeService.createEdge(dto, pageId, user.getUserDto().getId());
         return ResponseEntity.ok(saved);
     }
 
-    // 엣지 수정
-    @PutMapping("/{id}/page/{pageId}")
+    @PutMapping("/{edgeId}")
     public ResponseEntity<ResponseEdgeDto> updateEdge(
-            @PathVariable Long id,
+            @PathVariable Long pageId,
+            @PathVariable Long edgeId,
             @RequestBody RequestEdgeDto dto,
-            @PathVariable Long pageId) {
-        ResponseEdgeDto updated = edgeService.updateEdge(id, dto, pageId);
+            @AuthenticationPrincipal UserContext user
+    ) {
+        ResponseEdgeDto updated = edgeService.updateEdge(edgeId, dto, pageId, user.getUserDto().getId());
         return ResponseEntity.ok(updated);
     }
 
-    // 엣지 삭제
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteEdge(@PathVariable Long id) {
-        edgeService.deleteEdge(id);
+    @DeleteMapping("/{edgeId}")
+    public ResponseEntity<Void> deleteEdge(
+            @PathVariable Long pageId,
+            @PathVariable Long edgeId,
+            @AuthenticationPrincipal UserContext user
+    ) {
+        edgeService.deleteEdge(pageId, edgeId, user.getUserDto().getId());
         return ResponseEntity.noContent().build();
     }
 }

@@ -13,58 +13,68 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/nodes")
+@RequestMapping("/api/pages/{pageId}/nodes")
 @RequiredArgsConstructor
 public class NodeController {
 
     private final NodeService nodeService;
 
-    // 특정 페이지의 노드 전체 조회
-    @GetMapping("/page/{pageId}")
-    public ResponseEntity<List<ResponseNodeDto>> getNodesByPage(@PathVariable Long pageId,@AuthenticationPrincipal UserContext user) {
-
-        return ResponseEntity.ok(nodeService.findAllByPageId(pageId,user.getUserDto().getId()));
+    @GetMapping
+    public ResponseEntity<List<ResponseNodeDto>> getNodesByPage(
+            @PathVariable Long pageId,
+            @AuthenticationPrincipal UserContext user
+    ) {
+        return ResponseEntity.ok(nodeService.findAllByPageId(pageId, user.getUserDto().getId()));
     }
 
-    // 노드 단건 조회
-    @GetMapping("/{id}")
-    public ResponseEntity<ResponseNodeDto> getNode(@PathVariable Long id,@AuthenticationPrincipal UserContext user) {
-        return ResponseEntity.ok(nodeService.findPersonalNodeById(id,user.getUserDto().getId()));
-    }
-
-    // 노드 생성
-    @PostMapping("/page/{pageId}")
-    public ResponseEntity<ResponseNodeDto> createNode(@RequestBody RequestNodeDto dto, @PathVariable Long pageId) {
-        ResponseNodeDto saved = nodeService.createNode(dto, pageId);
+    @PostMapping
+    public ResponseEntity<ResponseNodeDto> createNode(
+            @PathVariable Long pageId,
+            @RequestBody RequestNodeDto dto,
+            @AuthenticationPrincipal UserContext user
+    ) {
+        ResponseNodeDto saved = nodeService.createNode(dto, pageId, user.getUserDto().getId());
         return ResponseEntity.ok(saved);
     }
 
-    // 노드 위치 수정(개인용)
-    @PatchMapping("{id}/position")
-    public ResponseEntity<Void> updateNodePosition(
-            @PathVariable Long id,
-            @RequestBody UpdateNodePositionReq dto,
-            @AuthenticationPrincipal UserContext user
-    ) {
-        nodeService.updatePosition(id,user.getUserDto().getId(), dto.x(),dto.y());
-        return ResponseEntity.noContent().build();
-    }
-
-
-    //노드 수정
-    @PatchMapping("{nodeId}")
+    @PatchMapping("/{nodeId}")
     public ResponseEntity<ResponseNodeDto> updateNode(
+            @PathVariable Long pageId,
             @PathVariable Long nodeId,
             @RequestBody RequestNodeDto dto,
             @AuthenticationPrincipal UserContext user
     ) {
-        ResponseNodeDto responseNodeDto = nodeService.updateNode(nodeId, dto,user.getUserDto().getId());
-        return ResponseEntity.ok(responseNodeDto);
+        ResponseNodeDto response = nodeService.updateNode(pageId, nodeId, dto, user.getUserDto().getId());
+        return ResponseEntity.ok(response);
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteNode(@PathVariable Long id,@AuthenticationPrincipal UserContext user) {
-        nodeService.deleteNode(id,user.getUserDto().getId());
+    @PatchMapping("/{nodeId}/position")
+    public ResponseEntity<Void> updateNodePosition(
+            @PathVariable Long pageId,
+            @PathVariable Long nodeId,
+            @RequestBody UpdateNodePositionReq dto,
+            @AuthenticationPrincipal UserContext user
+    ) {
+        nodeService.updatePosition(pageId, nodeId, user.getUserDto().getId(), dto.x(), dto.y());
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{nodeId}")
+    public ResponseEntity<ResponseNodeDto> getNode(
+            @PathVariable Long pageId,
+            @PathVariable Long nodeId,
+            @AuthenticationPrincipal UserContext user
+    ) {
+        return ResponseEntity.ok(nodeService.findPersonalNodeById(pageId, nodeId, user.getUserDto().getId()));
+    }
+
+    @DeleteMapping("/{nodeId}")
+    public ResponseEntity<Void> deleteNode(
+            @PathVariable Long pageId,
+            @PathVariable Long nodeId,
+            @AuthenticationPrincipal UserContext user
+    ) {
+        nodeService.deleteNode(pageId, nodeId, user.getUserDto().getId());
         return ResponseEntity.noContent().build();
     }
 }

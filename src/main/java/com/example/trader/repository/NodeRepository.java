@@ -21,7 +21,7 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
     boolean existsByIdAndPageDirectoryTeamId(Long nodeId, Long teamId);
     //노드가 특정 페이지에 속하는지까지 포함
     boolean existsByIdAndPageIdAndPageDirectoryTeamId(Long nodeId, Long pageId, Long teamId);
-
+    boolean existsByIdAndPageIdAndPageUserId(Long nodeId, Long pageId, Long userId);
 
     @Query("""
     select n

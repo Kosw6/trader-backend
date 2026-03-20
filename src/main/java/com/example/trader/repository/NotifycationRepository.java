@@ -80,6 +80,8 @@ public interface NotifycationRepository extends JpaRepository<Notifycation,Long>
             Long userId, NotificationRelatedType relatedType, Long relatedId
     );
 
+
+
     // (선택) linked 알림을 바로 읽음처리(엔티티 로드 없이)
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

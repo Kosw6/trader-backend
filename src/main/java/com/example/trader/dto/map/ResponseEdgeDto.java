@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 
 @Getter
 @Builder
+@lombok.extern.jackson.Jacksonized
 public class ResponseEdgeDto {
     private Long id;
     private Long sourceId;
