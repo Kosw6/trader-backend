@@ -2,7 +2,6 @@ package com.example.trader.config;
 
 import java.time.Duration;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import com.example.trader.dto.map.PageNodesCacheDto;
@@ -35,9 +34,8 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @EnableCaching
 public class RedisConfig {
 
-    /** 공통 ObjectMapper - default typing 없음 */
-    @Bean
-    public ObjectMapper redisObjectMapper() {
+    /** Redis 전용 ObjectMapper - 스프링 전역 Bean으로 등록하지 않음 */
+    private ObjectMapper redisObjectMapper() {
         return JsonMapper.builder()
                 .addModule(new JavaTimeModule())
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
@@ -46,9 +44,11 @@ public class RedisConfig {
 
     /** 캐시별 serializer pair 생성 */
     private RedisSerializationContext.SerializationPair<Object> pair(
-            ObjectMapper om, Class<?> type
+            Class<?> type
     ) {
+        ObjectMapper om = redisObjectMapper();
         Jackson2JsonRedisSerializer<?> serializer = new Jackson2JsonRedisSerializer<>(om, type);
+
         @SuppressWarnings("unchecked")
         RedisSerializationContext.SerializationPair<Object> pair =
                 (RedisSerializationContext.SerializationPair<Object>)
@@ -59,10 +59,7 @@ public class RedisConfig {
     }
 
     @Bean
-    public CacheManager cacheManager(
-            ObjectProvider<RedisConnectionFactory> cfProvider,
-            ObjectMapper redisObjectMapper
-    ) {
+    public CacheManager cacheManager(ObjectProvider<RedisConnectionFactory> cfProvider) {
         RedisConnectionFactory cf = cfProvider.getIfAvailable();
 
         if (cf != null && redisReachable(cf)) {
@@ -76,15 +73,14 @@ public class RedisConfig {
             perCache.put("graphDetail",
                     defaultConfig
                             .entryTtl(Duration.ofMinutes(10))
-                            .serializeValuesWith(pair(redisObjectMapper, ResponseGraphDto.class))
+                            .serializeValuesWith(pair(ResponseGraphDto.class))
             );
 
             perCache.put("pageNodes",
                     defaultConfig
                             .entryTtl(Duration.ofMinutes(30))
-                            .serializeValuesWith(pair(redisObjectMapper, PageNodesCacheDto.class))
+                            .serializeValuesWith(pair(PageNodesCacheDto.class))
             );
-
 
             return RedisCacheManager.builder(RedisCacheWriter.nonLockingRedisCacheWriter(cf))
                     .cacheDefaults(defaultConfig)
@@ -109,19 +105,29 @@ public class RedisConfig {
     @Bean
     public CacheErrorHandler cacheErrorHandler() {
         return new CacheErrorHandler() {
+            @Override
             public void handleCacheGetError(RuntimeException e, org.springframework.cache.Cache cache, Object key) {
                 log.warn("Cache GET error cache={}, key={}: {}", n(cache), key, e.toString());
             }
+
+            @Override
             public void handleCachePutError(RuntimeException e, org.springframework.cache.Cache cache, Object key, Object value) {
                 log.warn("Cache PUT error cache={}, key={}: {}", n(cache), key, e.toString());
             }
+
+            @Override
             public void handleCacheEvictError(RuntimeException e, org.springframework.cache.Cache cache, Object key) {
                 log.warn("Cache EVICT error cache={}, key={}: {}", n(cache), key, e.toString());
             }
+
+            @Override
             public void handleCacheClearError(RuntimeException e, org.springframework.cache.Cache cache) {
                 log.warn("Cache CLEAR error cache={}: {}", n(cache), e.toString());
             }
-            private String n(org.springframework.cache.Cache c){ return c != null ? c.getName() : "unknown"; }
+
+            private String n(org.springframework.cache.Cache c) {
+                return c != null ? c.getName() : "unknown";
+            }
         };
     }
 
@@ -133,21 +139,18 @@ public class RedisConfig {
     }
 
     /**
-     * 주의:
-     * RedisTemplate<String, Object> 를 유지하면 다시 Object 역직렬화 문제가 생길 수 있음
-     * 가능하면 typed RedisTemplate 또는 별도 serializer를 쓰는 게 안전
+     * 직접 RedisTemplate으로 Object 저장이 꼭 필요할 때만 사용.
+     * 가능하면 typed RedisTemplate 분리를 권장.
      */
     @Bean
-    public RedisTemplate<String, Object> redisTemplate(
-            RedisConnectionFactory cf,
-            ObjectMapper redisObjectMapper
-    ) {
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory cf) {
         var tpl = new RedisTemplate<String, Object>();
         tpl.setConnectionFactory(cf);
         tpl.setKeySerializer(new StringRedisSerializer());
 
+        ObjectMapper om = redisObjectMapper();
         Jackson2JsonRedisSerializer<Object> valueSerializer =
-                new Jackson2JsonRedisSerializer<>(redisObjectMapper, Object.class);
+                new Jackson2JsonRedisSerializer<>(om, Object.class);
 
         tpl.setValueSerializer(valueSerializer);
         tpl.setHashKeySerializer(new StringRedisSerializer());

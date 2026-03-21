@@ -46,4 +46,15 @@ public interface JoinRequestRepository extends JpaRepository<JoinRequest, Long> 
         return findByRequesterIdAndTeamIdAndStatus(requesterId, teamId, JoinRequestStatus.PENDING);
     }
 
+    // 팀별 대기 요청 목록 (오너용)
+    @Query("""
+        select jr
+        from JoinRequest jr
+        join fetch jr.requester r
+        where jr.team.id = :teamId
+          and jr.status = com.example.trader.entity.JoinRequestStatus.PENDING
+        order by jr.createdAt desc
+    """)
+    List<JoinRequest> findPendingByTeamId(@Param("teamId") Long teamId);
+
 }

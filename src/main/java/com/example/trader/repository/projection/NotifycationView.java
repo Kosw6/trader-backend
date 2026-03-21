@@ -15,4 +15,6 @@ public interface NotifycationView {
     LocalDateTime getCreatedAt();
 
     String getDeeplink();
+
+    Long getRelatedId();
 }
