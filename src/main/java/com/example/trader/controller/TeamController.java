@@ -1,6 +1,7 @@
 package com.example.trader.controller;
 
 import com.example.trader.dto.*;
+import com.example.trader.entity.JoinRequestStatus;
 import com.example.trader.entity.Team;
 import com.example.trader.entity.TeamRole;
 import com.example.trader.security.details.UserContext;
@@ -12,6 +13,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/team")
@@ -97,6 +99,27 @@ public class TeamController {
     ){
         teamService.exitTeam(context.getUserDto().getId(), teamId);
         return ResponseEntity.noContent().build();
+    }
+
+    // 오너: 팀별 대기 요청 목록 조회
+    @GetMapping("/teams/{teamId}/join-requests")
+    public ResponseEntity<List<PendingJoinRequestDto>> getPendingRequests(
+            @AuthenticationPrincipal UserContext context,
+            @PathVariable Long teamId
+    ) {
+        utService.checkTeamAuthWithOwner(context.getUserDto().getId(), teamId);
+        return ResponseEntity.ok(teamService.getPendingJoinRequests(teamId));
+    }
+
+    // 본인: 내가 보낸 요청 상태 조회
+    @GetMapping("/teams/{teamId}/join-requests/me")
+    public ResponseEntity<?> getMyJoinRequest(
+            @AuthenticationPrincipal UserContext context,
+            @PathVariable Long teamId
+    ) {
+        return teamService.getMyJoinRequest(context.getUserDto().getId(), teamId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     //팀원 합류 승인/거절

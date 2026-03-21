@@ -103,6 +103,7 @@ public class SecurityConfig {
                             //TODO:swagger보안처리 배포전에 해두기
                             .requestMatchers(
                                     "/actuator/**",
+                                    "/internal/**",
                                     "/error",
                                     "/swagger-ui/**",
                                     "/v3/api-docs",

@@ -2,6 +2,7 @@ package com.example.trader.service;
 
 import com.example.trader.common.InviteCodeGenerator;
 import com.example.trader.dto.JoinRequestDto;
+import com.example.trader.dto.PendingJoinRequestDto;
 import com.example.trader.dto.RequestTeamNameDto;
 import com.example.trader.dto.ResponseTeamDto;
 import com.example.trader.dto.TeamSummaryDto;
@@ -14,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -139,6 +141,21 @@ public class TeamService {
         notificationService.markJoinRequestNotificationAsRead(approverId, joinRequest.getId());
     }
 
+
+    // 오너: 팀별 대기 요청 목록 조회
+    @Transactional(readOnly = true)
+    public List<PendingJoinRequestDto> getPendingJoinRequests(Long teamId) {
+        return joinRequestRepository.findPendingByTeamId(teamId).stream()
+                .map(PendingJoinRequestDto::of)
+                .toList();
+    }
+
+    // 본인: 내가 보낸 요청 상태 조회
+    @Transactional(readOnly = true)
+    public Optional<PendingJoinRequestDto> getMyJoinRequest(Long requesterId, Long teamId) {
+        return joinRequestRepository.findPending(requesterId, teamId)
+                .map(PendingJoinRequestDto::of);
+    }
 
     //팀 삭제 메서드
     @Transactional

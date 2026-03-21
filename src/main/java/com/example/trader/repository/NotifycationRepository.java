@@ -23,7 +23,8 @@ public interface NotifycationRepository extends JpaRepository<Notifycation,Long>
             n.is_read as isRead,
             n.notifycation_type as type,
             n.created_at as createdAt,
-            n.deeplink as deeplink
+            n.deeplink as deeplink,
+            n.related_id as relatedId
         from notifycation n
         where n.user_id = :userId
           and n.is_read = false
@@ -42,7 +43,8 @@ public interface NotifycationRepository extends JpaRepository<Notifycation,Long>
             n.is_read as isRead,
             n.notifycation_type as type,
             n.created_at as createdAt,
-            n.deeplink as deeplink
+            n.deeplink as deeplink,
+            n.related_id as relatedId
         from notifycation n
         where n.user_id = :userId
         order by n.created_at desc

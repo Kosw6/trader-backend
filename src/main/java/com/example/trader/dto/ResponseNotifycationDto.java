@@ -19,6 +19,7 @@ public class ResponseNotifycationDto {
     private NotifycationType type;     // 아이콘/분기
     private LocalDateTime createdAt;
     private String deeplink;           // 클릭 시 이동 (optional)
+    private Long relatedId;            // 연결된 엔티티 id (JoinRequest 등)
 
     public static ResponseNotifycationDto of(NotifycationView v) {
         return ResponseNotifycationDto.builder()
@@ -28,6 +29,7 @@ public class ResponseNotifycationDto {
                 .type(NotifycationType.valueOf(v.getType()))
                 .createdAt(v.getCreatedAt())
                 .deeplink(v.getDeeplink())
+                .relatedId(v.getRelatedId())
                 .build();
     }
 }
