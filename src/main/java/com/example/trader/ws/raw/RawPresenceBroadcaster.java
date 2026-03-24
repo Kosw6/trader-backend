@@ -1,5 +1,6 @@
 package com.example.trader.ws.raw;
 
+import com.example.trader.config.AppProperties;
 import com.example.trader.ws.common.PresenceBatch;
 import com.example.trader.ws.common.RoomPresenceCoalescer;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import java.util.concurrent.atomic.LongAdder;
 
 import java.util.List;
 import java.util.concurrent.*;
@@ -22,6 +24,15 @@ public class RawPresenceBroadcaster {
 
     private final CanvasSessionRegistry registry;
     private final ObjectMapper objectMapper;
+    private final AppProperties appProperties;
+
+    private final LongAdder totalRoomsFlushed = new LongAdder();
+    private final LongAdder totalReliableMessages = new LongAdder();
+    private final LongAdder totalLatestBatches = new LongAdder();
+    private final LongAdder totalLatestItems = new LongAdder();
+    private final LongAdder totalSendAttempts = new LongAdder();
+    private final LongAdder totalSendSuccess = new LongAdder();
+    private final LongAdder totalSendFail = new LongAdder();
 
     // flush 100ms => 10Hz 전파 (원하면 50ms => 20Hz)
     private final RoomPresenceCoalescer<RawCursorMessage> coalescer =
@@ -66,25 +77,89 @@ public class RawPresenceBroadcaster {
         }
     }
 
+//    private void flushRoom(String roomKey) {
+//        var sessions = registry.snapshot(roomKey);
+//        if (sessions.isEmpty()) return;
+//        log.info("[RAW][BROADCAST] instance={} roomKey={} targets={}",
+//                appProperties.getInstanceId(), roomKey, sessions.size());
+//        // 1) reliable 먼저 개별 전송(순서 보장)
+//        for (RawCursorMessage m : coalescer.drainReliable(roomKey)) {
+//            TextMessage tm = toText(m);
+//            fanout(sessions, roomKey, tm);
+//        }
+//
+//        // 2) latest는 배치로 1건 전송 + 변경 있으면
+//        var latest = coalescer.drainLatestIfDirty(roomKey);
+//        if (!latest.isEmpty()) {
+//            TextMessage batch = toText(makeBatch(roomKey, latest));
+//            fanout(sessions, roomKey, batch);
+//            if ((System.currentTimeMillis() / 1000) % 5 == 0) {
+//                log.info("[RAW] batch sent roomKey={} items={}", roomKey, latest.size());
+//            }
+//        }
+//    }
     private void flushRoom(String roomKey) {
         var sessions = registry.snapshot(roomKey);
         if (sessions.isEmpty()) return;
 
+        int targetCount = sessions.size();
+
+        int reliableCount = 0;
+        int latestItemCount = 0;
+        int batchMessageCount = 0;
+        int sendSuccess = 0;
+        int sendFail = 0;
+
         // 1) reliable 먼저 개별 전송(순서 보장)
-        for (RawCursorMessage m : coalescer.drainReliable(roomKey)) {
+        var reliableMessages = coalescer.drainReliable(roomKey);
+        reliableCount = reliableMessages.size();
+
+        for (RawCursorMessage m : reliableMessages) {
             TextMessage tm = toText(m);
-            fanout(sessions, roomKey, tm);
+            FanoutResult result = fanout(sessions, roomKey, tm);
+            sendSuccess += result.success();
+            sendFail += result.fail();
         }
 
-        // 2) latest는 배치로 1건 전송 + 변경 있으면
+        // 2) latest는 배치 1건 전송
         var latest = coalescer.drainLatestIfDirty(roomKey);
         if (!latest.isEmpty()) {
+            latestItemCount = latest.size();
             TextMessage batch = toText(makeBatch(roomKey, latest));
-            fanout(sessions, roomKey, batch);
-//            if ((System.currentTimeMillis() / 1000) % 5 == 0) {
-//                log.info("[RAW] batch sent roomKey={} items={}", roomKey, latest.size());
-//            }
+            FanoutResult result = fanout(sessions, roomKey, batch);
+            sendSuccess += result.success();
+            sendFail += result.fail();
+            batchMessageCount = 1;
         }
+
+        int totalMessagesThisFlush = reliableCount + batchMessageCount;
+        int totalSendAttemptsThisFlush = totalMessagesThisFlush * targetCount;
+
+        totalRoomsFlushed.increment();
+        totalReliableMessages.add(reliableCount);
+        totalLatestBatches.add(batchMessageCount);
+        totalLatestItems.add(latestItemCount);
+        totalSendAttempts.add(totalSendAttemptsThisFlush);
+        totalSendSuccess.add(sendSuccess);
+        totalSendFail.add(sendFail);
+
+        log.info(
+                "[RAW][BROADCAST] instance={} roomKey={} targets={} reliableMsgs={} latestItems={} batchMsgs={} sendAttempts={} sendSuccess={} sendFail={} totalRoomsFlushed={} totalReliableMsgs={} totalLatestBatches={} totalLatestItems={} totalSendAttempts={}",
+                appProperties.getInstanceId(),
+                roomKey,
+                targetCount,
+                reliableCount,
+                latestItemCount,
+                batchMessageCount,
+                totalSendAttemptsThisFlush,
+                sendSuccess,
+                sendFail,
+                totalRoomsFlushed.sum(),
+                totalReliableMessages.sum(),
+                totalLatestBatches.sum(),
+                totalLatestItems.sum(),
+                totalSendAttempts.sum()
+        );
     }
 
     private TextMessage toText(Object o) {
@@ -92,14 +167,41 @@ public class RawPresenceBroadcaster {
         catch (Exception e) { throw new RuntimeException(e); }
     }
 
-    private void fanout(List<WebSocketSession> sessions, String roomKey, TextMessage msg) {
+//    private void fanout(List<WebSocketSession> sessions, String roomKey, TextMessage msg) {
+//        for (WebSocketSession s : sessions) {
+//            if (s == null) continue;
+//            if (!s.isOpen()) { registry.leave(roomKey, s); continue; }
+//            try { s.sendMessage(msg); }
+//            catch (Exception ex) { registry.leave(roomKey, s); }
+//        }
+//    }
+    private FanoutResult fanout(List<WebSocketSession> sessions, String roomKey, TextMessage msg) {
+        int success = 0;
+        int fail = 0;
+
         for (WebSocketSession s : sessions) {
-            if (s == null) continue;
-            if (!s.isOpen()) { registry.leave(roomKey, s); continue; }
-            try { s.sendMessage(msg); }
-            catch (Exception ex) { registry.leave(roomKey, s); }
+            if (s == null) {
+                fail++;
+                continue;
+            }
+            if (!s.isOpen()) {
+                registry.leave(roomKey, s);
+                fail++;
+                continue;
+            }
+            try {
+                s.sendMessage(msg);
+                success++;
+            } catch (Exception ex) {
+                registry.leave(roomKey, s);
+                fail++;
+            }
         }
+
+        return new FanoutResult(success, fail);
     }
+
+    private record FanoutResult(int success, int fail) {}
 
     private PresenceBatch makeBatch(String roomKey, java.util.Collection<RawCursorMessage> latest) {
         // roomKey "team:graph"

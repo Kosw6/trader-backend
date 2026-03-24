@@ -345,3 +345,6 @@ k6 run `
   -e SUMMARY=outputs/raw_cursor.json `
   scripts/ws_raw_batch.js
 
+
+# 확장전략 사용 매크로
+k6 run -e BASE_URL=ws://localhost:8080 ws_enpantion_poc.js

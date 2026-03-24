@@ -94,46 +94,62 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         return http.build();
     }
+
     @Bean
     @Order(2)
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception{
-            http.cors(cors->cors.configurationSource(corsConfigurationSource()))
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/**")
                 .csrf(csrf -> csrf.disable())
-                    .authorizeHttpRequests(auth -> auth
-                            //TODO:swagger보안처리 배포전에 해두기
-                            .requestMatchers(
-                                    "/actuator/**",
-                                    "/internal/**",
-                                    "/error",
-                                    "/swagger-ui/**",
-                                    "/v3/api-docs",
-                                    "/v3/api-docs/**",
-                                    "/swagger-resources/**",
-                                    "/webjars/**",
-                                    "/oauth2/**",
-                                    "/login/oauth2/**",
-                                    "/api/login/**",
-                                    "/api/oauth2/**",
-                                    "/login/oauth2/code/**",
-                                    "/ws/**").permitAll()
-                            .anyRequest().authenticated())
-                    .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
-                    .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                    .exceptionHandling(exception -> {
-                        exception.authenticationEntryPoint(authenticationEntryPoint);
-                        exception.accessDeniedHandler(customAccessDeniedHandler);
-                    })
-                    // 1) OAuth2 로그인(성공/실패 핸들러 + 사용자 정보 매핑)
-                    .oauth2Login(o -> o
-                            .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
-                            .successHandler(oAuth2SuccessHandler)
-                            .failureHandler((request, response, exception) -> {
-                                log.error("OAuth2 로그인 실패: {}", exception.getMessage(), exception);
-                                response.sendRedirect("/login?oauth2_error"); // 프론트 에러 페이지로 보내든지
-                            })
-                    );
-            return http.build();
+                .authorizeHttpRequests(auth -> auth
+                        .anyRequest().permitAll()   // ✅ 전부 허용
+                )
+                .formLogin(form -> form.disable())
+                .httpBasic(basic -> basic.disable());
+
+
+        return http.build();
     }
+//    @Bean
+//    @Order(2)
+//    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception{
+//            http.cors(cors->cors.configurationSource(corsConfigurationSource()))
+//                .csrf(csrf -> csrf.disable())
+//                    .authorizeHttpRequests(auth -> auth
+//                            //TODO:swagger보안처리 배포전에 해두기
+//                            .requestMatchers(
+//                                    "/actuator/**",
+//                                    "/internal/**",
+//                                    "/error",
+//                                    "/swagger-ui/**",
+//                                    "/v3/api-docs",
+//                                    "/v3/api-docs/**",
+//                                    "/swagger-resources/**",
+//                                    "/webjars/**",
+//                                    "/oauth2/**",
+//                                    "/login/oauth2/**",
+//                                    "/api/login/**",
+//                                    "/api/oauth2/**",
+//                                    "/login/oauth2/code/**",
+//                                    "/ws/**").permitAll()
+//                            .anyRequest().authenticated())
+//                    .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+//                    .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+//                    .exceptionHandling(exception -> {
+//                        exception.authenticationEntryPoint(authenticationEntryPoint);
+//                        exception.accessDeniedHandler(customAccessDeniedHandler);
+//                    })
+//                    // 1) OAuth2 로그인(성공/실패 핸들러 + 사용자 정보 매핑)
+//                    .oauth2Login(o -> o
+//                            .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
+//                            .successHandler(oAuth2SuccessHandler)
+//                            .failureHandler((request, response, exception) -> {
+//                                log.error("OAuth2 로그인 실패: {}", exception.getMessage(), exception);
+//                                response.sendRedirect("/login?oauth2_error"); // 프론트 에러 페이지로 보내든지
+//                            })
+//                    );
+//            return http.build();
+//    }
 
 
 }

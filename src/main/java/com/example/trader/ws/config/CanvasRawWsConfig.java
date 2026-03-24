@@ -24,7 +24,7 @@ public class CanvasRawWsConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(canvasRawWsHandler, "/ws/canvas-raw")
-                .addInterceptors(jwtHandshakeInterceptor)
+//                .addInterceptors(jwtHandshakeInterceptor)
                 .setAllowedOriginPatterns("*");
     }
 

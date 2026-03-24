@@ -7,13 +7,15 @@ import com.example.trader.dto.map.ResponseNodeDto;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.service.NodeService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@TeamMemberRequired//해당 유저가 해당 팀의 팀원인지
+//@TeamMemberRequired//해당 유저가 해당 팀의 팀원인지
+@Slf4j
 @RestController
 @RequestMapping("/api/teams/{teamId}/graphs/{graphId}/nodes")
 @RequiredArgsConstructor
@@ -38,21 +40,40 @@ public class TeamNodesController {
         return ResponseEntity.noContent().build();
     }
     //노드 생성
+//    @PostMapping
+//    public ResponseEntity<ResponseNodeDto> createTeamNode(@RequestBody RequestNodeDto dto, @PathVariable Long graphId,@PathVariable Long teamId,@AuthenticationPrincipal UserContext context) {
+//        ResponseNodeDto saved = nodeService.createTeamNode(dto,teamId, graphId,context.getUserDto().getId());
+//        return ResponseEntity.ok(saved);
+//    }
     @PostMapping
-    public ResponseEntity<ResponseNodeDto> createTeamNode(@RequestBody RequestNodeDto dto, @PathVariable Long graphId,@PathVariable Long teamId,@AuthenticationPrincipal UserContext context) {
-        ResponseNodeDto saved = nodeService.createTeamNode(dto,teamId, graphId,context.getUserDto().getId());
+    public ResponseEntity<ResponseNodeDto> createTeamNode(@RequestBody RequestNodeDto dto,
+                                                          @PathVariable Long teamId,
+                                                          @PathVariable Long graphId) {
+        log.info("createTeam");
+        ResponseNodeDto saved = nodeService.createTeamNode(dto, graphId);
         return ResponseEntity.ok(saved);
     }
     //노드 수정
-    @PatchMapping("{nodeId}")
+//    @PatchMapping("{nodeId}")
+//    public ResponseEntity<ResponseNodeDto> updateTeamNode(
+//            @PathVariable Long nodeId,
+//            @PathVariable Long graphId,
+//            @PathVariable Long teamId,
+//            @RequestBody RequestNodeDto dto,
+//            @AuthenticationPrincipal UserContext context
+//    ) {
+//        ResponseNodeDto responseNodeDto = nodeService.updateTeamNode(teamId,graphId,nodeId,context.getUserDto().getId(),dto);
+//        return ResponseEntity.ok(responseNodeDto);
+//    }
+    //poc용
+    @PatchMapping("/{nodeId}")
     public ResponseEntity<ResponseNodeDto> updateTeamNode(
             @PathVariable Long nodeId,
-            @PathVariable Long graphId,
             @PathVariable Long teamId,
-            @RequestBody RequestNodeDto dto,
-            @AuthenticationPrincipal UserContext context
+            @PathVariable Long graphId,
+            @RequestBody RequestNodeDto dto
     ) {
-        ResponseNodeDto responseNodeDto = nodeService.updateTeamNode(teamId,graphId,nodeId,context.getUserDto().getId(),dto);
+        ResponseNodeDto responseNodeDto = nodeService.updateTeamNode(graphId,nodeId,dto);
         return ResponseEntity.ok(responseNodeDto);
     }
 

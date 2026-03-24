@@ -37,6 +37,17 @@ public class NodeController {
         return ResponseEntity.ok(saved);
     }
 
+//    @PatchMapping("/{nodeId}")
+//    public ResponseEntity<ResponseNodeDto> updateNode(
+//            @PathVariable Long pageId,
+//            @PathVariable Long nodeId,
+//            @RequestBody RequestNodeDto dto,
+//            @AuthenticationPrincipal UserContext user
+//    ) {
+//        ResponseNodeDto response = nodeService.updateNode(pageId, nodeId, dto, user.getUserDto().getId());
+//        return ResponseEntity.ok(response);
+//    }
+
     @PatchMapping("/{nodeId}")
     public ResponseEntity<ResponseNodeDto> updateNode(
             @PathVariable Long pageId,

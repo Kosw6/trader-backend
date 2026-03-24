@@ -25,6 +25,7 @@ public class ResponseNodeDto {
     private String content;
     private String symb;
     private LocalDate recordDate;
+    private Long version;
     private Map<Long, String> notes;
     private Long pageId;
     private LocalDateTime createdAt;
@@ -43,6 +44,7 @@ public class ResponseNodeDto {
                 .id(node.getId())
                 .x(node.getX())
                 .y(node.getY())
+                .version(node.getVersion())
                 .subject(node.getSubject())
                 .content(node.getContent())
                 .symb(node.getSymb())
@@ -78,6 +80,7 @@ public class ResponseNodeDto {
                 .subject(node.getSubject())
                 .content(preview) // ⬅️ 20자 프리뷰만 반환
                 .symb(node.getSymb())
+                .version(node.getVersion())
                 .recordDate(node.getRecordDate())
                 .createdAt(node.getCreatedAt())
                 .modifiedAt(node.getModifiedAt())
@@ -103,6 +106,7 @@ public class ResponseNodeDto {
                 .subject(node.getSubject())
                 .content(node.getContentPreview())
                 .symb(node.getSymb())
+                .version(node.getVersion())
                 .recordDate(node.getRecordDate())
                 .createdAt(node.getCreatedAt())
                 .modifiedAt(node.getModifiedAt())

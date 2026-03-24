@@ -1,5 +1,6 @@
 package com.example.trader.ws.raw;
 
+import com.example.trader.config.AppProperties;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
     private final CanvasSessionRegistry registry;
     private final ObjectMapper objectMapper;
     private final RawPresenceBroadcaster broadcaster;
+    private final AppProperties appProperties;
 
     private static final String TYPE_CURSOR = "CURSOR";
     private static final String TYPE_DRAG = "DRAG_PREVIEW";
@@ -35,9 +37,8 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             RoomIds room = parseRoomIds(session.getUri());
             String roomKey = registry.roomKey(room.teamId(), room.graphId());
 
-            // 세션 write 동시성 방지용 래핑 (세션당 1회)
-            int sendTimeLimitMs = 100;          // ex: 1s
-            int bufferSizeLimitBytes = 128 * 1024; // ex: 256KB
+            int sendTimeLimitMs = 100;
+            int bufferSizeLimitBytes = 128 * 1024;
             WebSocketSession safeSession =
                     new ConcurrentWebSocketSessionDecorator(session, sendTimeLimitMs, bufferSizeLimitBytes);
 
@@ -45,18 +46,25 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             session.getAttributes().put(WsAttrs.ROOM_KEY, roomKey);
             session.getAttributes().put(WsAttrs.SAFE_SESSION, safeSession);
 
-            // JWT 인터셉터에서 userId 주입 안 되었으면 차단
-            if (session.getAttributes().get(WsAttrs.USER_ID) == null) {
-                // ✅ 406으로 정상 종료 (서버에러 1011 금지)
-                session.close(CloseStatus.NOT_ACCEPTABLE.withReason("unauthorized"));
-                return;
+            Long userId = (Long) session.getAttributes().get(WsAttrs.USER_ID);
+            String nickName = (String) session.getAttributes().get(WsAttrs.NICKNAME);
+
+            // JWT 인터셉터가 없을 때는 query param fallback
+            if (userId == null) {
+                UserInfo userInfo = parseUserInfo(session.getUri());
+                userId = userInfo.userId();
+                nickName = userInfo.nickName();
+
+                session.getAttributes().put(WsAttrs.USER_ID, userId);
+                session.getAttributes().put(WsAttrs.NICKNAME, nickName);
             }
+
+            log.info("[RAW][CONNECT] instance={} roomKey={} userId={} session={}",
+                    appProperties.getInstanceId(), roomKey, userId, session.getId());
+
             registry.join(roomKey, safeSession);
-            // (옵션) 로그: 현재 room size
-//            log.info("[RAW] joined roomKey={} size={}", roomKey, registry.size(roomKey));
 
         } catch (Exception e) {
-            // ✅ 여기서 1011 close는 “증폭기”가 될 수 있음. 그냥 로그 + close(가능하면 normal)
             log.error("[RAW] afterConnectionEstablished failed session={} uri={}",
                     session.getId(), session.getUri(), e);
             try { session.close(); } catch (Exception ignore) {}
@@ -128,8 +136,8 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         String roomKey = (String) session.getAttributes().get(WsAttrs.ROOM_KEY);
 
         // ✅ 여기서 close() 시도하지 말고 cleanup만
-        log.warn("[RAW] transport error session={} uri={} ex={}",
-                session.getId(), session.getUri(), exception.toString());
+//        log.warn("[RAW] transport error session={} uri={} ex={}",
+//                session.getId(), session.getUri(), exception.toString());
 
         if (roomKey != null) {
             registry.leave(roomKey, safeOf(session));
@@ -139,8 +147,11 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String roomKey = (String) session.getAttributes().get(WsAttrs.ROOM_KEY);
+        Long userId = (Long) session.getAttributes().get(WsAttrs.USER_ID);
         if (roomKey != null) registry.leave(roomKey, safeOf(session));
         // log.debug("[RAW] closed session={} status={} roomKey={}", session.getId(), status, roomKey);
+        log.info("[RAW][CONNECT] instance={} roomKey={} userId={} session={}",
+                appProperties.getInstanceId(), roomKey, userId, session.getId());
     }
 
     private WebSocketSession safeOf(WebSocketSession session) {
@@ -167,6 +178,25 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             }
         }
     }
+
+    private UserInfo parseUserInfo(URI uri) {
+        if (uri == null) throw new IllegalArgumentException("uri required");
+
+        var params = UriComponentsBuilder.fromUri(uri).build().getQueryParams();
+
+        String userIdStr = params.getFirst("userId");
+        String nickName = params.getFirst("nickName");
+
+        if (userIdStr == null) {
+            throw new IllegalArgumentException(
+                    "userId query required. ex) /ws/canvas-raw?teamId=1&graphId=2&userId=1001"
+            );
+        }
+
+        return new UserInfo(Long.valueOf(userIdStr), nickName == null ? "user-" + userIdStr : nickName);
+    }
+
+    private record UserInfo(Long userId, String nickName) {}
 
     private RoomIds parseRoomIds(URI uri) {
         if (uri == null) throw new IllegalArgumentException("uri required");

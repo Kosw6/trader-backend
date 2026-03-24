@@ -54,6 +54,7 @@ public class JwtFilter extends OncePerRequestFilter {
 
         //TODO:배포시에 swagger보안처리
         if (path.startsWith("/actuator") || path.startsWith("/api/login") || path.startsWith("/swagger-ui")
+                || path.startsWith("/api")//poc용
                 || path.startsWith("/internal")
                 || path.startsWith("/v3/api-docs")
                 || path.startsWith("/swagger-resources")

@@ -22,6 +22,8 @@ public class Node extends BaseTimeEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    @Version
+    private Long version;
 
     @Column(nullable = false)
     private double x;
@@ -53,6 +55,9 @@ public class Node extends BaseTimeEntity {
     public void setPage(Page page){
         this.page = page;
     }
+    public void increaseVersion(){
+        this.version += 1;
+    }
 
     public void updateBasics(RequestNodeDto dto) {
         if (dto.getX() != null) this.x = dto.getX();
@@ -61,6 +66,7 @@ public class Node extends BaseTimeEntity {
         if (dto.getContent() != null) this.content = dto.getContent();
         if (dto.getSymb() != null) this.symb = dto.getSymb();
         if (dto.getRecordDate() != null) this.recordDate = dto.getRecordDate();
+        increaseVersion();
     }
     public void attach(Note note) {
         Long targetId = note.getId();

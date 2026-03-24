@@ -2,9 +2,11 @@ package com.example.trader.service;
 
 import com.example.trader.dto.map.RequestNodeDto;
 import com.example.trader.dto.map.ResponseNodeDto;
+import com.example.trader.edit.dto.CanvasEventEnvelope;
 import com.example.trader.entity.Node;
 import com.example.trader.entity.Note;
 import com.example.trader.entity.Page;
+import com.example.trader.event.CanvasEventPublisher;
 import com.example.trader.exception.BaseException;
 import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.repository.EdgeRepository;
@@ -18,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -34,6 +37,7 @@ public class NodeService {
     private final EdgeRepository edgeRepository;
     private final EntityManager em;
     private final ObjectMapper objectMapper;
+    private final CanvasEventPublisher canvasEventPublisher;
 
     private final NodeCacheService nodeCacheService;
     private final GraphCacheService graphCacheService;
@@ -88,28 +92,67 @@ public class NodeService {
         return ResponseNodeDto.toResponseDto(node);
     }
 
+//    @Transactional
+//    public ResponseNodeDto updateTeamNode(Long teamId, Long graphId, Long nodeId, Long userId, RequestNodeDto req) {
+//        if (!nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(nodeId, graphId, teamId)) {
+//            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+//        }
+//
+//        Node node = nodeRepository.findByIdWithLinks(nodeId)
+//                .orElseThrow(() -> new IllegalArgumentException("연결된 노트링크가 없습니다"));
+//
+//        node.updateBasics(req);
+//
+//        if (req.isNoteIdsOmitted()) {
+//            // 변경 없음
+//        } else if (req.isNoteIdsEmptySet()) {
+//            syncTeamNotesMineOnly(node, List.of(), userId);
+//        } else {
+//            syncTeamNotesMineOnly(node, req.getNoteIds(), userId);
+//        }
+//
+//        nodeCacheService.evictPageNodes(graphId);
+//        graphCacheService.evictGraph(graphId);
+//        return ResponseNodeDto.toResponseDto(node);
+//    }
     @Transactional
-    public ResponseNodeDto updateTeamNode(Long teamId, Long graphId, Long nodeId, Long userId, RequestNodeDto req) {
-        if (!nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(nodeId, graphId, teamId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
-        }
+    public ResponseNodeDto updateTeamNode(Long groupId, Long nodeId, RequestNodeDto req) {
+    //    if (!nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(nodeId, graphId, teamId)) {
+    //        throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+    //    }
 
         Node node = nodeRepository.findByIdWithLinks(nodeId)
                 .orElseThrow(() -> new IllegalArgumentException("연결된 노트링크가 없습니다"));
 
         node.updateBasics(req);
 
-        if (req.isNoteIdsOmitted()) {
-            // 변경 없음
-        } else if (req.isNoteIdsEmptySet()) {
-            syncTeamNotesMineOnly(node, List.of(), userId);
-        } else {
-            syncTeamNotesMineOnly(node, req.getNoteIds(), userId);
-        }
+        List<String> changedFields = extractChangedFields(req);
 
-        nodeCacheService.evictPageNodes(graphId);
-        graphCacheService.evictGraph(graphId);
+        CanvasEventEnvelope event = new CanvasEventEnvelope();
+        event.setGroupId(groupId);   // 지금 POC에서는 graphId를 group key처럼 쓰는 거면 OK
+        event.setEntityId(nodeId);
+        event.setVersion(node.getVersion());
+        event.setChangedFields(changedFields);
+
+        canvasEventPublisher.publish(event);
+
+        nodeCacheService.evictPageNodes(groupId);
+        graphCacheService.evictGraph(groupId);
+
         return ResponseNodeDto.toResponseDto(node);
+    }
+
+    private List<String> extractChangedFields(RequestNodeDto req) {
+        List<String> changedFields = new ArrayList<>();
+
+        if (req.getX() != null) changedFields.add("x");
+        if (req.getY() != null) changedFields.add("y");
+        if (req.getSubject() != null) changedFields.add("subject");
+        if (req.getContent() != null) changedFields.add("content");
+        if (req.getSymb() != null) changedFields.add("symb");
+        if (req.getRecordDate() != null) changedFields.add("recordDate");
+
+        return changedFields;
     }
 
     @Transactional
@@ -172,10 +215,10 @@ public class NodeService {
     }
 
     @Transactional
-    public ResponseNodeDto createTeamNode(RequestNodeDto dto, Long teamId, Long pageId, Long userId) {
-        if (!pageRepository.existsByIdAndDirectoryTeamId(pageId, teamId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
-        }
+    public ResponseNodeDto createTeamNode(RequestNodeDto dto, Long pageId) {
+//    if (!pageRepository.existsByIdAndDirectoryTeamId(pageId, teamId)) {
+//        throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+//    }
 
         Page page = pageRepository.findById(pageId)
                 .orElseThrow(() -> new IllegalArgumentException("Page not found"));
@@ -190,19 +233,35 @@ public class NodeService {
                 .recordDate(dto.getRecordDate())
                 .build();
 
-        if (dto.isNoteIdsOmitted()) {
-            // 변경 없음
-        } else if (dto.isNoteIdsEmptySet()) {
-            syncTeamNotesMineOnly(node, List.of(), userId);
-        } else {
-            syncTeamNotesMineOnly(node, dto.getNoteIds(), userId);
-        }
-
         Node saved = nodeRepository.save(node);
+
+        List<String> changedFields = extractChangedFieldsForCreate(dto);
+
+        CanvasEventEnvelope event = new CanvasEventEnvelope();
+        event.setGroupId(pageId);   // POC에서는 graphId/pageId를 group key처럼 사용
+        event.setEntityId(saved.getId());
+        event.setVersion(saved.getVersion());
+        event.setChangedFields(changedFields);
+
+        canvasEventPublisher.publish(event);
 
         nodeCacheService.evictPageNodes(pageId);
         graphCacheService.evictGraph(pageId);
+
         return ResponseNodeDto.toResponseDto(saved);
+    }
+
+    private List<String> extractChangedFieldsForCreate(RequestNodeDto dto) {
+        List<String> changedFields = new ArrayList<>();
+
+        if (dto.getX() != null) changedFields.add("x");
+        if (dto.getY() != null) changedFields.add("y");
+        if (dto.getSubject() != null) changedFields.add("subject");
+        if (dto.getContent() != null) changedFields.add("content");
+        if (dto.getSymb() != null) changedFields.add("symb");
+        if (dto.getRecordDate() != null) changedFields.add("recordDate");
+
+        return changedFields;
     }
 
     @Transactional(readOnly = true)
