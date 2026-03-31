@@ -135,7 +135,8 @@ public class NodeService {
         event.setChangedFields(changedFields);
 
         canvasEventPublisher.publish(event);
-
+        log.info("[CORE][PUBLISH] groupId={} nodeId={} version={} changedFields={}",
+                groupId, nodeId, node.getVersion(), changedFields);
         nodeCacheService.evictPageNodes(groupId);
         graphCacheService.evictGraph(groupId);
 
@@ -244,7 +245,8 @@ public class NodeService {
         event.setChangedFields(changedFields);
 
         canvasEventPublisher.publish(event);
-
+        log.info("[CORE][PUBLISH] groupId={} nodeId={} version={} changedFields={}",
+                pageId, saved.getId(), node.getVersion(), changedFields);
         nodeCacheService.evictPageNodes(pageId);
         graphCacheService.evictGraph(pageId);
 

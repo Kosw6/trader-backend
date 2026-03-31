@@ -160,3 +160,13 @@ eureka:
       shard-id: ${WS_SHARD_ID}
     prefer-ip-address: true
     instance-id: ${EUREKA_INSTANCE_INSTANCE_ID:${spring.application.name}:${server.port}}
+
+app:
+  role: core
+  instance-id: ${APP_INSTANCE_ID:core-1}
+  kafka:
+    topic:
+      canvas-events: ${APP_KAFKA_TOPIC_CANVAS_EVENTS:canvas-events}
+    consumer-group: ${APP_KAFKA_CONSUMER_GROUP:core-group}
+    broadcast-group-id: ${APP_KAFKA_BROADCAST_GROUP_ID:canvas-broadcast-group}
+    catchup-group-id: ${APP_KAFKA_CATCHUP_GROUP_ID:canvas-replay}

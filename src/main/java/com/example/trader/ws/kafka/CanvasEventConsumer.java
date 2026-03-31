@@ -1,60 +1,46 @@
 package com.example.trader.ws.kafka;
 
-import com.example.trader.edit.DraftRedisStore;
 import com.example.trader.edit.dto.CanvasEventEnvelope;
-import com.example.trader.edit.dto.DraftEditState;
-import jakarta.annotation.PostConstruct;
+import com.example.trader.server.ServerStateManager;
+import com.example.trader.ws.broadcast.RawCanvasEventBroadcaster;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-import java.util.Set;
-
 @Slf4j
-@Component
+//@Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "app.role", havingValue = "ws")
 public class CanvasEventConsumer {
 
-    private final DraftRedisStore draftRedisStore;
-
-    @PostConstruct
-    public void init() {
-        log.info("[KAFKA][INIT] CanvasEventConsumer initialized");
-    }
+    private final ServerStateManager serverStateManager;
+    private final RawCanvasEventBroadcaster canvasEventBroadcaster;
 
     @KafkaListener(
             topics = "canvas-events",
-//            groupId = "ws-shard-group",
+            groupId = "${app.kafka.consumer-group}",
             containerFactory = "kafkaListenerContainerFactory"
     )
     public void consume(CanvasEventEnvelope event) {
-        log.info("[KAFKA][RECEIVED] groupId={}, entityId={}, version={}, changedFields={}",
-                event.getGroupId(), event.getEntityId(), event.getVersion(), event.getChangedFields());
-        Set<String> editingUsers = draftRedisStore.findEditingUsers(event.getGroupId(), event.getEntityId());
-        if (editingUsers == null || editingUsers.isEmpty()) {
-            log.info("[KAFKA][SKIP] no editing users. groupId={}, entityId={}",
-                    event.getGroupId(), event.getEntityId());
+        log.info("[KAFKA][CONSUME] groupId={} entityId={} version={} changedFields={} state={}",
+                event.getGroupId(),
+                event.getEntityId(),
+                event.getVersion(),
+                event.getChangedFields(),
+                serverStateManager.snapshot());
+
+        if (serverStateManager.isDraining()) {
+            log.info("[KAFKA][SKIP_BROADCAST][DRAIN] groupId={} entityId={} version={}",
+                    event.getGroupId(), event.getEntityId(), event.getVersion());
             return;
         }
 
-        for (String userIdStr : editingUsers) {
-            Long userId = Long.valueOf(userIdStr);
-            DraftEditState draft = draftRedisStore.find(event.getGroupId(), event.getEntityId(), userId);
-
-            if (draft == null) {
-                continue;
-            }
-
-            if (event.getVersion() > draft.getBaseVersion()) {
-                draft.getServerChangedFieldsAfterEdit().addAll(event.getChangedFields());
-                draftRedisStore.save(draft);
-            }
+        if (!serverStateManager.isReady()) {
+            log.info("[KAFKA][SKIP_BROADCAST][NOT_READY] groupId={} entityId={} version={}",
+                    event.getGroupId(), event.getEntityId(), event.getVersion());
+            return;
         }
 
-        log.info("[KAFKA][UPDATED_DRAFT_META] groupId={}, entityId={}",
-                event.getGroupId(), event.getEntityId());
+        canvasEventBroadcaster.broadcast(event);
     }
 }
