@@ -36,7 +36,8 @@ public class Node extends BaseTimeEntity {
     @Column(columnDefinition = "text")
     private String content;
 
-    @Formula("substring(n1_0.content, 1, 20)::text")
+//    @Formula("substring(n1_0.content, 1, 20)::text")
+    @Formula("substring(content, 1, 20)::text")
     private String contentPreview;
 
     private String symb;
