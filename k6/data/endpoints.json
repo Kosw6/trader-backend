@@ -303,7 +303,7 @@
   },
   {
     "controller": "NodeController",
-    "base": "/api/nodes",
+    "base": "",
     "endpoints": [
       {
         "name": "single",
@@ -366,7 +366,7 @@
       {
         "name": "list",
         "method": "GET",
-        "path": "page/{{pageId}}",
+        "path": "/api/pages/{{pageId}}/nodes",
         "qsTemplate": "",
         "params": {},
         "paramLabels": ["pageId"],
@@ -392,7 +392,7 @@
           {
             "name": "heavy",
             "executor": "constant-arrival-rate",
-            "rate": 60,
+            "rate": 80,
             "preAllocatedVUs": 450,
             "maxVUs": 2000,
             "duration": "90s",

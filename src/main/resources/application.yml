@@ -17,8 +17,8 @@ spring:
     properties:
       hibernate.jdbc.lob.non_contextual_creation: true
       hibernate.enhancer.enableLazyInitialization: true   # ★ 기본타입 LAZY가 실제로 동작
-      hibernate.show_sql: false
-      hibernate.format_sql: false
+      hibernate.show_sql: true
+      hibernate.format_sql: true
       hibernate.use_sql_comments: false
       hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
   data:
@@ -102,6 +102,33 @@ server:
     mbeanregistry:
       enabled: true
 
+#logging:
+#  level:
+#    root: INFO
+#    org.springframework: ERROR
+#    org.springframework.web: ERROR
+#    org.springframework.security: ERROR
+#    org.springframework.boot.actuate: ERROR
+#    org.springframework.boot.autoconfigure.security: ERROR
+#    io.micrometer: ERROR
+#    io.micrometer.core: ERROR
+#    io.micrometer.prometheus: ERROR
+#    reactor.netty: ERROR
+#    org.apache.catalina: ERROR  # Tomcat
+#    org.apache.tomcat: ERROR
+#    com.zaxxer.hikari: ERROR
+#    org.hibernate: INFO                 # 전체 상한
+#    org.hibernate.SQL: INFO               # 실행 SQL 줄
+#    org.hibernate.type: OFF              # 파라미터 타입/바인딩
+#    org.hibernate.orm.jdbc.bind: OFF     # (Hibernate 6) 바인드 값 디버그
+#    org.hibernate.orm.results: OFF       # (Hibernate 6) 결과 매핑 로그
+#    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR  # SQL 경고는 숨기고 에러만
+#    org.hibernate.type.descriptor.sql.BasicBinder: OFF  # (Hibernate 5 계열)
+#    org.hibernate.orm.jdbc.extract: OFF                 # (Hibernate 6 계열)
+##    org.springframework.web.socket: DEBUG
+##    org.springframework.web.socket.handler: DEBUG
+##    org.springframework.web.socket.server: DEBUG
+
 logging:
   level:
     root: INFO
@@ -114,17 +141,17 @@ logging:
     io.micrometer.core: ERROR
     io.micrometer.prometheus: ERROR
     reactor.netty: ERROR
-    org.apache.catalina: ERROR  # Tomcat
+    org.apache.catalina: ERROR
     org.apache.tomcat: ERROR
     com.zaxxer.hikari: ERROR
-    org.hibernate: OFF                 # 전체 상한
-    org.hibernate.SQL: OFF               # 실행 SQL 줄
-    org.hibernate.type: OFF              # 파라미터 타입/바인딩
-    org.hibernate.orm.jdbc.bind: OFF     # (Hibernate 6) 바인드 값 디버그
-    org.hibernate.orm.results: OFF       # (Hibernate 6) 결과 매핑 로그
-    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR  # SQL 경고는 숨기고 에러만
-    org.hibernate.type.descriptor.sql.BasicBinder: OFF  # (Hibernate 5 계열)
-    org.hibernate.orm.jdbc.extract: OFF                 # (Hibernate 6 계열)
-#    org.springframework.web.socket: DEBUG
-#    org.springframework.web.socket.handler: DEBUG
-#    org.springframework.web.socket.server: DEBUG
+
+    org.hibernate: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.stat: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+    org.hibernate.type: OFF
+    org.hibernate.orm.results: OFF
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR
+    org.hibernate.orm.jdbc.extract: OFF
