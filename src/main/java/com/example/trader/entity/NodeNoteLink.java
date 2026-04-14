@@ -25,7 +25,6 @@ public class NodeNoteLink {
             foreignKey = @ForeignKey(name = "fk_link_node"),nullable = false)
     private Node node;
 
-    //TODO:차후 노트에서 노드 조회시에 읽기전용
     @Column(name = "node_id", insertable = false, updatable = false)
     private Long nodeId;
 
@@ -41,9 +40,6 @@ public class NodeNoteLink {
     @Column(name = "note_subject", insertable = false, updatable = false)
     private String noteSubject;
 
-    //TODO:오너명을 추가할지
-
-    // (옵션) 메타필드들: anchorX, anchorY ...
 
     public static NodeNoteLink of(Node node, Note note) {
         NodeNoteLink l = new NodeNoteLink();

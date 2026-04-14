@@ -41,17 +41,6 @@ public class JwtTokenProvider {
         this.userDetailsService = userDetailsService;
     }
 
-    //유저 이름을 jwt토큰에 담아서 생성하고 반환, 컨트롤러에서 헤더에 담아서 반환
-    //ex) headers.set("Authorization", "Bearer " + token);형식으로
-    //todo:RoleClaim넣기:.withClaim("r","a")->r는 role, a는 admin,u는 user
-//    public String createAccessToken(String loginId) throws UnsupportedEncodingException {
-//        return JWT.create()
-//                .withSubject(loginId)
-//                .withIssuer("auth0")
-//                .withIssuedAt(new Date(System.currentTimeMillis()))
-//                .withExpiresAt(new Date(System.currentTimeMillis() + (60000 * accessTokenExpMinutes)))//10분
-//                .sign(Algorithm.HMAC256(secret));//알고리즘으로 서명후 반환
-//    }
     public String createAccessToken(Long userId, String loginId, String roleName,String nickName) throws UnsupportedEncodingException {
         return JWT.create()
                 .withSubject(loginId)
@@ -63,14 +52,6 @@ public class JwtTokenProvider {
                 .withExpiresAt(new Date(System.currentTimeMillis() + (60000L * accessTokenExpMinutes)))
                 .sign(Algorithm.HMAC256(secret));
     }
-    public String createAccessTokenByEmail(String email) throws UnsupportedEncodingException {
-        return JWT.create()
-                .withSubject(email)
-                .withIssuer("auth0")
-                .withIssuedAt(new Date(System.currentTimeMillis()))
-                .withExpiresAt(new Date(System.currentTimeMillis() + (60000 * accessTokenExpMinutes)))//10분
-                .sign(Algorithm.HMAC256(secret));//알고리즘으로 서명후 반환
-    }
 
     //refreshToken발급하는 메서드
     public String createRefreshToken(Long userId, String loginId, String roleName,String nickName) throws UnsupportedEncodingException{
@@ -81,7 +62,7 @@ public class JwtTokenProvider {
                 .withClaim("role", roleName)
                 .withClaim("nickName",nickName)
                 .withIssuedAt(new Date(System.currentTimeMillis()))
-                .withExpiresAt(new Date(System.currentTimeMillis() + (60000L * accessTokenExpMinutes)))
+                .withExpiresAt(new Date(System.currentTimeMillis() + (60000L * refreshTokenExpMinutes)))
                 .sign(Algorithm.HMAC256(secret));
     }
     public String getTokenInfo(String receivedToken) throws UnsupportedEncodingException {
@@ -163,33 +144,6 @@ public class JwtTokenProvider {
         return null;
     }
 
-    //todo:쿠키 기반으로 수정
-//    public String resolveToken(HttpServletRequest request) {
-//
-//        Cookie[] cookies = request.getCookies();
-//
-//        if (cookies == null) {
-//            return null;
-//        }
-//
-//        for (Cookie cookie : cookies) {
-//            if ("accessToken".equals(cookie.getName())) {
-//                return cookie.getValue();
-//            }
-//        }
-//
-//        return null;
-//    }
-
-     //Authentication 객체 생성
-    //여기서 검증X + loginId 레포지토리 검색 대신 토큰에 담긴 정보 가져오기 -> 사용자 정보는 UserDetailsService를 Override한 메서드로 DB조회
-//    public Authentication getAuthentication(String token, UserDetailsService userDetailsService) throws UnsupportedEncodingException {
-//        String userId = getTokenInfo(token);//유저아이디 받아아서 로그인 아이디로 변환
-//        Long id = Long.parseLong(userId);
-//        String loginId = userService.findUserByUserId(id).getLoginId();
-//        UserDetails userDetails = userDetailsService.loadUserByUsername(loginId);
-//        return new UsernamePasswordAuthenticationToken(userDetails, "", userDetails.getAuthorities());
-//    }
      public Authentication getAuthentication(DecodedJWT jwt) {
          String loginId = jwt.getSubject();
          Long userId = jwt.getClaim("userId").asLong();
@@ -218,9 +172,4 @@ public class JwtTokenProvider {
                  userContext.getAuthorities()
          );
      }
-//     public Authentication getAuthentication(DecodedJWT jwt, UserDetailsService uds) throws UnsupportedEncodingException {
-//         String loginId = jwt.getSubject();
-//         UserDetails userDetails = uds.loadUserByUsername(loginId);
-//         return new UsernamePasswordAuthenticationToken(userDetails, "", userDetails.getAuthorities());
-//     }
 }

@@ -4,6 +4,7 @@ import com.example.trader.security.provider.JwtTokenProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
@@ -18,6 +19,14 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
 
     private final JwtTokenProvider jwtTokenProvider;
 
+    // 환경변수 APP_OAUTH2_REDIRECT_URL / app.oauth2.redirect-url 로 주입
+    @Value("${app.oauth2.redirect-url:http://localhost:5173/login/success}")
+    private String redirectUrl;
+
+    // 환경변수 APP_COOKIE_SECURE / app.cookie.secure 로 주입 (HTTPS 배포 시 true)
+    @Value("${app.cookie.secure:false}")
+    private boolean cookieSecure;
+
     @Override
     public void onAuthenticationSuccess(HttpServletRequest req, HttpServletResponse res,
                                         Authentication authentication) throws IOException {
@@ -27,14 +36,19 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
         Long userId = ((Number) principal.getAttributes().get("id")).longValue();
         String email = (String) principal.getAttributes().get("email");
 
-        // 공급자별로 다를 수 있음. 구글/카카오 attribute 구조 확인 필요
         String nickName = (String) principal.getAttributes().get("name");
         if (nickName == null) {
-            nickName = email;
+            // CustomOAuth2UserService에서 name을 채워주지 못한 경우 userId 기반 fallback
+            nickName = "user_" + userId;
         }
 
-        String loginId = email; // OAuth는 email을 subject/loginId 대용으로 사용
-        String roleName = "ROLE_USER";
+        String loginId = email;
+
+        // authentication.getAuthorities()에서 role을 추출해 하드코딩 제거
+        String roleName = authentication.getAuthorities().stream()
+                .findFirst()
+                .map(a -> a.getAuthority())
+                .orElse("ROLE_USER");
 
         String accessToken = jwtTokenProvider.createAccessToken(
                 userId,
@@ -52,7 +66,7 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
 
         ResponseCookie accessCookie = ResponseCookie.from("accessToken", accessToken)
                 .httpOnly(true)
-                .secure(false) // 배포 HTTPS면 true
+                .secure(cookieSecure)
                 .path("/")
                 .maxAge(60 * 30)
                 .sameSite("Lax")
@@ -60,7 +74,7 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
 
         ResponseCookie refreshCookie = ResponseCookie.from("refreshToken", refreshToken)
                 .httpOnly(true)
-                .secure(false) // 배포 HTTPS면 true
+                .secure(cookieSecure)
                 .path("/")
                 .maxAge(7 * 24 * 60 * 60)
                 .sameSite("Lax")
@@ -69,7 +83,6 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
         res.addHeader("Set-Cookie", accessCookie.toString());
         res.addHeader("Set-Cookie", refreshCookie.toString());
 
-        // JSON 바디 쓰지 말고 redirect만
-        res.sendRedirect("http://localhost:5173/login/success");
+        res.sendRedirect(redirectUrl);
     }
 }
