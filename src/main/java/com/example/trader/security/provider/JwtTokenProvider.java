@@ -4,9 +4,11 @@ import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.auth0.jwt.interfaces.DecodedJWT;
+import com.example.trader.dto.ResponseUserDto;
 import com.example.trader.entity.User;
 import com.example.trader.exception.BaseException;
 import com.example.trader.httpresponse.BaseResponseStatus;
+import com.example.trader.security.details.UserContext;
 import com.example.trader.service.UserService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,12 +16,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.stereotype.Service;
 
 import java.io.UnsupportedEncodingException;
 import java.util.Date;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -37,16 +41,16 @@ public class JwtTokenProvider {
         this.userDetailsService = userDetailsService;
     }
 
-    //유저 이름을 jwt토큰에 담아서 생성하고 반환, 컨트롤러에서 헤더에 담아서 반환
-    //ex) headers.set("Authorization", "Bearer " + token);형식으로
-    //todo:RoleClaim넣기:.withClaim("r","a")->r는 role, a는 admin,u는 user
-    public String createAccessToken(String loginId) throws UnsupportedEncodingException {
+    public String createAccessToken(Long userId, String loginId, String roleName,String nickName) throws UnsupportedEncodingException {
         return JWT.create()
                 .withSubject(loginId)
                 .withIssuer("auth0")
+                .withClaim("userId", userId)
+                .withClaim("role", roleName)
+                .withClaim("nickName",nickName)
                 .withIssuedAt(new Date(System.currentTimeMillis()))
-                .withExpiresAt(new Date(System.currentTimeMillis() + (60000 * accessTokenExpMinutes)))//10분
-                .sign(Algorithm.HMAC256(secret));//알고리즘으로 서명후 반환
+                .withExpiresAt(new Date(System.currentTimeMillis() + (60000L * accessTokenExpMinutes)))
+                .sign(Algorithm.HMAC256(secret));
     }
     public String createAccessTokenByEmail(String email) throws UnsupportedEncodingException {
         return JWT.create()
@@ -58,14 +62,16 @@ public class JwtTokenProvider {
     }
 
     //refreshToken발급하는 메서드
-    public String createRefreshToken(String loginId, String accessToken) throws UnsupportedEncodingException{
+    public String createRefreshToken(Long userId, String loginId, String roleName,String nickName) throws UnsupportedEncodingException{
         return JWT.create()
                 .withSubject(loginId)
                 .withIssuer("auth0")
-                .withClaim("accessToken",accessToken)
+                .withClaim("userId", userId)
+                .withClaim("role", roleName)
+                .withClaim("nickName",nickName)
                 .withIssuedAt(new Date(System.currentTimeMillis()))
-                .withExpiresAt(new Date(System.currentTimeMillis() + (60000 * refreshTokenExpMinutes)))//60초 * 1000밀리초 = 60000밀리초:1분*100분
-                .sign(Algorithm.HMAC256(secret));//알고리즘으로 서명후 반환
+                .withExpiresAt(new Date(System.currentTimeMillis() + (60000L * refreshTokenExpMinutes)))
+                .sign(Algorithm.HMAC256(secret));
     }
     public String getTokenInfo(String receivedToken) throws UnsupportedEncodingException {
         //비밀키를 받아서 알고리즘으로 복호화, 만약 전달받은 토큰이 알고리즘과 비밀키가 일치하지 않으면 예외반환하고
@@ -92,7 +98,6 @@ public class JwtTokenProvider {
 
     // 토큰 유효성 검사-복호화하고, 시간확인
     public DecodedJWT validateToken(String receivedToken) {
-//        log.info("run validation");
         try {
             DecodedJWT verify = JWT.require(Algorithm.HMAC256(secret))
                     .build().verify(receivedToken);
@@ -146,36 +151,33 @@ public class JwtTokenProvider {
         return null;
     }
 
-    //todo:쿠키 기반으로 수정
-//    public String resolveToken(HttpServletRequest request) {
-//
-//        Cookie[] cookies = request.getCookies();
-//
-//        if (cookies == null) {
-//            return null;
-//        }
-//
-//        for (Cookie cookie : cookies) {
-//            if ("accessToken".equals(cookie.getName())) {
-//                return cookie.getValue();
-//            }
-//        }
-//
-//        return null;
-//    }
+    public Authentication getAuthentication(DecodedJWT jwt) {
+        String loginId = jwt.getSubject();
+        Long userId = jwt.getClaim("userId").asLong();
+        String roleName = jwt.getClaim("role").asString();
+        String nickName = jwt.getClaim("nickName").asString();
 
-     //Authentication 객체 생성
-    //여기서 검증X + loginId 레포지토리 검색 대신 토큰에 담긴 정보 가져오기 -> 사용자 정보는 UserDetailsService를 Override한 메서드로 DB조회
-//    public Authentication getAuthentication(String token, UserDetailsService userDetailsService) throws UnsupportedEncodingException {
-//        String userId = getTokenInfo(token);//유저아이디 받아아서 로그인 아이디로 변환
-//        Long id = Long.parseLong(userId);
-//        String loginId = userService.findUserByUserId(id).getLoginId();
-//        UserDetails userDetails = userDetailsService.loadUserByUsername(loginId);
-//        return new UsernamePasswordAuthenticationToken(userDetails, "", userDetails.getAuthorities());
-//    }
-     public Authentication getAuthentication(DecodedJWT jwt, UserDetailsService uds) throws UnsupportedEncodingException {
-         String loginId = jwt.getSubject();
-         UserDetails userDetails = uds.loadUserByUsername(loginId);
-         return new UsernamePasswordAuthenticationToken(userDetails, "", userDetails.getAuthorities());
-     }
+        if (loginId == null || userId == null || roleName == null || nickName == null) {
+            throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
+        }
+
+        ResponseUserDto userDto = ResponseUserDto.builder()
+                .id(userId)
+                .loginId(loginId)
+                .role(roleName)
+                .nickName(nickName)
+                .build();
+
+        List<SimpleGrantedAuthority> authorities =
+                List.of(new SimpleGrantedAuthority(roleName));
+
+        UserContext userContext = new UserContext(userDto, authorities);
+
+        return new UsernamePasswordAuthenticationToken(
+                userContext,
+                "",
+                userContext.getAuthorities()
+        );
+    }
+
 }
