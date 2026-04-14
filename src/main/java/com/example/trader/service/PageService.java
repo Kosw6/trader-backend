@@ -184,4 +184,14 @@ public class PageService {
         List<ResponsePageDto> allDtoByUserId = pageRepository.findAllDtoByUserId(userId);
         return allDtoByUserId;
     }
+
+    @Transactional(readOnly = true)
+    public List<ResponsePageDto> getAllTeamPages(Long teamId) {
+        return pageRepository.findAllDtoByTeamId(teamId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ResponsePageDto> getTeamPagesByDirectory(Long dirId, Long teamId) {
+        return pageRepository.findAllDtoByDirectoryAndTeamId(dirId, teamId);
+    }
 }

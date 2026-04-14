@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
+import java.util.List;
 
 @TeamMemberRequired
 @RestController
@@ -22,6 +23,16 @@ import java.net.URI;
 public class TeamPagesController {
 
     private final PageService pageService;
+
+    /** 팀 페이지 목록 조회 (directoryId 파라미터로 필터 가능) */
+    @GetMapping
+    public ResponseEntity<List<ResponsePageDto>> getPages(@PathVariable Long teamId,
+                                                          @RequestParam(required = false) Long directoryId) {
+        if (directoryId != null) {
+            return ResponseEntity.ok(pageService.getTeamPagesByDirectory(directoryId, teamId));
+        }
+        return ResponseEntity.ok(pageService.getAllTeamPages(teamId));
+    }
 
     /** 팀 페이지 생성 (201 + Location) */
     @PostMapping
