@@ -4,14 +4,8 @@ import com.example.trader.security.entrypoint.CustomAuthenticationEntryPoint;
 import com.example.trader.security.filter.JwtFilter;
 import com.example.trader.security.oauth2.CustomOAuth2UserService;
 import com.example.trader.security.oauth2.OAuth2SuccessHandler;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.LoggerFactory;
-import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -32,13 +26,8 @@ import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.web.filter.OncePerRequestFilter;
-
-import java.io.IOException;
-import java.util.Enumeration;
 import java.util.List;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
+
 
 @Slf4j
 @EnableWebSecurity
@@ -53,7 +42,6 @@ public class SecurityConfig {
     private final AccessDeniedHandler customAccessDeniedHandler;
     private final JwtFilter jwtFilter;
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
-//    private final CorsConfigurationSource corsConfigurationSource;
 
     // AuthenticationManager 빈을 설정하여 인증을 처리
     @Bean

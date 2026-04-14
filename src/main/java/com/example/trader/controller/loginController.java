@@ -39,7 +39,6 @@ import java.io.UnsupportedEncodingException;
 import java.util.HashMap;
 import java.util.Map;
 
-//TODO:access,refresh토큰 발급할 부분
 @Slf4j
 @Tag(name = "Login API", description = "로그인,회원가입 관련 데이터 API")
 @RestController
@@ -131,7 +130,6 @@ public class loginController {
             throw new UnsupportedEncodingException();
         }
     }
-    //todo:회원가입시 201응답을 받았으면 프론트에서 로그인 페이지로 리다이렉트시키기
     @Operation(
             summary = "회원가입"
     )
@@ -227,7 +225,6 @@ public class loginController {
     }
 
 
-    //todo:토큰 블랙,화이트리스트 구현(탈취시 위험 저하)
     @PostMapping("/api/login/logout")
     public ResponseEntity<?> logout(HttpServletResponse response) {
 

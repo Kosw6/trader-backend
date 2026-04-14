@@ -90,6 +90,12 @@ management:
     tags:
       application: trader-backend  # (옵션) 공통 태그
 
+app:
+  oauth2:
+    redirect-url: http://localhost:5173/login/success  # 로컬
+  cookie:
+    secure: true
+
 # Tomcat 메트릭을 위해 MBean registry 활성화
 server:
   tomcat:

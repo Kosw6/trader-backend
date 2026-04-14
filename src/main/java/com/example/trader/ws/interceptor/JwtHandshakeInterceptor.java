@@ -48,22 +48,19 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
         try {
             DecodedJWT jwt = jwtTokenProvider.validateTokenOrThrow(token);
 
-//            Authentication authentication =
-//                    jwtTokenProvider.getAuthentication(jwt, userDetailsService);
             Authentication authentication =
                     jwtTokenProvider.getAuthentication(jwt);
 
-            // 🔥 principal은 UserContext
+            //principal은 UserContext
             UserContext userContext = (UserContext) authentication.getPrincipal();
 
             Long userId = userContext.getUserDto().getId();
             String nickName = userContext.getUserDto().getNickName();
 
-            // ✅ WebSocket 세션에 저장
+            //WebSocket 세션에 저장
             attributes.put(WsAttrs.USER_ID, userId);
             attributes.put(WsAttrs.NICKNAME, nickName);
 
-//            log.info("WS handshake success: userId={}, nickName={}", userId, nickName);
 
             return true;
 
@@ -79,7 +76,6 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
                                ServerHttpResponse response,
                                WebSocketHandler wsHandler,
                                Exception exception) {
-        // nothing
     }
 
     private String resolveFromCookie(ServerHttpRequest request, String cookieName) {

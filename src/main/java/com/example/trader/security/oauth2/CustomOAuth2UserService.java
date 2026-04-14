@@ -40,12 +40,21 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
             providerUserId = String.valueOf(attrs.get("id"));
             Map<String, Object> account = (Map<String, Object>) attrs.get("kakao_account");
             Map<String, Object> profile = account == null ? null : (Map<String, Object>) account.get("profile");
-            //TODO:비즈앱 신청하고 수정
-            email = account == null ? "null" : (String) account.get("email");
-            if(email==null){
-                email = "test@naver.com";
+            email = account == null ? null : (String) account.get("email");
+            if (email == null) {
+                email = "kakao_" + providerUserId + "@kakao.local";
             }
-            name  = profile == null ? "null" : (String) profile.get("nickname");
+            name = profile == null ? "kakao_" + providerUserId : (String) profile.get("nickname");
+        } else if ("github".equals(registrationId)) {
+            providerUserId = String.valueOf(attrs.get("id"));
+            email = (String) attrs.get("email");
+            if (email == null) {
+                email = "github_" + providerUserId + "@github.local";
+            }
+            name = (String) attrs.get("name");
+            if (name == null) {
+                name = (String) attrs.get("login");
+            }
         } else {
             throw new OAuth2AuthenticationException("Unsupported provider");
         }

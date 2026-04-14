@@ -32,7 +32,7 @@ public class ExceptionLoggingFilter extends OncePerRequestFilter {
                 String h = e.nextElement();
                 if (!h.equalsIgnoreCase("authorization")) headers.append(h).append(",");
             }
-            log.error("🔥 EX at {} {}?{} | params=[{}] | headers=[{}]",
+            log.error("EX at {} {}?{} | params=[{}] | headers=[{}]",
                     req.getMethod(), req.getRequestURI(), req.getQueryString(), params, headers.toString(), ex);
             throw ex;
         }
