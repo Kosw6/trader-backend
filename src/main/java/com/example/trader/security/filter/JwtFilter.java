@@ -97,7 +97,8 @@ public class JwtFilter extends OncePerRequestFilter {
 
         try {
             DecodedJWT jwt = jwtTokenProvider.validateTokenOrThrow(token); // ✅ 여기서 딱 1번 검증
-            Authentication auth = jwtTokenProvider.getAuthentication(jwt, userDetailService);
+//            Authentication auth = jwtTokenProvider.getAuthentication(jwt, userDetailService);
+            Authentication auth = jwtTokenProvider.getAuthentication(jwt);
             SecurityContextHolder.getContext().setAuthentication(auth);
             filterChain.doFilter(request, response);
         } catch (BaseException e) {

@@ -180,6 +180,17 @@ k6 run -e BASE_URL=http://192.168.8.49:8080 -e CONTROLLERS=NodeController -e END
 k6 run -e BASE_URL=http://172.30.1.78:8080 -e CONTROLLERS=NodeController -e ENDPOINTS=list -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
 
 
-k6 run -e BASE_URL=http://3.34.145.209:8080 -e CONTROLLERS=NodeController -e ENDPOINTS=list -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
+k6 run -e BASE_URL=http://3.36.125.180:8080 -e CONTROLLERS=NodeController -e ENDPOINTS=list -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
 
 k6 run -e BASE_URL=http://3.34.145.209:8080 -e CONTROLLERS=StockController -e ENDPOINTS=range -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
+
+k6 run -e BASE_URL=http://192.168.8.49:8080 -e CONTROLLERS=StockController -e ENDPOINTS=range -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
+
+k6 run -e BASE_URL=http://43.201.69.40:8080 -e CONTROLLERS=NodeController -e ENDPOINTS=list -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
+
+k6 run -e BASE_URL=http://43.201.69.40:8080 -e CONTROLLERS=StockController -e ENDPOINTS=range -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
+
+k6 run -e BASE_URL=http://43.201.6.155:8080 -e CONTROLLERS=NodeController -e ENDPOINTS=list -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
+
+k6 run -e BASE_URL=http://43.201.6.155:8080 -e CONTROLLERS=StockController -e ENDPOINTS=range -e VARIANTS=heavy -e MAIN_SEED=777 scripts/apiAuto.js
+

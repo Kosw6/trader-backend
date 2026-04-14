@@ -48,8 +48,10 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
         try {
             DecodedJWT jwt = jwtTokenProvider.validateTokenOrThrow(token);
 
+//            Authentication authentication =
+//                    jwtTokenProvider.getAuthentication(jwt, userDetailsService);
             Authentication authentication =
-                    jwtTokenProvider.getAuthentication(jwt, userDetailsService);
+                    jwtTokenProvider.getAuthentication(jwt);
 
             // 🔥 principal은 UserContext
             UserContext userContext = (UserContext) authentication.getPrincipal();
