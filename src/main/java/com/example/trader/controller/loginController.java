@@ -1,5 +1,6 @@
 package com.example.trader.controller;
 
+import com.auth0.jwt.interfaces.DecodedJWT;
 import com.example.trader.dto.LoginRequest;
 import com.example.trader.dto.SingUpDto;
 import com.example.trader.entity.Gender;
@@ -77,10 +78,28 @@ public class loginController {
             );
 
             UserContext userContext = (UserContext) authentication.getPrincipal();
-            String loginId = userContext.getUserDto().getLoginId();
 
-            String accessToken = jwtTokenProvider.createAccessToken(loginId);
-            String refreshToken = jwtTokenProvider.createRefreshToken(loginId, accessToken);
+            Long userId = userContext.getUserDto().getId();
+            String loginId = userContext.getUserDto().getLoginId();
+            String nickName = userContext.getUserDto().getNickName();
+            String roleName = userContext.getAuthorities()
+                    .iterator()
+                    .next()
+                    .getAuthority();
+
+            String accessToken = jwtTokenProvider.createAccessToken(
+                    userId,
+                    loginId,
+                    roleName,
+                    nickName
+            );
+
+            String refreshToken = jwtTokenProvider.createRefreshToken(
+                    userId,
+                    loginId,
+                    roleName,
+                    nickName
+            );
 
             // ✅ accessToken 쿠키
             ResponseCookie accessCookie = ResponseCookie.from("accessToken", accessToken)
@@ -153,12 +172,31 @@ public class loginController {
             throw new BaseException(BaseResponseStatus.FAIL_TOKEN_AUTHORIZATION);
         }
 
-        String loginId = jwtTokenProvider.getTokenInfo(refreshToken);
+        try {
+            DecodedJWT jwt = jwtTokenProvider.validateTokenOrThrow(refreshToken);
 
-        if (loginId != null && jwtTokenProvider.validateToken(refreshToken) != null) {
+            Long userId = jwt.getClaim("userId").asLong();
+            String loginId = jwt.getSubject();
+            String roleName = jwt.getClaim("role").asString();
+            String nickName = jwt.getClaim("nickName").asString();
 
-            String newAccess = jwtTokenProvider.createAccessToken(loginId);
-            String newRefresh = jwtTokenProvider.createRefreshToken(loginId, newAccess);
+            if (userId == null || loginId == null || roleName == null || nickName == null) {
+                throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
+            }
+
+            String newAccess = jwtTokenProvider.createAccessToken(
+                    userId,
+                    loginId,
+                    roleName,
+                    nickName
+            );
+
+            String newRefresh = jwtTokenProvider.createRefreshToken(
+                    userId,
+                    loginId,
+                    roleName,
+                    nickName
+            );
 
             ResponseCookie accessCookie = ResponseCookie.from("accessToken", newAccess)
                     .httpOnly(true)
@@ -180,9 +218,12 @@ public class loginController {
             response.addHeader("Set-Cookie", refreshCookie.toString());
 
             return ResponseEntity.ok().build();
-        }
 
-        throw new BaseException(BaseResponseStatus.FAIL_TOKEN_AUTHORIZATION);
+        } catch (BaseException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BaseException(BaseResponseStatus.FAIL_TOKEN_AUTHORIZATION);
+        }
     }
 
 

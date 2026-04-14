@@ -21,7 +21,7 @@
             "rate": 60,
             "preAllocatedVUs": 200,
             "maxVUs": 300,
-            "duration": "3m",
+            "duration": "2m",
             "tags": { "phase": "warmup" }
           },
           {
@@ -392,7 +392,7 @@
           {
             "name": "heavy",
             "executor": "constant-arrival-rate",
-            "rate": 80,
+            "rate": 130,
             "preAllocatedVUs": 450,
             "maxVUs": 2000,
             "duration": "90s",
