@@ -207,14 +207,14 @@ public class NodeService {
 
     @Transactional(readOnly = true)
     public List<ResponseNodeDto> findAllByPageId(Long pageId, Long userId) {
-//        if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
-//            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
-//        }
-        return nodeRepository.findAllFetchByPageId(pageId)
-                .stream()
-                .map(ResponseNodeDto::toResponseDtoToPreviewList)
-                .toList();
-//        return nodeCacheService.getCachedNodesByPageId(pageId);
+        if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+        }
+//        return nodeRepository.findAllFetchByPageId(pageId)
+//                .stream()
+//                .map(ResponseNodeDto::toResponseDtoToPreviewList)
+//                .toList();
+        return nodeCacheService.getCachedNodesByPageId(pageId);
     }
 
     @Transactional(readOnly = true)

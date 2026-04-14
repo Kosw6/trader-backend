@@ -84,15 +84,7 @@ public class PageService {
     }
 
 
-    /**
-     * 페이지를 다른 디렉토리로 이동한다.
-     *
-     * @param pageId      이동할 페이지 ID
-     * @param targetDirId 대상 디렉토리 ID
-     * @param userId      로그인한 사용자 ID
-     * @return 이동 전 원본 디렉토리 ID
-     */
-    @Transactional
+    //페이지를 다른 디렉토리로 이동한다.
     public Long move(Long pageId, Long targetDirId, Long userId) {
         // 1. 페이지 조회 + 소유권 검증
         Page page = pageRepository.findById(pageId)
