@@ -131,6 +131,10 @@ public class RedisConfig {
         };
     }
 
+    /**
+     * StringRedisTemplate — 항상 빈 등록 (Lettuce lazy connect).
+     * Redis 미연결 시 실제 사용 시점에 예외 발생 → 서비스에서 isRedisUp() 으로 방어.
+     */
     @Bean
     public StringRedisTemplate stringRedisTemplate(RedisConnectionFactory cf) {
         var tpl = new StringRedisTemplate(cf);
@@ -139,7 +143,7 @@ public class RedisConfig {
     }
 
     /**
-     * 직접 RedisTemplate으로 Object 저장이 꼭 필요할 때만 사용.
+     * 직접 RedisTemplate 으로 Object 저장이 꼭 필요할 때만 사용.
      * 가능하면 typed RedisTemplate 분리를 권장.
      */
     @Bean

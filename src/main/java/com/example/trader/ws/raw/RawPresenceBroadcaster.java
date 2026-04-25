@@ -79,11 +79,10 @@ public class RawPresenceBroadcaster {
         // 2) latest는 배치로 1건 전송 + 변경 있으면
         var latest = coalescer.drainLatestIfDirty(roomKey);
         if (!latest.isEmpty()) {
-            TextMessage batch = toText(makeBatch(roomKey, latest));
-            fanout(sessions, roomKey, batch);
-//            if ((System.currentTimeMillis() / 1000) % 5 == 0) {
-//                log.info("[RAW] batch sent roomKey={} items={}", roomKey, latest.size());
-//            }
+            PresenceBatch batch = makeBatch(roomKey, latest);
+            if (batch != null) {          // cursor/drag 둘 다 없으면 스킵
+                fanout(sessions, roomKey, toText(batch));
+            }
         }
     }
 
@@ -102,16 +101,28 @@ public class RawPresenceBroadcaster {
     }
 
     private PresenceBatch makeBatch(String roomKey, java.util.Collection<RawCursorMessage> latest) {
-        // roomKey "team:graph"
+        // roomKey "teamId:graphId"
         String[] parts = roomKey.split(":");
-        Long teamId = Long.valueOf(parts[0]);
+        Long teamId  = Long.valueOf(parts[0]);
         Long graphId = Long.valueOf(parts[1]);
 
-        var items = new java.util.ArrayList<PresenceBatch.CursorItem>(latest.size());
+        var cursorItems = new java.util.ArrayList<PresenceBatch.CursorItem>();
+        var dragItems   = new java.util.ArrayList<PresenceBatch.DragItem>();
+
         for (RawCursorMessage m : latest) {
-            if (!"CURSOR".equals(m.type())) continue; // drag도 넣고 싶으면 분리
-            items.add(new PresenceBatch.CursorItem(m.userId(), m.nickName(), m.x(), m.y(), m.sentAt()));
+            if ("CURSOR".equals(m.type())) {
+                cursorItems.add(new PresenceBatch.CursorItem(
+                        m.userId(), m.nickName(), m.x(), m.y(), m.sentAt()));
+            } else if ("DRAG_PREVIEW".equals(m.type()) && m.nodeId() != null) {
+                dragItems.add(new PresenceBatch.DragItem(
+                        m.userId(), m.nodeId(), m.x(), m.y(), m.sentAt()));
+            }
         }
-        return new PresenceBatch("PRESENCE_BATCH", teamId, graphId, System.currentTimeMillis(), items);
+
+        // 둘 다 비어있으면 배치 보낼 이유 없음 → null 반환
+        if (cursorItems.isEmpty() && dragItems.isEmpty()) return null;
+
+        return new PresenceBatch("PRESENCE_BATCH", teamId, graphId,
+                System.currentTimeMillis(), cursorItems, dragItems);
     }
 }

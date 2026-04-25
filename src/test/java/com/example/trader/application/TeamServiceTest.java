@@ -257,7 +257,7 @@ class TeamServiceTest {
         given(userRepository.findById(requester.getId())).willReturn(Optional.of(requester));
 
         // when
-        teamService.checkTeamRequest(owner.getId(), requester.getId(), team.getId(), true);
+        teamService.checkTeamRequest(owner.getId(), requester.getId(), pendingReq.getStatus());
 
         // then (MEMBER 추가됨)
         assertThat(team.getUserTeams().stream()
@@ -290,7 +290,7 @@ class TeamServiceTest {
                 .willReturn(Optional.of(pendingReq));
 
         // when
-        teamService.checkTeamRequest(owner.getId(), requester.getId(), team.getId(), false);
+        teamService.checkTeamRequest(owner.getId(), requester.getId(), pendingReq.getStatus());
 
         // then (requester가 팀에 추가되지 않아야)
         assertThat(team.getUserTeams().stream()
@@ -319,7 +319,7 @@ class TeamServiceTest {
                 .willReturn(false);
 
         // when / then
-        assertThatThrownBy(() -> teamService.checkTeamRequest(notOwner.getId(), requester.getId(), team.getId(), true))
+        assertThatThrownBy(() -> teamService.checkTeamRequest(notOwner.getId(), requester.getId(),JoinRequestStatus.PENDING))
                 .isInstanceOf(BaseException.class)
                 .satisfies(e -> assertThat(((BaseException) e).getStatus())
                         .isEqualTo(BaseResponseStatus.ACCESS_DENIED));
@@ -346,7 +346,7 @@ class TeamServiceTest {
 
         // when / then
         //요청이 없을 때 오너가 리퀘스터의 요청을 승인하려고 함
-        assertThatThrownBy(() -> teamService.checkTeamRequest(owner.getId(), requester.getId(), team.getId(), true))
+        assertThatThrownBy(() -> teamService.checkTeamRequest(owner.getId(), requester.getId(), JoinRequestStatus.APPROVED))
                 .isInstanceOf(BaseException.class)
                 .satisfies(e -> assertThat(((BaseException) e).getStatus())
                         .isEqualTo(BaseResponseStatus.JOIN_REQUEST_NOT_FOUND));

@@ -49,6 +49,8 @@ public enum BaseResponseStatus {
     ACCESS_DENIED(false,HttpStatus.UNAUTHORIZED.value(),"권한이 유효하지 않습니다."),
     ALREADY_TEAM_MEMBER(false,HttpStatus.CONFLICT.value(), "이미 팀에 합류를 했습니다."),
     TEAM_ROLE_CHANGE_DENIED(false,HttpStatus.FORBIDDEN.value(), "팀 역할 변경을 할 수 없습니다."),
+    NODE_LOCKED(false, HttpStatus.CONFLICT.value(), "다른 유저가 해당 노드를 이동 중입니다."),
+    NODE_EDIT_CONFLICT(false, HttpStatus.CONFLICT.value(), "다른 유저가 같은 필드를 수정했습니다. 변경 내용을 확인하세요."),
 
     // 5xx : server error
     DATABASE_INSERT_ERROR(false, HttpStatus.INTERNAL_SERVER_ERROR.value(), "데이터베이스 입력에 실패했습니다."),

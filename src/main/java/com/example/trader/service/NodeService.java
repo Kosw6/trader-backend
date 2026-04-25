@@ -1,20 +1,30 @@
 package com.example.trader.service;
 
+import com.example.trader.dto.canvas.ConflictResult;
 import com.example.trader.dto.map.RequestNodeDto;
 import com.example.trader.dto.map.ResponseNodeDto;
 import com.example.trader.entity.Node;
+import com.example.trader.entity.NodeHistory;
 import com.example.trader.entity.Note;
 import com.example.trader.entity.Page;
 import com.example.trader.exception.BaseException;
+import com.example.trader.exception.NodeConflictException;
 import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.repository.EdgeRepository;
+import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.repository.NodeRepository;
 import com.example.trader.repository.NoteRepository;
 import com.example.trader.repository.PageRepository;
+import com.example.trader.ws.raw.RawPresenceBroadcaster;
+import com.example.trader.ws.raw.dto.RawCursorMessage;
+import com.example.trader.ws.raw.edit.NodeEditSessionService;
+import com.example.trader.ws.raw.event.NodeChangedEvent;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,8 +45,12 @@ public class NodeService {
     private final EntityManager em;
     private final ObjectMapper objectMapper;
 
-    private final NodeCacheService nodeCacheService;
-    private final GraphCacheService graphCacheService;
+    private final NodeCacheService       nodeCacheService;
+    private final GraphCacheService      graphCacheService;
+    private final NodeHistoryRepository  nodeHistoryRepository;
+    private final NodeConflictValidator  conflictValidator;
+    private final NodeEditSessionService editSessionService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public void deleteNode(Long pageId, Long nodeId, Long userId) {
@@ -62,6 +76,18 @@ public class NodeService {
 
         nodeCacheService.evictPageNodes(graphId);
         graphCacheService.evictGraph(graphId);
+
+        eventPublisher.publishEvent(new NodeChangedEvent(
+                teamId,
+                graphId,
+                nodeId,
+                null,
+                "NODE_DELETED",
+                List.of("node"),
+                null,
+                null,
+                null
+        ));
     }
 
     @Transactional
@@ -97,6 +123,17 @@ public class NodeService {
         Node node = nodeRepository.findByIdWithLinks(nodeId)
                 .orElseThrow(() -> new IllegalArgumentException("연결된 노트링크가 없습니다"));
 
+        // ── 충돌 검증 (force=true 이면 skip) ────────────────────────────────
+        if (!req.isForce()) {
+            ConflictResult conflict = conflictValidator.validate(teamId, graphId, nodeId, node, req);
+            if (conflict.isConflict()) {
+                throw new NodeConflictException(conflict);
+            }
+        }
+
+        // 변경될 필드 목록 (히스토리 저장용) — updateBasics 이전에 추출
+        List<String> changedFields = conflictValidator.extractChangedFields(req);
+
         node.updateBasics(req);
 
         if (req.isNoteIdsOmitted()) {
@@ -107,9 +144,57 @@ public class NodeService {
             syncTeamNotesMineOnly(node, req.getNoteIds(), userId);
         }
 
+        // ── 버전 증가 ────────────────────────────────────────────────────────
+        node.incrementVersion();
+        int newVersion = node.getVersion();
+
+        // ── DB 버전 히스토리 저장 ────────────────────────────────────────────
+        if (!changedFields.isEmpty()) {
+            String fieldsJson = toJson(changedFields);
+            nodeHistoryRepository.save(NodeHistory.builder()
+                    .nodeId(nodeId)
+                    .teamId(teamId)
+                    .graphId(graphId)
+                    .version(newVersion)
+                    .changedBy(userId)
+                    .changedFields(fieldsJson)
+                    .changedAt(java.time.LocalDateTime.now())
+                    .build());
+
+            // ── Redis 버전 힌트 저장 (TTL 1시간) ────────────────────────────
+            editSessionService.saveVersionHint(teamId, graphId, nodeId, newVersion, changedFields, userId);
+        }
+
+        // ── 편집 세션 정리 ───────────────────────────────────────────────────
+        editSessionService.endEditSession(teamId, graphId, nodeId, userId);
+
         nodeCacheService.evictPageNodes(graphId);
         graphCacheService.evictGraph(graphId);
+
+        eventPublisher.publishEvent(new NodeChangedEvent(
+                teamId,
+                graphId,
+                nodeId,
+                userId,
+                "NODE_UPDATED",
+                changedFields,
+                newVersion,
+                null,
+                null
+        ));
+
+
         return ResponseNodeDto.toResponseDto(node);
+    }
+
+    /** List를 JSON 문자열로 직렬화 (히스토리 저장용) */
+    private String toJson(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (JsonProcessingException e) {
+            log.warn("[NodeService] toJson failed: {}", e.getMessage());
+            return "[]";
+        }
     }
 
     @Transactional
@@ -135,6 +220,17 @@ public class NodeService {
 
         nodeCacheService.evictPageNodes(graphId);
         graphCacheService.evictGraph(graphId);
+        eventPublisher.publishEvent(new NodeChangedEvent(
+                teamId,
+                graphId,
+                nodeId,
+                null,
+                "NODE_POSITION_UPDATED",
+                List.of("x", "y"),
+                null,
+                x,
+                y
+        ));
     }
 
     @Transactional
@@ -202,6 +298,19 @@ public class NodeService {
 
         nodeCacheService.evictPageNodes(pageId);
         graphCacheService.evictGraph(pageId);
+        eventPublisher.publishEvent(new NodeChangedEvent(
+                teamId,
+                pageId,
+                saved.getId(),
+                userId,
+                "NODE_CREATED",
+                List.of("node"),
+                saved.getVersion(),
+                null,
+        null
+        ));
+
+
         return ResponseNodeDto.toResponseDto(saved);
     }
 
@@ -311,4 +420,33 @@ public class NodeService {
             node.detachAll(refs);
         }
     }
+
+//    private void broadcastNodeChanged(
+//            Long teamId,
+//            Long graphId,
+//            Long nodeId,
+//            Long userId,
+//            String subType,
+//            List<String> fields,
+//            Integer version
+//    ) {
+//        String roomKey = teamId + ":" + graphId;
+//
+//        RawCursorMessage msg = new RawCursorMessage(
+//                "__CONTROL__",
+//                subType,
+//                teamId,
+//                graphId,
+//                userId,
+//                null,
+//                nodeId,
+//                0,
+//                0,
+//                System.currentTimeMillis(),
+//                fields,
+//                version
+//        );
+//
+//        broadcaster.publishReliable(roomKey, msg);
+//    }
 }
