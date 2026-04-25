@@ -51,8 +51,21 @@ public class Node extends BaseTimeEntity {
             foreignKey = @ForeignKey(name = "fk_node_page"))
     private Page page;
 
+    /**
+     * 팀 노드 편집 버전 (충돌 감지용).
+     * updateTeamNode() 성공 시 수동으로 increment.
+     * 개인 노드는 사용하지 않음 (0 유지).
+     */
+    @Column(nullable = false)
+    private int version = 0;
+
     public void setPage(Page page){
         this.page = page;
+    }
+
+    /** 팀 노드 수정 성공 시 버전 증가 */
+    public void incrementVersion() {
+        this.version++;
     }
 
     public void updateBasics(RequestNodeDto dto) {

@@ -192,14 +192,21 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
                        @Param("x") double x,
                        @Param("y") double y);
 
-    @Modifying
-    @Query("""
-    update Node n
-    set n.x = :x, n.y = :y
-    where n.id = :nodeId
-      and n.page.id = :graphId
-      and n.page.directory.team.id = :teamId
-    """)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+    UPDATE node n
+       SET x = :x,
+           y = :y
+     WHERE n.id = :nodeId
+       AND n.page_id = :graphId
+       AND EXISTS (
+           SELECT 1
+             FROM page p
+             JOIN directory d ON d.id = p.directory_id
+            WHERE p.id = n.page_id
+              AND d.team_id = :teamId
+       )
+    """, nativeQuery = true)
     int updatePositionInTeam(@Param("teamId") Long teamId,
                              @Param("graphId") Long graphId,
                              @Param("nodeId") Long nodeId,

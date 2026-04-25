@@ -1,6 +1,8 @@
 package com.example.trader.common;
 
+import com.example.trader.dto.canvas.ConflictResult;
 import com.example.trader.exception.BaseException;
+import com.example.trader.exception.NodeConflictException;
 import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +22,16 @@ import java.util.Map;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    /**
+     * 노드 편집 충돌 — 409 Conflict + ConflictResult (diff 포함).
+     * 클라이언트는 conflictingFields / currentValues / incomingValues 를 보고
+     * force=true 로 재요청(강제 저장) 또는 취소를 선택.
+     */
+    @ExceptionHandler(NodeConflictException.class)
+    public ResponseEntity<ConflictResult> handleNodeConflict(NodeConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ex.getResult());
+    }
+
     @ExceptionHandler(BaseException.class)
     public ResponseEntity<Map<String, Object>> handleCustomException(BaseException ex) {
         Map<String, Object> response = new HashMap<>();

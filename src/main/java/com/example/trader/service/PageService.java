@@ -9,8 +9,10 @@ import com.example.trader.entity.Page;
 import com.example.trader.entity.User;
 import com.example.trader.exception.BaseException;
 import com.example.trader.httpresponse.BaseResponseStatus;
+import com.example.trader.entity.TeamRole;
 import com.example.trader.repository.DirectoryRepository;
 import com.example.trader.repository.PageRepository;
+import com.example.trader.repository.UserTeamRepository;
 import com.example.trader.security.service.SecurityService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,7 @@ public class PageService {
     private final PageRepository pageRepository;
     private final DirectoryRepository directoryRepository;
     private final SecurityService securityService;
+    private final UserTeamRepository userTeamRepository;
     @Transactional
     public ResponsePageDto createPage(RequestPageDto dto,Long userId) {
         User user = securityService.getAuthenticationUser();
@@ -51,11 +54,12 @@ public class PageService {
         Directory dir = directoryRepository.findByIdAndTeamId(directoryId, teamId)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
 
+        User creator = securityService.getAuthenticationUser();
+
         Page page = Page.builder()
                 .title(dto.getTitle())
                 .directory(dir)
-                .user(dir.getUser() != null ? dir.getUser() : null) // 팀 페이지라면 생성자 user를 어떻게 둘지 정책 필요
-                // 혹은 page.user = userId 주체 유저로 세팅하려면 UserRepository 조회해서 넣기
+                .user(creator)
                 .build();
 
         return pageRepository.save(page);
@@ -157,8 +161,12 @@ public class PageService {
     }
 
     @Transactional
-    public void deleteTeamPage(Long teamId, Long pageId) {
-        //+권한검사
+    public void deleteTeamPage(Long teamId, Long pageId, Long userId) {
+        boolean isOwner = userTeamRepository.existsByTeamIdAndUserIdAndRole(teamId, userId, TeamRole.OWNER);
+        if (!isOwner) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+        }
+
         Page page = pageRepository.findByIdAndDirectoryTeamId(pageId, teamId)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
 

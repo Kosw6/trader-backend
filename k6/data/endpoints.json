@@ -319,7 +319,7 @@
             "rate": 30,
             "preAllocatedVUs": 150,
             "maxVUs": 300,
-            "duration": "2m",
+            "duration": "45s",
             "tags": { "phase": "warmup" }
           },
           {
@@ -374,10 +374,10 @@
           {
             "name": "warmup",
             "executor": "constant-arrival-rate",
-            "rate": 30,
+            "rate": 60,
             "preAllocatedVUs": 150,
             "maxVUs": 300,
-            "duration": "2m",
+            "duration": "45s",
             "tags": { "phase": "warmup" }
           },
           {
@@ -392,7 +392,7 @@
           {
             "name": "heavy",
             "executor": "constant-arrival-rate",
-            "rate": 130,
+            "rate": 300,
             "preAllocatedVUs": 450,
             "maxVUs": 2000,
             "duration": "90s",

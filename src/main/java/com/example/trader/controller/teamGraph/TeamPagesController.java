@@ -68,11 +68,12 @@ public class TeamPagesController {
         return ResponseEntity.ok(pageService.getTeamPage(teamId, pageId));
     }
 
-    /** 팀 페이지 삭제 (단건) */
+    /** 팀 페이지 삭제 (단건, OWNER 전용) */
     @DeleteMapping("/{pageId}")
     public ResponseEntity<Void> deletePage(@PathVariable Long teamId,
-                                           @PathVariable Long pageId) {
-        pageService.deleteTeamPage(teamId, pageId);
+                                           @PathVariable Long pageId,
+                                           @AuthenticationPrincipal UserContext user) {
+        pageService.deleteTeamPage(teamId, pageId, user.getUserDto().getId());
         return ResponseEntity.noContent().build();
     }
 }

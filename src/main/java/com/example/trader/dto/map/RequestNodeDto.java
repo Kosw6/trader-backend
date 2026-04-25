@@ -33,4 +33,15 @@
         public boolean isNoteIdsOmitted() { return noteIds == null; }  // omit/null
         //빈 배열일경우
         public boolean isNoteIdsEmptySet() { return noteIds != null && noteIds.isEmpty(); }
+
+        /**
+         * 편집 충돌 감지용 필드.
+         *
+         * baseVersion: A가 편집을 시작할 당시 본 노드 버전 (null 이면 충돌 체크 skip)
+         * force:       true 이면 충돌이 있어도 강제 저장 (A가 diff 확인 후 덮어쓰기 결정 시)
+         */
+        private Integer baseVersion;
+        private Boolean force;
+
+        public boolean isForce() { return Boolean.TRUE.equals(force); }
     }

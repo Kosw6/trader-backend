@@ -4,9 +4,11 @@ import com.example.trader.common.interceptor.TeamMemberRequired;
 import com.example.trader.dto.map.RequestDirectoryDto;
 import com.example.trader.dto.map.ResponseDirectoryDto;
 import com.example.trader.dto.map.UpdateDirReq;
+import com.example.trader.security.details.UserContext;
 import com.example.trader.service.DirectoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -56,13 +58,14 @@ public class TeamDirectoriesController {
         return ResponseEntity.ok(directoryService.updateTeamDirectory(teamId, dirId, dto));
     }
 
-    /** 팀 디렉토리 삭제 */
+    /** 팀 디렉토리 삭제 (OWNER 전용) */
     @DeleteMapping("/{dirId}")
     public ResponseEntity<Void> deleteDirectory(
             @PathVariable Long teamId,
-            @PathVariable Long dirId
+            @PathVariable Long dirId,
+            @AuthenticationPrincipal UserContext user
     ) {
-        directoryService.deleteTeamDirectory(teamId, dirId);
+        directoryService.deleteTeamDirectory(teamId, dirId, user.getUserDto().getId());
         return ResponseEntity.noContent().build();
     }
 

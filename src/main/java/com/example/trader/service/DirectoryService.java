@@ -9,8 +9,10 @@ import com.example.trader.entity.Team;
 import com.example.trader.entity.User;
 import com.example.trader.exception.BaseException;
 import com.example.trader.httpresponse.BaseResponseStatus;
+import com.example.trader.entity.TeamRole;
 import com.example.trader.repository.DirectoryRepository;
 import com.example.trader.repository.TeamRepository;
+import com.example.trader.repository.UserTeamRepository;
 import com.example.trader.security.service.SecurityService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,7 @@ public class DirectoryService {
 
     private final DirectoryRepository directoryRepository;
     private final TeamRepository teamRepository;
+    private final UserTeamRepository userTeamRepository;
 
 
     //유저 추가
@@ -157,7 +160,12 @@ public class DirectoryService {
     }
 
     @Transactional
-    public void deleteTeamDirectory(Long teamId, Long dirId) {
+    public void deleteTeamDirectory(Long teamId, Long dirId, Long userId) {
+        boolean isOwner = userTeamRepository.existsByTeamIdAndUserIdAndRole(teamId, userId, TeamRole.OWNER);
+        if (!isOwner) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+        }
+
         Directory dir = directoryRepository.findById(dirId)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.INVALID_DIRECTORY));
 

@@ -26,6 +26,8 @@ spring:
       host: localhost   # 도커 컴포즈 redis 사용 시 그대로
       port: 6379
       timeout: 500ms
+      repositories:
+        enabled: false  # Redis Repository 미사용 → ReferenceResolverImpl 빈 생성 방지
   cache:
     redis:
       time-to-live: 2m

@@ -2,10 +2,12 @@ package com.example.trader.controller.teamGraph;
 
 import com.example.trader.common.interceptor.TeamMemberRequired;
 import com.example.trader.dto.map.*;
+import com.example.trader.security.details.UserContext;
 import com.example.trader.service.DirectoryService;
 import com.example.trader.service.TeamContentCoordinator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -50,12 +52,13 @@ public class TeamContentController {
         return coordinator.movePageAndReload(teamId, pageId, req.targetDirectoryId());
     }
 
-    /** 4) 디렉토리 삭제 → 삭제된 디렉토리/페이지 ID만 전달 */
+    /** 4) 디렉토리 삭제 (OWNER 전용) → 삭제된 디렉토리/페이지 ID만 전달 */
     @DeleteMapping("/directories/{dirId}")
     public DeleteResponse deleteDirectory(
             @PathVariable Long teamId,
-            @PathVariable Long dirId
+            @PathVariable Long dirId,
+            @AuthenticationPrincipal UserContext user
     ) {
-        return coordinator.deleteDirectoryWithPageIds(teamId, dirId);
+        return coordinator.deleteDirectoryWithPageIds(teamId, dirId, user.getUserDto().getId());
     }
 }
