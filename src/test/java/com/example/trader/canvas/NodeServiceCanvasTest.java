@@ -19,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -53,6 +54,8 @@ class NodeServiceCanvasTest {
     @Mock NodeHistoryRepository  nodeHistoryRepository;
     @Mock NodeConflictValidator  conflictValidator;
     @Mock NodeEditSessionService editSessionService;
+    @Mock
+    ApplicationEventPublisher eventPublisher;
 
     // 실제 ObjectMapper — JSON 직렬화 검증용
     final ObjectMapper objectMapper = new ObjectMapper();
@@ -75,7 +78,7 @@ class NodeServiceCanvasTest {
                 nodeRepository, pageRepository, noteRepository, edgeRepository,
                 em, objectMapper,
                 nodeCacheService, graphCacheService,
-                nodeHistoryRepository, conflictValidator, editSessionService
+                nodeHistoryRepository, conflictValidator, editSessionService,eventPublisher
         );
 
         mockPage = mock(Page.class);

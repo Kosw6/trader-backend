@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <springProperty name="SERVICE_NAME" source="spring.application.name" defaultValue="trader-api"/>
+    <property name="INSTANCE_ID" value="${HOSTNAME:-local}"/>
+    <!--로그를 어디로 보낼지 정의-->
+    <!--콘솔로 출력 나중에 수집기가 수집-->
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <!--logstash-logback-encoder 라이브러리에서 제공하는 JSON 로그 변환기 : 기본 logback-문자열, 이거 쓰면 json로그-->
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <!--JSON 필드를 어떻게 구성할지 정의-->
+            <providers>
+                <!--ex)"timestamp": "2026-04-25T22:17:19.290+09:00"-->
+                <timestamp>
+                    <timeZone>Asia/Seoul</timeZone>
+                    <fieldName>timestamp</fieldName>
+                </timestamp>
+                <!--"level": "INFO"-->
+                <logLevel>
+                    <fieldName>level</fieldName>
+                </logLevel>
+                <!--"logger": "com.example.trader.TraderApplication"-->
+                <loggerName>
+                    <fieldName>logger</fieldName>
+                </loggerName>
+                <!--"thread": "main"-->
+                <threadName>
+                    <fieldName>thread</fieldName>
+                </threadName>
+                <!--"message": "api request success"-->
+                <message>
+                    <fieldName>message</fieldName>
+                </message>
+                <!--AOP에서 mdc에 넣은 값이 다 들어간다-->
+                <mdc/>
+                <!--직접 사전에 추가한 필드 "service": "trader", "instance": "DESKTOP-31T80SB"-->
+                <pattern>
+                    <pattern>
+                        {
+                        "service": "${SERVICE_NAME}",
+                        "instance": "${INSTANCE_ID}"
+                        }
+                    </pattern>
+                </pattern>
+                <!--에러 발생시 "stackTrace": "java.lang.NullPointerException"-->
+                <stackTrace>
+                    <fieldName>stackTrace</fieldName>
+                </stackTrace>
+            </providers>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="JSON_CONSOLE"/>
+    </root>
+
+</configuration>

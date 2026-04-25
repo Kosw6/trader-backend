@@ -30,15 +30,15 @@ public class Node extends BaseTimeEntity {
     private String subject;
 
 
-    @Basic(fetch = FetchType.LAZY)
     @Lob
     @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(columnDefinition = "text")
     private String content;
 
-//    @Formula("substring(n1_0.content, 1, 20)::text")
-    @Formula("substring(content, 1, 20)::text")
+    //목록조회에서는 NodeSummary에서 content대신 해당 필드를 조회
+    @Column(name = "content_preview", length = 20)
     private String contentPreview;
+
 
     private String symb;
     private LocalDate recordDate;
@@ -116,10 +116,18 @@ public class Node extends BaseTimeEntity {
                 .map(Note::getId)  // getId()는 프록시 초기화 안 함
                 .collect(Collectors.toSet());
 
-        // link.getNoteId()로 비교 → Note를 로딩하지 않음
-//        noteLinks.removeIf(l -> targetIds.contains(l.getNoteId()));
     }
 
+    private static String makePreview(String content) {
+        if (content == null) return null;
+        return content.length() <= 20 ? content : content.substring(0, 20);
+    }
+
+    @PrePersist
+    @PreUpdate
+    private void syncContentPreview() {
+        this.contentPreview = makePreview(this.content);
+    }
 
 
 }

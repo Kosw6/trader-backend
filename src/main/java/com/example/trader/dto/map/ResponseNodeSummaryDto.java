@@ -1,32 +1,28 @@
-// NodeResponseDto.java (응답용)
 package com.example.trader.dto.map;
 
-import com.example.trader.entity.Node;
 import com.example.trader.entity.NodeNoteLink;
-import com.example.trader.repository.projection.NodePreviewWithNoteProjection;
-import com.example.trader.repository.projection.NodeRowProjection;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.trader.entity.NodeSummary;
 import lombok.Builder;
 import lombok.Getter;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Getter
 @Builder
 @lombok.extern.jackson.Jacksonized
-public class ResponseNodeDto {
+public class ResponseNodeSummaryDto {
 
     private Long id;
     private double x;
     private double y;
     private String subject;
 
-    // 전체 content
-    private String content;
+    // 전체 content 아님
+    private String contentPreview;
 
     private String symb;
     private LocalDate recordDate;
@@ -34,13 +30,9 @@ public class ResponseNodeDto {
     private Long pageId;
     private LocalDateTime createdAt;
     private LocalDateTime modifiedAt;
-    private int version;
 
-    public static ResponseNodeDto from(Node node) {
-        Long pageId = node.getPage() != null ? node.getPage().getId() : null;
-
+    public static ResponseNodeSummaryDto from(NodeSummary node) {
         Map<Long, String> notes = node.getNoteLinks().stream()
-                .filter(link -> link.getNote() != null)
                 .collect(Collectors.toMap(
                         NodeNoteLink::getNoteId,
                         NodeNoteLink::getNoteSubject,
@@ -48,18 +40,17 @@ public class ResponseNodeDto {
                         LinkedHashMap::new
                 ));
 
-        return ResponseNodeDto.builder()
+        return ResponseNodeSummaryDto.builder()
                 .id(node.getId())
                 .x(node.getX())
                 .y(node.getY())
                 .subject(node.getSubject())
-                .content(node.getContent())
+                .contentPreview(node.getContentPreview())
                 .symb(node.getSymb())
                 .recordDate(node.getRecordDate())
-                .pageId(pageId)
+                .pageId(node.getPageId())
                 .createdAt(node.getCreatedAt())
                 .modifiedAt(node.getModifiedAt())
-                .version(node.getVersion())
                 .notes(notes)
                 .build();
     }

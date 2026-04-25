@@ -1,6 +1,7 @@
 package com.example.trader.repository;
 
 import com.example.trader.entity.Node;
+import com.example.trader.entity.NodeSummary;
 import com.example.trader.repository.projection.*;
 import jakarta.persistence.QueryHint;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -91,6 +92,8 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
     order by n.id
     """)
     List<Node> findAllFetchByPageId(@Param("pageId") Long pageId);
+
+
     //20자 콘텐츠 뷰로 조회 no noteId,noteSubject
     @Query(value = """
       select

@@ -8,6 +8,7 @@ import com.example.trader.entity.Role;
 import com.example.trader.entity.User;
 import com.example.trader.exception.BaseException;
 import com.example.trader.httpresponse.BaseResponseStatus;
+import com.example.trader.observability.ObservedLog;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.security.provider.JwtTokenProvider;
 import com.example.trader.service.UserService;
@@ -68,6 +69,7 @@ public class loginController {
 //            @ApiResponse(responseCode = "404", description = "사용자를 찾을 수 없음",
 //                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
+    @ObservedLog(domain = "login", api = "login")
     @PostMapping("/api/login/signin")
     public ResponseEntity<?> login(@RequestBody LoginRequest loginRequest,
                                    HttpServletResponse response) throws IOException {

@@ -3,6 +3,7 @@ package com.example.trader.service;
 import com.example.trader.dto.canvas.ConflictResult;
 import com.example.trader.dto.map.RequestNodeDto;
 import com.example.trader.dto.map.ResponseNodeDto;
+import com.example.trader.dto.map.ResponseNodeSummaryDto;
 import com.example.trader.entity.Node;
 import com.example.trader.entity.NodeHistory;
 import com.example.trader.entity.Note;
@@ -10,13 +11,7 @@ import com.example.trader.entity.Page;
 import com.example.trader.exception.BaseException;
 import com.example.trader.exception.NodeConflictException;
 import com.example.trader.httpresponse.BaseResponseStatus;
-import com.example.trader.repository.EdgeRepository;
-import com.example.trader.repository.NodeHistoryRepository;
-import com.example.trader.repository.NodeRepository;
-import com.example.trader.repository.NoteRepository;
-import com.example.trader.repository.PageRepository;
-import com.example.trader.ws.raw.RawPresenceBroadcaster;
-import com.example.trader.ws.raw.dto.RawCursorMessage;
+import com.example.trader.repository.*;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.example.trader.ws.raw.event.NodeChangedEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -111,7 +106,7 @@ public class NodeService {
 
         nodeCacheService.evictPageNodes(pageId);
         graphCacheService.evictGraph(pageId);
-        return ResponseNodeDto.toResponseDto(node);
+        return ResponseNodeDto.from(node);
     }
 
     @Transactional
@@ -184,7 +179,7 @@ public class NodeService {
         ));
 
 
-        return ResponseNodeDto.toResponseDto(node);
+        return ResponseNodeDto.from(node);
     }
 
     /** List를 JSON 문자열로 직렬화 (히스토리 저장용) */
@@ -264,7 +259,7 @@ public class NodeService {
 
         nodeCacheService.evictPageNodes(pageId);
         graphCacheService.evictGraph(pageId);
-        return ResponseNodeDto.toResponseDto(saved);
+        return ResponseNodeDto.from(saved);
     }
 
     @Transactional
@@ -311,11 +306,11 @@ public class NodeService {
         ));
 
 
-        return ResponseNodeDto.toResponseDto(saved);
+        return ResponseNodeDto.from(saved);
     }
 
     @Transactional(readOnly = true)
-    public List<ResponseNodeDto> findAllByPageId(Long pageId, Long userId) {
+    public List<ResponseNodeSummaryDto> findAllByPageId(Long pageId, Long userId) {
         if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
@@ -327,7 +322,7 @@ public class NodeService {
     }
 
     @Transactional(readOnly = true)
-    public List<ResponseNodeDto> findAllTeamNodesByGraphId(Long teamId, Long graphId) {
+    public List<ResponseNodeSummaryDto> findAllTeamNodesByGraphId(Long teamId, Long graphId) {
         if (!pageRepository.existsByIdAndDirectoryTeamId(graphId, teamId)) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
@@ -344,7 +339,7 @@ public class NodeService {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
 
-        return ResponseNodeDto.toResponseDto(node);
+        return ResponseNodeDto.from(node);
     }
 
     @Transactional(readOnly = true)
@@ -356,7 +351,7 @@ public class NodeService {
         Node findNode = nodeRepository.findByIdWithLinks(nodeId)
                 .orElseThrow(IllegalArgumentException::new);
 
-        return ResponseNodeDto.toResponseDto(findNode);
+        return ResponseNodeDto.from(findNode);
     }
 
     private void syncNotes(Node node, List<Long> desiredNoteIds) {
@@ -421,32 +416,4 @@ public class NodeService {
         }
     }
 
-//    private void broadcastNodeChanged(
-//            Long teamId,
-//            Long graphId,
-//            Long nodeId,
-//            Long userId,
-//            String subType,
-//            List<String> fields,
-//            Integer version
-//    ) {
-//        String roomKey = teamId + ":" + graphId;
-//
-//        RawCursorMessage msg = new RawCursorMessage(
-//                "__CONTROL__",
-//                subType,
-//                teamId,
-//                graphId,
-//                userId,
-//                null,
-//                nodeId,
-//                0,
-//                0,
-//                System.currentTimeMillis(),
-//                fields,
-//                version
-//        );
-//
-//        broadcaster.publishReliable(roomKey, msg);
-//    }
 }

@@ -3,6 +3,7 @@ package com.example.trader.controller;
 import com.example.trader.dto.UpdateNodePositionReq;
 import com.example.trader.dto.map.RequestNodeDto;
 import com.example.trader.dto.map.ResponseNodeDto;
+import com.example.trader.dto.map.ResponseNodeSummaryDto;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.service.NodeService;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +21,7 @@ public class NodeController {
     private final NodeService nodeService;
 
     @GetMapping
-    public ResponseEntity<List<ResponseNodeDto>> getNodesByPage(
+    public ResponseEntity<List<ResponseNodeSummaryDto>> getNodesByPage(
             @PathVariable Long pageId,
             @AuthenticationPrincipal UserContext user
     ) {

@@ -3,8 +3,10 @@ package com.example.trader.service;
 import com.example.trader.dto.map.ResponseEdgeDto;
 import com.example.trader.dto.map.ResponseGraphDto;
 import com.example.trader.dto.map.ResponseNodeDto;
+import com.example.trader.dto.map.ResponseNodeSummaryDto;
 import com.example.trader.repository.EdgeRepository;
 import com.example.trader.repository.NodeRepository;
+import com.example.trader.repository.NodeSummaryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -19,7 +21,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class GraphCacheService {
 
-    private final NodeRepository nodeRepository;
+    private final NodeSummaryRepository nodeSummaryRepository;
     private final EdgeRepository edgeRepository;
 
     @Cacheable(
@@ -30,9 +32,9 @@ public class GraphCacheService {
     @Transactional(readOnly = true)
     public ResponseGraphDto getCachedGraph(Long graphId) {
         log.info("CACHE MISS - DB 조회 실행 graphId={}", graphId);
-        List<ResponseNodeDto> nodeDtos =
-                nodeRepository.findAllFetchByPageId(graphId).stream()
-                        .map(ResponseNodeDto::toResponseDtoToPreviewList)
+        List<ResponseNodeSummaryDto> nodeDtos =
+                nodeSummaryRepository.findAllFetchSummaryByPageId(graphId).stream()
+                        .map(ResponseNodeSummaryDto::from)
                         .toList();
 
         List<ResponseEdgeDto> edgeDtos =
