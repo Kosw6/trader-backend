@@ -1,5 +1,9 @@
 package com.example.trader.ws.raw.event;
 
+import com.example.trader.realtime.RealtimePublisher;
+import com.example.trader.realtime.message.RealtimeEnvelope;
+import com.example.trader.realtime.message.RealtimeSubType;
+import com.example.trader.realtime.message.RealtimeType;
 import com.example.trader.ws.raw.RawPresenceBroadcaster;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +17,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class NodeChangedEventListener {
 
     private final RawPresenceBroadcaster broadcaster;
+    private final RealtimePublisher realtimePublisher;
 
     @TransactionalEventListener(phase = org.springframework.transaction.event.TransactionPhase.AFTER_COMMIT)
     public void handle(NodeChangedEvent event) {
@@ -33,7 +38,15 @@ public class NodeChangedEventListener {
                 event.version()
         );
 
-        broadcaster.publishReliable(roomKey, msg);
+        realtimePublisher.publish(
+                RealtimeEnvelope.builder()
+                        .type(RealtimeType.RELIABLE)
+                        .subType(RealtimeSubType.NODE_UPDATED)
+                        .teamId(teamId)
+                        .graphId(graphId)
+                        .payload(payload)
+                        .build()
+        );
 
         log.debug("[NODE_EVENT] broadcast queued roomKey={} subType={} nodeId={}",
                 roomKey, event.subType(), event.nodeId());

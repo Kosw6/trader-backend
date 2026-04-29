@@ -1,8 +1,4 @@
-package com.example.trader.config;
-
-import java.time.Duration;
-import java.util.HashMap;
-import java.util.Map;
+package com.example.trader.infra.redis.cache;
 
 import com.example.trader.dto.map.PageNodesCacheDto;
 import com.example.trader.dto.map.ResponseGraphDto;
@@ -12,8 +8,8 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cache.CacheManager;
-import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.cache.interceptor.CacheErrorHandler;
 import org.springframework.context.annotation.Bean;
@@ -29,10 +25,19 @@ import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
+
+//single,multi공통
 @Slf4j
-//@Configuration
-//@EnableCaching
-public class RedisConfig {
+@Configuration
+@ConditionalOnProperty(
+        name = "realtime.redis.cache-enabled",
+        havingValue = "true",
+        matchIfMissing = true
+)
+public class RedisCacheConfig {
 
     /** Redis 전용 ObjectMapper - 스프링 전역 Bean으로 등록하지 않음 */
     private ObjectMapper redisObjectMapper() {
