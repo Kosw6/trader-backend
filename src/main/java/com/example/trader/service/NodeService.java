@@ -11,7 +11,12 @@ import com.example.trader.entity.Page;
 import com.example.trader.exception.BaseException;
 import com.example.trader.exception.NodeConflictException;
 import com.example.trader.httpresponse.BaseResponseStatus;
+import com.example.trader.realtime.RealtimePublisher;
+import com.example.trader.realtime.message.RealtimeEnvelope;
+import com.example.trader.realtime.message.RealtimeSubType;
+import com.example.trader.realtime.message.RealtimeType;
 import com.example.trader.repository.*;
+import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.example.trader.ws.raw.event.NodeChangedEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -45,7 +50,7 @@ public class NodeService {
     private final NodeHistoryRepository  nodeHistoryRepository;
     private final NodeConflictValidator  conflictValidator;
     private final NodeEditSessionService editSessionService;
-    private final ApplicationEventPublisher eventPublisher;
+    private final RealtimePublisher realtimePublisher;
 
     @Transactional
     public void deleteNode(Long pageId, Long nodeId, Long userId) {
@@ -72,7 +77,7 @@ public class NodeService {
         nodeCacheService.evictPageNodes(graphId);
         graphCacheService.evictGraph(graphId);
 
-        eventPublisher.publishEvent(new NodeChangedEvent(
+        publishNodeChanged(
                 teamId,
                 graphId,
                 nodeId,
@@ -82,7 +87,7 @@ public class NodeService {
                 null,
                 null,
                 null
-        ));
+        );
     }
 
     @Transactional
@@ -166,7 +171,7 @@ public class NodeService {
         nodeCacheService.evictPageNodes(graphId);
         graphCacheService.evictGraph(graphId);
 
-        eventPublisher.publishEvent(new NodeChangedEvent(
+        publishNodeChanged(
                 teamId,
                 graphId,
                 nodeId,
@@ -176,7 +181,7 @@ public class NodeService {
                 newVersion,
                 null,
                 null
-        ));
+        );
 
 
         return ResponseNodeDto.from(node);
@@ -215,7 +220,7 @@ public class NodeService {
 
         nodeCacheService.evictPageNodes(graphId);
         graphCacheService.evictGraph(graphId);
-        eventPublisher.publishEvent(new NodeChangedEvent(
+        publishNodeChanged(
                 teamId,
                 graphId,
                 nodeId,
@@ -225,7 +230,7 @@ public class NodeService {
                 null,
                 x,
                 y
-        ));
+        );
     }
 
     @Transactional
@@ -293,7 +298,7 @@ public class NodeService {
 
         nodeCacheService.evictPageNodes(pageId);
         graphCacheService.evictGraph(pageId);
-        eventPublisher.publishEvent(new NodeChangedEvent(
+        publishNodeChanged(
                 teamId,
                 pageId,
                 saved.getId(),
@@ -302,8 +307,8 @@ public class NodeService {
                 List.of("node"),
                 saved.getVersion(),
                 null,
-        null
-        ));
+                null
+        );
 
 
         return ResponseNodeDto.from(saved);
@@ -416,4 +421,50 @@ public class NodeService {
         }
     }
 
+    private void publishNodeChanged(
+            Long teamId,
+            Long graphId,
+            Long nodeId,
+            Long userId,
+            String eventType,
+            List<String> changedFields,
+            Integer version,
+            Double x,
+            Double y
+    ) {
+        RawCursorMessage msg = new RawCursorMessage(
+                "__CONTROL__",
+                eventType,
+                teamId,
+                graphId,
+                userId,
+                null,
+                nodeId,
+                x != null ? x : 0,
+                y != null ? y : 0,
+                System.currentTimeMillis(),
+                changedFields,
+                version
+        );
+
+        realtimePublisher.publish(
+                RealtimeEnvelope.builder()
+                        .type(RealtimeType.RELIABLE)
+                        .subType(toRealtimeSubType(eventType))
+                        .teamId(teamId)
+                        .graphId(graphId)
+                        .payload(msg)
+                        .build()
+        );
+    }
+
+    private RealtimeSubType toRealtimeSubType(String eventType) {
+        return switch (eventType) {
+            case "NODE_CREATED" -> RealtimeSubType.NODE_CREATED;
+            case "NODE_UPDATED" -> RealtimeSubType.NODE_UPDATED;
+            case "NODE_DELETED" -> RealtimeSubType.NODE_DELETED;
+            case "NODE_POSITION_UPDATED" -> RealtimeSubType.NODE_POSITION_UPDATED;
+            default -> RealtimeSubType.CONTROL;
+        };
+    }
 }

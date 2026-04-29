@@ -15,5 +15,6 @@ public enum RealtimeSubType {
     LOCK_RELEASED,
     LOCK_KEEPALIVE,
     EDIT_START,
-    EDIT_END
+    EDIT_END,
+    NODE_POSITION_UPDATED
 }
