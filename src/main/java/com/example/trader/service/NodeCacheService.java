@@ -27,7 +27,7 @@ public class NodeCacheService {
     )
     @Transactional(readOnly = true)
     public List<ResponseNodeSummaryDto> getCachedNodesByPageId(Long pageId) {
-        log.info("CACHE MISS - DB 조회 실행 pageId={}", pageId);
+        //log.info("CACHE MISS - DB 조회 실행 pageId={}", pageId);
         return nodeSummaryRepository.findAllFetchSummaryByPageId(pageId)
                 .stream()
                 .map(ResponseNodeSummaryDto::from)
@@ -36,6 +36,6 @@ public class NodeCacheService {
 
     @CacheEvict(cacheNames = "pageNodes", key = "#pageId")
     public void evictPageNodes(Long pageId) {
-        log.info("CACHE EVICT pageId={}", pageId);
+        //log.info("CACHE EVICT pageId={}", pageId);
     }
 }

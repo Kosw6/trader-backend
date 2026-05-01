@@ -51,7 +51,7 @@ public class TeamNodesController {
             @PathVariable Long teamId,
             @PathVariable Long graphId
     ) {
-        nodeService.deleteTeamNode(nodeId, graphId, teamId);
+        nodeService.deleteTeamNode(teamId, graphId, nodeId);
         return ResponseEntity.noContent().build();
     }
 
@@ -192,7 +192,7 @@ public class TeamNodesController {
 
     /** 룸 키 (CanvasSessionRegistry.roomKey() 와 동일 포맷) */
     private String roomKey(Long teamId, Long graphId) {
-        return teamId + ":" + graphId;
+        return "team:%d:graph:%d".formatted(teamId, graphId);
     }
 
     /** __CONTROL__ 메시지 생성 */

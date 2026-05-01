@@ -103,8 +103,8 @@ public class RawPresenceBroadcaster {
     private PresenceBatch makeBatch(String roomKey, java.util.Collection<RawCursorMessage> latest) {
         // roomKey "teamId:graphId"
         String[] parts = roomKey.split(":");
-        Long teamId  = Long.valueOf(parts[0]);
-        Long graphId = Long.valueOf(parts[1]);
+        Long teamId  = Long.valueOf(parts[1]);
+        Long graphId = Long.valueOf(parts[3]);
 
         var cursorItems = new java.util.ArrayList<PresenceBatch.CursorItem>();
         var dragItems   = new java.util.ArrayList<PresenceBatch.DragItem>();

@@ -7,9 +7,11 @@ import com.example.trader.realtime.message.RealtimeType;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 @ConditionalOnProperty(
@@ -37,9 +39,11 @@ public class LocalRealtimePublisher implements RealtimePublisher {
 
         if (envelope.getType() == RealtimeType.RELIABLE) {
             broadcaster.publishReliable(roomKey, msg);
+            //log.info("broadcast:RELIABLE roomKey={} msg={}", roomKey, msg);
         } else {
             String latestKey = latestKeyResolver.resolve(msg);
             broadcaster.publishLatest(roomKey, latestKey, msg);
+            //log.info("broadcast:LATEST roomKey={} latestKey={} msg={}", roomKey, latestKey, msg);
         }
     }
 

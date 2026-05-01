@@ -14,8 +14,7 @@ export const options = {
 };
 
 const targets = [
-  'http://localhost:8080/internal/test/stock',
-  'http://3.36.56.159:8080/internal/test/stock', // 두 번째 인스턴스
+  'http://43.202.50.156:8080/internal/test/stock' // 두 번째 인스턴스
 ];
 
 export default function () {

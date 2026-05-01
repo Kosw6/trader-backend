@@ -1,6 +1,5 @@
 package com.example.trader.infra.redis.pubsub;
 
-import io.lettuce.core.pubsub.RedisPubSubListener;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;

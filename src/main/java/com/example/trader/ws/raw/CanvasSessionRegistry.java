@@ -16,7 +16,7 @@ public class CanvasSessionRegistry {
     private final ConcurrentHashMap<String, Set<WebSocketSession>> rooms = new ConcurrentHashMap<>();
 
     public String roomKey(Long teamId, Long graphId) {
-        return teamId + ":" + graphId;
+        return "team:%d:graph:%d".formatted(teamId, graphId);
     }
 
     public void join(String roomKey, WebSocketSession session) {

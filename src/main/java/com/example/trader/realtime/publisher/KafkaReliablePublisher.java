@@ -1,33 +1,27 @@
-package com.example.trader.infra.kafka;
+package com.example.trader.realtime.publisher;
 
-import com.example.trader.realtime.RealtimePublisher;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
-//멀티에서만 등록
+import java.util.concurrent.TimeUnit;
+
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(
-        name = "realtime.kafka.enabled",
-        havingValue = "true"
-)
-public class MultiRealtimePublisher implements RealtimePublisher {
+public class KafkaReliablePublisher {
 
     private final KafkaTemplate<String, RealtimeEnvelope> kafkaTemplate;
 
     @Value("${realtime.kafka.topic:canvas-events}")
     private String topic;
 
-    @Override
-    public void publish(RealtimeEnvelope envelope) {
+    public void publishOrThrow(RealtimeEnvelope envelope) throws Exception {
         String key = envelope.getGraphId() == null
                 ? "default"
                 : envelope.getGraphId().toString();
 
-        kafkaTemplate.send(topic, key, envelope);
+        kafkaTemplate.send(topic, key, envelope).get(1, TimeUnit.SECONDS);
     }
 }
