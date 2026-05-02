@@ -9,6 +9,11 @@ import java.util.List;
  * key: canvas:editing:{teamId}:{graphId}:{nodeId}:{userId}
  */
 public record EditSessionDto(
-        int baseVersion,       // A가 편집을 시작할 당시의 노드 버전
-        List<String> fields    // A가 편집 중인 필드명 목록 ex) ["subject", "content"]
-) {}
+        int baseVersion,
+        List<String> fields,
+        Object draftData
+) {
+    public EditSessionDto(int baseVersion, List<String> fields) {
+        this(baseVersion, fields, null);
+    }
+}

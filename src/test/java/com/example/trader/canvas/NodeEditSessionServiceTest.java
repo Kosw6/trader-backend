@@ -2,6 +2,9 @@ package com.example.trader.canvas;
 
 import com.example.trader.dto.canvas.EditSessionDto;
 import com.example.trader.dto.canvas.VersionHintDto;
+import com.example.trader.infra.redis.RedisHealthState;
+import com.example.trader.realtime.RealtimePublisher;
+import com.example.trader.repository.EditSessionRepository;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,7 +39,12 @@ class NodeEditSessionServiceTest {
 
     @Mock StringRedisTemplate             stringRedisTemplate;
     @Mock ValueOperations<String, String> valueOps;
-
+    @Mock
+    EditSessionRepository repository;
+    @Mock
+    RealtimePublisher publisher;
+    @Mock
+    RedisHealthState state;
     // 실제 ObjectMapper — 직렬화/역직렬화 실제 동작 검증
     final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -53,7 +61,7 @@ class NodeEditSessionServiceTest {
     @BeforeEach
     void setUp() {
         lenient().when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
-        service = new NodeEditSessionService(stringRedisTemplate, objectMapper);
+        service = new NodeEditSessionService(stringRedisTemplate, objectMapper,repository, publisher,state);
     }
 
     // ── 편집 세션 ─────────────────────────────────────────────────────────────

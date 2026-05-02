@@ -19,10 +19,11 @@ public class MultiRealtimePublisher implements RealtimePublisher {
 
     @Override
     public void publish(RealtimeEnvelope envelope) {
-        switch (envelope.getType()) {
-            case RELIABLE -> reliablePublisher.publish(envelope);
-            case VOLATILE -> volatilePublisher.publish(envelope);
-            default -> throw new IllegalArgumentException("Unknown realtime type: " + envelope.getType());
+        RealtimeEnvelope event = envelope.ensureEventId();
+        switch (event.getType()) {
+            case RELIABLE -> reliablePublisher.publish(event);
+            case VOLATILE -> volatilePublisher.publish(event);
+            default -> throw new IllegalArgumentException("Unknown realtime type: " + event.getType());
         }
     }
 }

@@ -21,6 +21,7 @@
         private String symb;
         private LocalDate recordDate;
         private Long pageId;
+        List<String> dirtyFields;
 
         // 1) 아예 누락: 변경 없음
         // 2) 빈 배열: 모두 해제

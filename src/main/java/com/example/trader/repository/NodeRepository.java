@@ -245,4 +245,6 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
     """)
     List<LinkRow> findLinks2StepByNodeIds(Collection<Long> nodeIds);
 
+
+
 }

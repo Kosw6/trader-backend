@@ -177,6 +177,32 @@ public class TeamNodesController {
         return ResponseEntity.ok().build();
     }
 
+    @PostMapping("/{nodeId}/autosave")
+    public ResponseEntity<Void> autosave(
+            @PathVariable Long teamId,
+            @PathVariable Long graphId,
+            @PathVariable Long nodeId,
+            @RequestBody RequestNodeDto dto,
+            @AuthenticationPrincipal UserContext context
+    ) {
+        Long userId = context.getUserDto().getId();
+
+        boolean saved = editSessionService.saveDraft(
+                teamId,
+                graphId,
+                nodeId,
+                userId,
+                dto,
+                dto.getDirtyFields()
+        );
+
+        if (!saved) {
+            // 🔥 세션 없음 or 만료
+            return ResponseEntity.status(HttpStatus.GONE).build(); // 410
+        }
+
+        return ResponseEntity.noContent().build(); // 204 (body 없음)
+    }
     // ── 노드 단건 조회 ────────────────────────────────────────────────────────
 
     @GetMapping("/{nodeId}")

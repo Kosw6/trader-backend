@@ -78,10 +78,16 @@ public class NodeConflictValidator {
             changedByOthers = hints.values().stream()
                     .flatMap(List::stream)
                     .collect(Collectors.toSet());
+            log.info(
+                    "node conflict validate path=redis_hint teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} incomingFields={} serverChangedFields={}",
+                    teamId, graphId, nodeId, baseVersion, currentVersion, incomingFields, changedByOthers
+            );
         } else {
             // ❌ 힌트 불완전 → DB NodeHistory fallback
-            log.debug("[Conflict] Hint chain incomplete → DB fallback. nodeId={} base={} current={}",
-                    nodeId, baseVersion, currentVersion);
+            log.info(
+                    "node conflict validate path=db_fallback teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} incomingFields={}",
+                    teamId, graphId, nodeId, baseVersion, currentVersion, incomingFields
+            );
 
             List<NodeHistory> histories = nodeHistoryRepository
                     .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(nodeId, baseVersion);
@@ -96,6 +102,10 @@ public class NodeConflictValidator {
         conflicting.retainAll(changedByOthers);
 
         if (conflicting.isEmpty()) {
+            log.info(
+                    "node conflict validate result=auto_merge teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} incomingFields={} serverChangedFields={}",
+                    teamId, graphId, nodeId, baseVersion, currentVersion, incomingFields, changedByOthers
+            );
             // 다른 필드만 변경됨 → AUTO_MERGE (그냥 저장)
             return ConflictResult.autoMerge(baseVersion, currentVersion);
         }
@@ -104,6 +114,10 @@ public class NodeConflictValidator {
         Map<String, Object> currentValues  = extractCurrentValues(node, conflicting);
         Map<String, Object> incomingValues = extractIncomingValues(req, conflicting);
 
+        log.warn(
+                "node conflict validate result=conflict teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} conflictFields={}",
+                teamId, graphId, nodeId, baseVersion, currentVersion, conflicting
+        );
         return ConflictResult.conflict(baseVersion, currentVersion,
                 new ArrayList<>(conflicting), currentValues, incomingValues);
     }

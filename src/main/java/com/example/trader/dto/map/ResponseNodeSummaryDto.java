@@ -30,6 +30,7 @@ public class ResponseNodeSummaryDto {
     private Long pageId;
     private LocalDateTime createdAt;
     private LocalDateTime modifiedAt;
+    private int version;
 
     public static ResponseNodeSummaryDto from(NodeSummary node) {
         Map<Long, String> notes = node.getNoteLinks().stream()
@@ -52,6 +53,7 @@ public class ResponseNodeSummaryDto {
                 .createdAt(node.getCreatedAt())
                 .modifiedAt(node.getModifiedAt())
                 .notes(notes)
+                .version(node.getVersion())
                 .build();
     }
 }

@@ -11,6 +11,7 @@ import com.example.trader.entity.Page;
 import com.example.trader.exception.BaseException;
 import com.example.trader.exception.NodeConflictException;
 import com.example.trader.httpresponse.BaseResponseStatus;
+import com.example.trader.observability.ObservedLog;
 import com.example.trader.realtime.RealtimePublisher;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeSubType;
@@ -114,14 +115,37 @@ public class NodeService {
         return ResponseNodeDto.from(node);
     }
 
+    @ObservedLog(domain = "node", api = "updateTeamNode")
     @Transactional
     public ResponseNodeDto updateTeamNode(Long teamId, Long graphId, Long nodeId, Long userId, RequestNodeDto req) {
         if (!nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(nodeId, graphId, teamId)) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
 
+        log.info(
+                "node update request teamId={} graphId={} nodeId={} userId={} baseVersion={} force={} dirtyFields={}",
+                teamId,
+                graphId,
+                nodeId,
+                userId,
+                req.getBaseVersion(),
+                req.isForce(),
+                conflictValidator.extractChangedFields(req)
+        );
+
         Node node = nodeRepository.findByIdWithLinks(nodeId)
                 .orElseThrow(() -> new IllegalArgumentException("연결된 노트링크가 없습니다"));
+
+        log.info(
+                "node update request teamId={} graphId={} nodeId={} userId={} baseVersion={} force={} dirtyFields={}",
+                teamId,
+                graphId,
+                nodeId,
+                userId,
+                req.getBaseVersion(),
+                req.isForce(),
+                conflictValidator.extractChangedFields(req)
+        );
 
         // ── 충돌 검증 (force=true 이면 skip) ────────────────────────────────
         if (!req.isForce()) {
@@ -183,7 +207,16 @@ public class NodeService {
                 null
         );
 
-
+        log.info(
+                "node update committed teamId={} graphId={} nodeId={} userId={} newVersion={} changedFields={} redisHintSaved={}",
+                teamId,
+                graphId,
+                nodeId,
+                userId,
+                newVersion,
+                changedFields,
+                !changedFields.isEmpty()
+        );
         return ResponseNodeDto.from(node);
     }
 
