@@ -12,23 +12,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class RedisHealthState {
 
     private final StringRedisTemplate redis;
-
     private final AtomicBoolean available = new AtomicBoolean(true);
     private final AtomicInteger failureCount = new AtomicInteger(0);
 
-    private static final int FAILURE_THRESHOLD = 3; // N번 실패 시 down
+    private static final int FAILURE_THRESHOLD = 3;
 
     public RedisHealthState(StringRedisTemplate redis) {
         this.redis = redis;
-
-        // 초기 상태 확인
-        try {
-            redis.getConnectionFactory().getConnection().ping();
-            available.set(true);
-        } catch (Exception e) {
-            available.set(false);
-            log.warn("[REDIS] initial ping failed → start in DOWN state");
-        }
+        check();
     }
 
     public boolean isAvailable() {
@@ -47,18 +38,29 @@ public class RedisHealthState {
         failureCount.set(0);
 
         if (available.compareAndSet(false, true)) {
-            log.info("[REDIS] marked UP (recovered)");
+            log.info("[REDIS] marked UP");
         }
     }
 
-    // 🔥 선택: 주기적 health check (복구 감지용)
-    public void check() {
+    public boolean check() {
         try {
-            redis.getConnectionFactory().getConnection().ping();
+            var connectionFactory = redis.getConnectionFactory();
+
+            if (connectionFactory == null) {
+                markDown();
+                return false;
+            }
+
+            try (var connection = connectionFactory.getConnection()) {
+                connection.ping();
+            }
+
             markUp();
+            return true;
+
         } catch (Exception e) {
             markDown();
+            return false;
         }
     }
-
 }

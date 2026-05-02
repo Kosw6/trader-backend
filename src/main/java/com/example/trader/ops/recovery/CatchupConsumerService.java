@@ -37,7 +37,7 @@ public class CatchupConsumerService {
     private final BroadcastConsumerService broadcastConsumerService;
     private final RedisPubSubPublisher redisPubSubPublisher;
 
-    @Value("${spring.kafka.bootstrap-servers}")
+    @Value("${spring.kafka.bootstrap-servers:localhost:9092}")
     private String bootstrapServers;
 
     @Value("${realtime.kafka.topic:canvas-events}")

@@ -3,6 +3,7 @@ package com.example.trader.realtime.outbox;
 import com.example.trader.infra.kafka.KafkaHealthState;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.publisher.KafkaReliablePublisher;
+import com.example.trader.repository.RealtimeOutboxRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

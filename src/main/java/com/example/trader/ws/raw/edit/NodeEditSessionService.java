@@ -167,7 +167,7 @@ public class NodeEditSessionService {
         // 기존 enum 이름을 그대로 사용.
         // 가능하면 EDIT_CANCEL 로 오타 수정 권장.
         publishEditEvent(
-                RealtimeSubType.EDIT_CANCLE,
+                RealtimeSubType.EDIT_CANCEL,
                 teamId,
                 graphId,
                 nodeId,

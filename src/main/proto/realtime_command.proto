@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package realtime;
+
+option java_multiple_files = true;
+option java_package = "com.example.trader.realtime.grpc";
+option java_outer_classname = "RealtimeCommandProto";
+
+service RealtimeCommandService {
+  rpc PublishRealtimeEvent (PublishRealtimeEventRequest)
+      returns (PublishRealtimeEventResponse);
+}
+
+message PublishRealtimeEventRequest {
+  string event_id = 1;
+  string type = 2;
+  string sub_type = 3;
+  int64 team_id = 4;
+  int64 graph_id = 5;
+  string payload_json = 6;
+  int64 created_at_epoch_ms = 7;
+}
+
+message PublishRealtimeEventResponse {
+  bool accepted = 1;
+  string mode = 2;
+  string reason = 3;
+}

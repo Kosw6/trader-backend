@@ -27,25 +27,27 @@ public class LocalRealtimePublisher implements RealtimePublisher {
 
     @Override
     public void publish(RealtimeEnvelope envelope) {
-        RawCursorMessage msg = objectMapper.convertValue(
-                envelope.getPayload(),
-                RawCursorMessage.class
-        );
-
         String roomKey = "team:%d:graph:%d".formatted(
                 envelope.getTeamId(),
                 envelope.getGraphId()
         );
 
         if (envelope.getType() == RealtimeType.RELIABLE) {
-            broadcaster.publishReliable(roomKey, msg);
-            //log.info("broadcast:RELIABLE roomKey={} msg={}", roomKey, msg);
-        } else {
+            broadcaster.publishReliable(roomKey, envelope);
+            return;
+        }
+
+        if (envelope.getType() == RealtimeType.VOLATILE) {
+            RawCursorMessage msg = objectMapper.convertValue(
+                    envelope.getPayload(),
+                    RawCursorMessage.class
+            );
+
             String latestKey = latestKeyResolver.resolve(msg);
             broadcaster.publishLatest(roomKey, latestKey, msg);
-            //log.info("broadcast:LATEST roomKey={} latestKey={} msg={}", roomKey, latestKey, msg);
+            return;
         }
+
+        throw new IllegalArgumentException("Unsupported realtime type: " + envelope.getType());
     }
-
-
 }

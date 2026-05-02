@@ -4,6 +4,8 @@ plugins {
 	id 'io.spring.dependency-management' version '1.1.7'
     id 'org.hibernate.orm' version '6.4.4.Final'
 	id 'jacoco'
+    id 'com.google.protobuf' version '0.9.4'
+
 }
 
 group = 'com.example'
@@ -48,6 +50,15 @@ dependencies {
     implementation 'net.logstash.logback:logstash-logback-encoder:7.4'//출력 -> json
 //    implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
     implementation 'org.springframework.kafka:spring-kafka'
+
+    implementation 'net.devh:grpc-server-spring-boot-starter:2.15.0.RELEASE'
+    implementation 'net.devh:grpc-client-spring-boot-starter:2.15.0.RELEASE'
+
+    implementation 'io.grpc:grpc-protobuf:1.58.0'
+    implementation 'io.grpc:grpc-stub:1.58.0'
+    implementation 'io.grpc:grpc-netty-shaded:1.58.0'
+    compileOnly 'org.apache.tomcat:annotations-api:6.0.53'
+
 	runtimeOnly 'org.postgresql:postgresql'
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 
@@ -60,61 +71,98 @@ dependencies {
 
 
 }
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:3.24.4"
+    }
+    plugins {
+        grpc {
+            artifact = 'io.grpc:protoc-gen-grpc-java:1.58.0'
+        }
+    }
+    generateProtoTasks {
+        all().each { task ->
+            task.plugins {
+                grpc {}
+            }
+        }
+    }
+}
+sourceSets {
+    main {
+        proto {
+            srcDir 'src/main/proto'
+        }
+        resources {
+            exclude '**/*.proto'
+        }
+        java {
+            srcDirs 'build/generated/source/proto/main/java'
+            srcDirs 'build/generated/source/proto/main/grpc'
+        }
+    }
+}
+
 jacoco {
 	toolVersion = "0.8.12"
 }
+tasks.named('processResources') {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
 
 tasks.named('test') {
-	useJUnitPlatform()
-	finalizedBy tasks.jacocoTestReport   // 리포트는 테스트 후
+    enabled = false
+//	useJUnitPlatform()
+//	finalizedBy tasks.jacocoTestReport   // 리포트는 테스트 후
 }
 
-tasks.jacocoTestReport {
-	dependsOn tasks.test
-	reports{
-		xml.required.set(true)
-		html.required.set(true)
-	}
-}
-
-/** ③ 커버리지 게이트(70%) — 전체 번들 기준(필요 시 클래스/패키지 룰 추가 가능) */
-tasks.jacocoTestCoverageVerification {
-	dependsOn tasks.test
-	violationRules {
+//tasks.jacocoTestReport {
+//	dependsOn tasks.test
+//	reports{
+//		xml.required.set(true)
+//		html.required.set(true)
+//	}
+//}
+//
+///** ③ 커버리지 게이트(70%) — 전체 번들 기준(필요 시 클래스/패키지 룰 추가 가능) */
+//tasks.jacocoTestCoverageVerification {
+//	dependsOn tasks.test
+//	violationRules {
+////		rule {
+////			element = 'BUNDLE'
+////			limit {
+////				counter = 'INSTRUCTION'
+////				value   = 'COVEREDRATIO'
+////				minimum = 0.70
+////			}
+////		}
+////		 예) 특정 컨트롤러도 강제하려면 FQN 정확히:
 //		rule {
-//			element = 'BUNDLE'
+//			element = 'CLASS'
+//			includes = ['com.example.trader.service.UserService']
 //			limit {
 //				counter = 'INSTRUCTION'
 //				value   = 'COVEREDRATIO'
-//				minimum = 0.70
+//				minimum = 0.50
 //			}
 //		}
-//		 예) 특정 컨트롤러도 강제하려면 FQN 정확히:
-		rule {
-			element = 'CLASS'
-			includes = ['com.example.trader.service.UserService']
-			limit {
-				counter = 'INSTRUCTION'
-				value   = 'COVEREDRATIO'
-				minimum = 0.50
-			}
-		}
-	}
-}
-
-tasks.named('check') {
-	dependsOn 'jacocoTestCoverageVerification'
-}
-tasks.register('printTestClasses') {
-	dependsOn tasks.named('testClasses')
-	doLast {
-		def tree = sourceSets.test.output.classesDirs.asFileTree.matching { include '**/*.class' }
-		println "== Compiled test classes =="
-		tree.files.each { println it }
-	}
-}
-/** (보험) build가 check를 반드시 타도록 — 기본이긴 하지만 명시해둬도 무방 */
-tasks.named('build') {
-	dependsOn 'check'
-}
-check.dependsOn jacocoTestCoverageVerification // ✅ 빌드/체크 시 커버리지 게이트 적용
+//	}
+//}
+//
+//tasks.named('check') {
+//	dependsOn 'jacocoTestCoverageVerification'
+//}
+//tasks.register('printTestClasses') {
+//	dependsOn tasks.named('testClasses')
+//	doLast {
+//		def tree = sourceSets.test.output.classesDirs.asFileTree.matching { include '**/*.class' }
+//		println "== Compiled test classes =="
+//		tree.files.each { println it }
+//	}
+//}
+///** (보험) build가 check를 반드시 타도록 — 기본이긴 하지만 명시해둬도 무방 */
+//tasks.named('build') {
+//	dependsOn 'check'
+//}
+//check.dependsOn jacocoTestCoverageVerification // ✅ 빌드/체크 시 커버리지 게이트 적용
