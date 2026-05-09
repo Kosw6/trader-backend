@@ -11,6 +11,8 @@ import com.example.trader.realtime.message.RealtimeSubType;
 import com.example.trader.realtime.message.RealtimeType;
 import com.example.trader.repository.EditSessionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +20,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,31 +37,13 @@ public class NodeEditSessionService {
     private final EditSessionRepository editSessionRepository;
     private final RealtimePublisher realtimePublisher;
     private final RedisHealthState redisHealthState;
+    private final MeterRegistry meterRegistry;
 
-    /**
-     * Redis 장애 시 사용하는 로컬 인메모리 저장소.
-     *
-     * 특징:
-     * - 빠름
-     * - 현재 app instance 안에서만 유효
-     * - app 재시작 시 유실
-     * - 멀티 인스턴스 간 공유 불가
-     */
     private final ConcurrentHashMap<String, String> localSessions = new ConcurrentHashMap<>();
 
     private static final Duration SESSION_TTL = Duration.ofMinutes(10);
     private static final Duration HINT_TTL = Duration.ofHours(1);
 
-    /**
-     * local | db | off
-     *
-     * 기본값 local.
-     *
-     * application.yml:
-     *
-     * edit-session:
-     *   fallback-mode: ${EDIT_SESSION_FALLBACK_MODE:local}
-     */
     @Value("${edit-session.fallback-mode:local}")
     private String fallbackMode;
 
@@ -81,10 +66,6 @@ public class NodeEditSessionService {
     private boolean fallbackOff() {
         return "off".equalsIgnoreCase(fallbackMode);
     }
-
-    // ─────────────────────────────────────────────
-    // EDIT START
-    // ─────────────────────────────────────────────
 
     public void startEditSession(Long teamId, Long graphId, Long nodeId, Long userId,
                                  int baseVersion, List<String> fields) {
@@ -129,6 +110,7 @@ public class NodeEditSessionService {
     private void saveSessionFallback(String key, String json) {
         if (localFallbackEnabled()) {
             localSessions.put(key, json);
+            log.warn("[EditSession-START-LOCAL] saved. key={}, reason=redis_unavailable", key);
             return;
         }
 
@@ -137,16 +119,10 @@ public class NodeEditSessionService {
             return;
         }
 
-        // db fallback은 startEditSession 단계에서는 저장하지 않음.
-        // DB fallback은 autosave draft 저장 시점에서 수행한다.
         if (dbFallbackEnabled()) {
-            log.debug("[EditSession] db fallback mode. start session is not persisted. key={}", key);
+            log.info("[EditSession] db fallback mode. start session is not persisted. key={}", key);
         }
     }
-
-    // ─────────────────────────────────────────────
-    // EDIT END / CANCEL
-    // ─────────────────────────────────────────────
 
     public void endEditSession(Long teamId, Long graphId, Long nodeId, Long userId) {
         removeSession(teamId, graphId, nodeId, userId);
@@ -164,8 +140,6 @@ public class NodeEditSessionService {
     public void cancelEditSession(Long teamId, Long graphId, Long nodeId, Long userId) {
         removeSession(teamId, graphId, nodeId, userId);
 
-        // 기존 enum 이름을 그대로 사용.
-        // 가능하면 EDIT_CANCEL 로 오타 수정 권장.
         publishEditEvent(
                 RealtimeSubType.EDIT_CANCEL,
                 teamId,
@@ -181,7 +155,7 @@ public class NodeEditSessionService {
         String key = editSessionKey(teamId, graphId, nodeId, userId);
 
         if (!redisHealthState.isAvailable()) {
-            localSessions.remove(key);
+            removeSessionFallback(teamId, graphId, nodeId, userId, key, "redis_unavailable");
             return;
         }
 
@@ -190,15 +164,21 @@ public class NodeEditSessionService {
             redisHealthState.markUp();
         } catch (Exception e) {
             redisHealthState.markDown();
-            localSessions.remove(key);
-            log.warn("[EditSession] Redis delete failed. local removed. key={}, reason={}",
-                    key, e.getMessage());
+            removeSessionFallback(teamId, graphId, nodeId, userId, key, "redis_delete_failed");
+            log.warn("[EditSession] Redis delete failed. fallback removed. key={}, reason={}", key, e.getMessage());
         }
     }
 
-    // ─────────────────────────────────────────────
-    // GET SESSION
-    // ─────────────────────────────────────────────
+    private void removeSessionFallback(Long teamId, Long graphId, Long nodeId, Long userId,
+                                       String key, String reason) {
+        if (dbFallbackEnabled()) {
+            editSessionRepository.deleteById(new EditSessionId(teamId, graphId, nodeId, userId));
+            log.warn("[EditSession-END-DB] deleted. key={}, reason={}", key, reason);
+        } else {
+            localSessions.remove(key);
+            log.warn("[EditSession-END-LOCAL] removed. key={}, reason={}", key, reason);
+        }
+    }
 
     public Optional<EditSessionDto> getEditSession(Long teamId, Long graphId, Long nodeId, Long userId) {
 
@@ -221,7 +201,12 @@ public class NodeEditSessionService {
 
     private String readSessionJson(String key) {
         if (!redisHealthState.isAvailable()) {
-            return localFallbackEnabled() ? localSessions.get(key) : null;
+            String localJson = localFallbackEnabled() ? localSessions.get(key) : null;
+
+            log.debug("[EditSession-READ-LOCAL] key={}, hit={}",
+                    key, localJson != null);
+
+            return localJson;
         }
 
         try {
@@ -233,18 +218,22 @@ public class NodeEditSessionService {
             log.warn("[EditSession] Redis read failed. fallbackMode={}, key={}, reason={}",
                     fallbackMode, key, e.getMessage());
 
-            return localFallbackEnabled() ? localSessions.get(key) : null;
+            String localJson = localFallbackEnabled() ? localSessions.get(key) : null;
+
+            log.debug("[EditSession-READ-LOCAL] key={}, hit={}, reason=redis_read_failed",
+                    key, localJson != null);
+
+            return localJson;
         }
     }
-
-    // ─────────────────────────────────────────────
-    // AUTOSAVE
-    // ─────────────────────────────────────────────
 
     public boolean saveDraft(Long teamId, Long graphId, Long nodeId, Long userId,
                              Object draftData, List<String> dirtyFields) {
 
         String key = editSessionKey(teamId, graphId, nodeId, userId);
+
+        log.info("[EditSession-AUTOSAVE] start. fallbackMode={}, redisAvailable={}, nodeId={}, userId={}, dirtyFields={}",
+                fallbackMode, redisHealthState.isAvailable(), nodeId, userId, dirtyFields);
 
         try {
             String currentJson = readSessionJson(key);
@@ -259,7 +248,13 @@ public class NodeEditSessionService {
                 );
 
                 String updatedJson = objectMapper.writeValueAsString(updated);
-                return writeUpdatedDraft(key, updatedJson);
+
+                // Redis가 읽기 성공 후 쓰기 시점에 다운된 경우 → db fallback으로 즉시 전환
+                if (!redisHealthState.isAvailable() && dbFallbackEnabled()) {
+                    return saveDraftToDb(teamId, graphId, nodeId, userId, draftData, dirtyFields);
+                }
+
+                return writeUpdatedDraft(key, updatedJson, nodeId, userId, dirtyFields);
             }
 
             if (localFallbackEnabled()) {
@@ -270,6 +265,10 @@ public class NodeEditSessionService {
                 );
 
                 localSessions.put(key, objectMapper.writeValueAsString(created));
+
+                log.warn("[EditSession-AUTOSAVE-LOCAL] saved. key={}, nodeId={}, userId={}, reason=session_missing_or_redis_unavailable",
+                        key, nodeId, userId);
+
                 return true;
             }
 
@@ -277,39 +276,65 @@ public class NodeEditSessionService {
                 return saveDraftToDb(teamId, graphId, nodeId, userId, draftData, dirtyFields);
             }
 
+            log.warn("[EditSession-AUTOSAVE-SKIPPED] fallbackMode=off, key={}, nodeId={}, userId={}",
+                    key, nodeId, userId);
+
             return false;
 
         } catch (Exception e) {
-            log.warn("[EditSession] saveDraft failed. fallbackMode={}, nodeId={}, userId={}, reason={}",
+            log.warn("[EditSession-AUTOSAVE-FAILED] fallbackMode={}, nodeId={}, userId={}, reason={}",
                     fallbackMode, nodeId, userId, e.getMessage());
             return false;
         }
     }
 
-    private boolean writeUpdatedDraft(String key, String updatedJson) {
+    private boolean writeUpdatedDraft(String key, String updatedJson,
+                                      Long nodeId, Long userId, List<String> dirtyFields) {
         if (!redisHealthState.isAvailable()) {
             if (localFallbackEnabled()) {
                 localSessions.put(key, updatedJson);
+
+                log.warn("[EditSession-AUTOSAVE-LOCAL] updated. key={}, nodeId={}, userId={}, dirtyFields={}, reason=redis_unavailable",
+                        key, nodeId, userId, dirtyFields);
+
                 return true;
             }
+
+            log.warn("[EditSession-AUTOSAVE-FAILED] redisUnavailable=true, fallbackMode={}, key={}, nodeId={}, userId={}",
+                    fallbackMode, key, nodeId, userId);
 
             return false;
         }
 
+        Timer.Sample sample = Timer.start(meterRegistry);
         try {
             redis.opsForValue().set(key, updatedJson, SESSION_TTL);
             redisHealthState.markUp();
+            sample.stop(Timer.builder("edit.session.autosave")
+                    .tag("path", "redis")
+                    .register(meterRegistry));
+
+            log.info("[EditSession-AUTOSAVE-REDIS] saved. key={}, nodeId={}, userId={}, dirtyFields={}",
+                    key, nodeId, userId, dirtyFields);
+
             return true;
         } catch (Exception e) {
             redisHealthState.markDown();
 
             if (localFallbackEnabled()) {
                 localSessions.put(key, updatedJson);
+
+                log.warn("[EditSession-AUTOSAVE-LOCAL] updated. key={}, nodeId={}, userId={}, dirtyFields={}, reason=redis_write_failed",
+                        key, nodeId, userId, dirtyFields);
+
                 return true;
             }
 
-            log.warn("[EditSession] Redis draft update failed. fallbackMode={}, key={}, reason={}",
-                    fallbackMode, key, e.getMessage());
+            log.warn("[EditSession-AUTOSAVE] Redis write failed mid-request. fallbackMode={}, key={}, nodeId={}, userId={}, reason={}",
+                    fallbackMode, key, nodeId, userId, e.getMessage());
+
+            // saveDraft()에서 사전 분기하므로 여기까지는 db 모드가 도달하지 않음.
+            // 방어적으로 처리.
             return false;
         }
     }
@@ -319,35 +344,46 @@ public class NodeEditSessionService {
         try {
             EditSessionId id = new EditSessionId(teamId, graphId, nodeId, userId);
 
-            Optional<EditSessionEntity> optional = editSessionRepository.findById(id);
-
-            if (optional.isEmpty()) {
-                return false;
-            }
-
-            EditSessionEntity entity = optional.get();
+            // entity가 없으면 새로 생성 (EDIT_START가 Redis에만 저장됐다가 장애로 유실된 경우 대비)
+            EditSessionEntity entity = editSessionRepository.findById(id)
+                    .orElseGet(() -> {
+                        log.warn("[EditSession-AUTOSAVE-DB] session_not_found → upsert. nodeId={}, userId={}", nodeId, userId);
+                        return EditSessionEntity.builder()
+                                .teamId(teamId)
+                                .graphId(graphId)
+                                .nodeId(nodeId)
+                                .userId(userId)
+                                .baseVersion(0)
+                                .build();
+                    });
 
             String json = objectMapper.writeValueAsString(draftData);
             entity.updateDraft(json, dirtyFields);
+
+            Timer.Sample sample = Timer.start(meterRegistry);
             editSessionRepository.save(entity);
+            sample.stop(Timer.builder("edit.session.autosave")
+                    .tag("path", "db-fallback")
+                    .register(meterRegistry));
+
+            log.warn("[EditSession-AUTOSAVE-DB] saved. nodeId={}, userId={}, dirtyFields={}",
+                    nodeId, userId, dirtyFields);
 
             return true;
 
         } catch (Exception e) {
-            log.warn("[EditSession] DB fallback saveDraft failed. nodeId={}, userId={}, reason={}",
+            log.warn("[EditSession-AUTOSAVE-DB-FAILED] nodeId={}, userId={}, reason={}",
                     nodeId, userId, e.getMessage());
             return false;
         }
     }
 
-    // ─────────────────────────────────────────────
-    // VERSION HINT
-    // ─────────────────────────────────────────────
-
     public void saveVersionHint(Long teamId, Long graphId, Long nodeId,
                                 int version, List<String> changedFields, Long changedBy) {
 
         if (!redisHealthState.isAvailable()) {
+            log.info("[EditSession-VERSION-HINT-SKIPPED] reason=redis_unavailable, nodeId={}, version={}",
+                    nodeId, version);
             return;
         }
 
@@ -378,40 +414,85 @@ public class NodeEditSessionService {
             return null;
         }
 
-        Map<Integer, List<String>> hints = new LinkedHashMap<>();
-
+        // 버전 범위의 키를 한 번에 수집
+        List<Integer> versions = new ArrayList<>();
+        List<String> keys = new ArrayList<>();
         for (int version = fromVersion + 1; version <= toVersion; version++) {
-            try {
-                String key = versionHintKey(teamId, graphId, nodeId, version);
-                String json = redis.opsForValue().get(key);
-
-                if (json == null) {
-                    return null;
-                }
-
-                VersionHintDto dto = objectMapper.readValue(json, VersionHintDto.class);
-                hints.put(version, dto.changedFields());
-
-            } catch (Exception e) {
-                redisHealthState.markDown();
-                log.warn("[EditSession] getVersionHints failed. nodeId={}, fromVersion={}, toVersion={}, reason={}",
-                        nodeId, fromVersion, toVersion, e.getMessage());
-                return null;
-            }
+            versions.add(version);
+            keys.add(versionHintKey(teamId, graphId, nodeId, version));
         }
 
-        redisHealthState.markUp();
-        return hints;
+        if (keys.isEmpty()) {
+            return new LinkedHashMap<>();
+        }
+
+        try {
+            // N번 순차 GET → 1번 MGET (단일 round-trip)
+            List<String> jsons = redis.opsForValue().multiGet(keys);
+
+            if (jsons == null) {
+                return null;
+            }
+
+            Map<Integer, List<String>> hints = new LinkedHashMap<>();
+            for (int i = 0; i < versions.size(); i++) {
+                String json = jsons.get(i);
+                if (json == null) {
+                    // 힌트 체인 끊김 → DB fallback으로 전환
+                    return null;
+                }
+                VersionHintDto dto = objectMapper.readValue(json, VersionHintDto.class);
+                hints.put(versions.get(i), dto.changedFields());
+            }
+
+            redisHealthState.markUp();
+            return hints;
+
+        } catch (Exception e) {
+            redisHealthState.markDown();
+            log.warn("[EditSession] getVersionHints failed. nodeId={}, fromVersion={}, toVersion={}, reason={}",
+                    nodeId, fromVersion, toVersion, e.getMessage());
+            return null;
+        }
     }
+    //기존 하나씩 가져옴
+//    public Map<Integer, List<String>> getVersionHints(Long teamId, Long graphId, Long nodeId,
+//                                                      int fromVersion, int toVersion) {
+//
+//        if (!redisHealthState.isAvailable()) {
+//            return null;
+//        }
+//
+//        Map<Integer, List<String>> hints = new LinkedHashMap<>();
+//
+//        for (int version = fromVersion + 1; version <= toVersion; version++) {
+//            try {
+//                String key = versionHintKey(teamId, graphId, nodeId, version);
+//                String json = redis.opsForValue().get(key);
+//
+//                if (json == null) {
+//                    return null;
+//                }
+//
+//                VersionHintDto dto = objectMapper.readValue(json, VersionHintDto.class);
+//                hints.put(version, dto.changedFields());
+//
+//            } catch (Exception e) {
+//                redisHealthState.markDown();
+//                log.warn("[EditSession] getVersionHints failed. nodeId={}, fromVersion={}, toVersion={}, reason={}",
+//                        nodeId, fromVersion, toVersion, e.getMessage());
+//                return null;
+//            }
+//        }
+//
+//        redisHealthState.markUp();
+//        return hints;
+//    }
 
     public boolean hasCompleteChain(Long teamId, Long graphId, Long nodeId,
                                     int fromVersion, int toVersion) {
         return getVersionHints(teamId, graphId, nodeId, fromVersion, toVersion) != null;
     }
-
-    // ─────────────────────────────────────────────
-    // EVENT PUBLISH
-    // ─────────────────────────────────────────────
 
     private void publishEditEvent(RealtimeSubType subType,
                                   Long teamId,

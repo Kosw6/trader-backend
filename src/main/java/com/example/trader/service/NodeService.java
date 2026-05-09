@@ -477,7 +477,8 @@ public class NodeService {
                 y != null ? y : 0,
                 System.currentTimeMillis(),
                 changedFields,
-                version
+                version,
+                null
         );
 
         realtimePublisher.publish(

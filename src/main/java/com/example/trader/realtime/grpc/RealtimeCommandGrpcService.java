@@ -7,6 +7,7 @@ import com.example.trader.realtime.message.RealtimeSubType;
 import com.example.trader.realtime.message.RealtimeType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.grpc.stub.StreamObserver;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import net.devh.boot.grpc.server.service.GrpcService;
 
@@ -20,6 +21,7 @@ public class RealtimeCommandGrpcService
     private final ObjectMapper objectMapper;
     private final ReliableInboundHandler reliableInboundHandler;
     private final VolatileInboundHandler volatileInboundHandler;
+    private final MeterRegistry meterRegistry;
 
     @Override
     public void publishRealtimeEvent(
@@ -37,6 +39,14 @@ public class RealtimeCommandGrpcService
                     .graphId(request.getGraphId() == 0L ? null : request.getGraphId())
                     .payload(payload)
                     .build();
+            meterRegistry.counter(
+                    "realtime.relay.inbound",
+                    "path", "grpc",
+                    "type", envelope.getType().name(),
+                    "subType", envelope.getSubType() == null
+                            ? "unknown"
+                            : envelope.getSubType().name()
+            ).increment();
 
             if (envelope.getType() == RealtimeType.RELIABLE) {
                 reliableInboundHandler.handle(envelope);

@@ -1,4 +1,4 @@
-package com.example.trader.realtime.health;
+package com.example.trader.realtime;
 
 import org.springframework.stereotype.Component;
 

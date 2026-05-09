@@ -35,7 +35,7 @@ public class DirectoryService {
     public ResponseDirectoryDto createDirectory(RequestDirectoryDto dto, User user) {
         boolean exists = directoryRepository.existsByIdAndUserId(dto.getParentId(), user.getId());
         if(!exists){
-            new IllegalArgumentException("Parent directory not found");
+            throw new IllegalArgumentException("Parent directory not found");
         }
         Directory parent = null;
         //널값이나 0이 아니면 부모도 조회 널이거나 0이면 부모없이 생성
@@ -73,7 +73,7 @@ public class DirectoryService {
                 .orElseThrow(() -> new IllegalArgumentException("Directory not found"));
         boolean exists = directoryRepository.existsByIdAndUserId(dto.parentId(), userId);
         if(!exists){
-            new IllegalArgumentException("Parent directory not found");
+            throw new IllegalArgumentException("Parent directory not found");
         }
         Directory parent = null;
         if (dto.parentId() != null && dto.parentId() !=0L) {
@@ -146,7 +146,7 @@ public class DirectoryService {
 
         boolean exists = directoryRepository.existsByIdAndTeamId(dto.parentId(),teamId);
         if(!exists){
-            new IllegalArgumentException("Parent directory not found");
+            throw new IllegalArgumentException("Parent directory not found");
         }
         Directory parent = null;
         if (dto.parentId() != null && dto.parentId() !=0L) {

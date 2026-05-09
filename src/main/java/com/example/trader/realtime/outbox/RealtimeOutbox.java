@@ -38,8 +38,7 @@ public class RealtimeOutbox {
     @Column(length = 50)
     private RealtimeSubType subType;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String envelopeJson;
 
     @Enumerated(EnumType.STRING)

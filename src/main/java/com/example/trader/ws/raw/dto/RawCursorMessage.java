@@ -11,10 +11,10 @@ import java.util.List;
  * <pre>
  * CURSOR        : type, teamId, graphId, userId, nickName, x, y, sentAt
  * DRAG_PREVIEW  : type, teamId, graphId, userId, nickName, nodeId, x, y, sentAt
- * __CONTROL__   : type, subType, teamId, graphId, userId, nickName, nodeId, (fields, baseVersion)
+ * __CONTROL__   : type, subType, teamId, graphId, userId, nickName, nodeId, (fields, baseVersion, lockTtlMs)
  *   subType:
  *     LOCK_ACQUIRE    - 클라 → 서버: 락 요청
- *     LOCK_ACQUIRED   - 서버 → 룸:   락 획득 알림
+ *     LOCK_ACQUIRED   - 서버 → 룸:   락 획득 알림 (lockTtlMs 포함 — 클라이언트 카운트다운용)
  *     LOCK_DENIED     - 서버 → 요청자: 락 거부 (lockedBy = 점유자 userId)
  *     LOCK_RELEASE    - 클라 → 서버: 락 해제
  *     LOCK_RELEASED   - 서버 → 룸:   락 해제 알림
@@ -39,5 +39,6 @@ public record RawCursorMessage(
         double       y,
         long         sentAt,
         List<String> fields,        // EDIT_START: 편집 중인 필드 목록
-        Integer      baseVersion    // EDIT_START: 편집 시작 당시 노드 버전
+        Integer      baseVersion,   // EDIT_START: 편집 시작 당시 노드 버전
+        Long         lockTtlMs      // LOCK_ACQUIRED: 클라이언트 TTL 카운트다운용 (ms)
 ) {}

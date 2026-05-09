@@ -9,6 +9,8 @@ import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -37,6 +39,7 @@ public class NodeConflictValidator {
     private final NodeEditSessionService editSessionService;
     private final NodeHistoryRepository  nodeHistoryRepository;
     private final ObjectMapper           objectMapper;
+    private final MeterRegistry          meterRegistry;
 
     /**
      * 충돌 여부를 검증하여 {@link ConflictResult}를 반환.
@@ -68,13 +71,17 @@ public class NodeConflictValidator {
         List<String> incomingFields = extractChangedFields(req);
 
         // ── Redis 힌트 체인 확인 ───────────────────────────────────────────────
+        Timer.Sample sample = Timer.start(meterRegistry);
+
         Map<Integer, List<String>> hints =
                 editSessionService.getVersionHints(teamId, graphId, nodeId, baseVersion, currentVersion);
 
         Set<String> changedByOthers;
+        String validatePath;
 
         if (hints != null) {
             // ✅ 힌트 완전 → Redis 집계
+            validatePath = "redis-hint";
             changedByOthers = hints.values().stream()
                     .flatMap(List::stream)
                     .collect(Collectors.toSet());
@@ -84,6 +91,7 @@ public class NodeConflictValidator {
             );
         } else {
             // ❌ 힌트 불완전 → DB NodeHistory fallback
+            validatePath = "db-fallback";
             log.info(
                     "node conflict validate path=db_fallback teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} incomingFields={}",
                     teamId, graphId, nodeId, baseVersion, currentVersion, incomingFields
@@ -96,6 +104,10 @@ public class NodeConflictValidator {
                     .flatMap(h -> parseFields(h.getChangedFields()).stream())
                     .collect(Collectors.toSet());
         }
+
+        sample.stop(Timer.builder("node.conflict.validate")
+                .tag("path", validatePath)
+                .register(meterRegistry));
 
         // ── 교집합 판정 ───────────────────────────────────────────────────────
         Set<String> conflicting = new HashSet<>(incomingFields);

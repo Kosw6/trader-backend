@@ -122,7 +122,7 @@ public class TeamNodesController {
     ) {
         Long userId = context.getUserDto().getId();
 
-        editSessionService.endEditSession(teamId, graphId, nodeId, userId);
+        editSessionService.cancelEditSession(teamId, graphId, nodeId, userId);
 
         return ResponseEntity.ok().build();
     }

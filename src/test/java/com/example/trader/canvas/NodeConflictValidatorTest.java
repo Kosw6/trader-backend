@@ -8,6 +8,7 @@ import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.service.NodeConflictValidator;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,8 @@ class NodeConflictValidatorTest {
     @Mock NodeEditSessionService editSessionService;
     @Mock NodeHistoryRepository  nodeHistoryRepository;
     @Mock Node                   node;
+    @Mock
+    MeterRegistry meterRegistry;
 
     // 실제 ObjectMapper 사용 (JSON 파싱 로직 검증 포함)
     final ObjectMapper objectMapper = new ObjectMapper();
@@ -49,7 +52,7 @@ class NodeConflictValidatorTest {
 
     @BeforeEach
     void setUp() {
-        validator = new NodeConflictValidator(editSessionService, nodeHistoryRepository, objectMapper);
+        validator = new NodeConflictValidator(editSessionService, nodeHistoryRepository, objectMapper,meterRegistry);
     }
 
     // ── 1. PASS 케이스 ────────────────────────────────────────────────────────

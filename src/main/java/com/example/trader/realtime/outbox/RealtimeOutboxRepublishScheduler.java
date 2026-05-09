@@ -10,13 +10,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "app.mode", havingValue = "multi")
+@ConditionalOnProperty(name = "realtime.kafka.enabled", havingValue = "true")
 public class RealtimeOutboxRepublishScheduler {
 
     private final RealtimeOutboxRepository realtimeOutboxRepository;
@@ -27,6 +28,7 @@ public class RealtimeOutboxRepublishScheduler {
     @Scheduled(
             fixedDelayString = "${realtime.outbox.republish-delay-ms:5000}"
     )
+    @Transactional
     public void republishPendingEvents() {
         if (!kafkaHealthState.isAvailable()) {
             return;

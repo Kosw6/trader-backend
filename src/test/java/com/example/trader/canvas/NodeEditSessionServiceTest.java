@@ -7,6 +7,7 @@ import com.example.trader.realtime.RealtimePublisher;
 import com.example.trader.repository.EditSessionRepository;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,8 @@ class NodeEditSessionServiceTest {
     RealtimePublisher publisher;
     @Mock
     RedisHealthState state;
+    @Mock
+    MeterRegistry meterRegistry;
     // 실제 ObjectMapper — 직렬화/역직렬화 실제 동작 검증
     final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -61,7 +64,7 @@ class NodeEditSessionServiceTest {
     @BeforeEach
     void setUp() {
         lenient().when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
-        service = new NodeEditSessionService(stringRedisTemplate, objectMapper,repository, publisher,state);
+        service = new NodeEditSessionService(stringRedisTemplate, objectMapper,repository, publisher,state,meterRegistry);
     }
 
     // ── 편집 세션 ─────────────────────────────────────────────────────────────

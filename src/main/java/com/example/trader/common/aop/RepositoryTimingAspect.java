@@ -24,7 +24,12 @@ public class RepositoryTimingAspect {
                 .recordCallable(() -> {
                     try {
                         return pjp.proceed();
+                    } catch (RuntimeException | Error e) {
+                        // RuntimeException / Error 는 래핑 없이 그대로 전파
+                        // (DataIntegrityViolationException 등 Spring 예외가 손상되지 않도록)
+                        throw e;
                     } catch (Throwable e) {
+                        // checked exception 만 RuntimeException 으로 래핑
                         throw new RuntimeException(e);
                     }
                 });

@@ -125,7 +125,8 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 in.y(),
                 in.sentAt(),
                 in.fields(),
-                in.baseVersion()
+                in.baseVersion(),
+                null
         );
 
         if (TYPE_CONTROL.equals(out.type())) {
@@ -175,7 +176,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
 
         if (acquired) {
             publishReliable(
-                    controlMsg("LOCK_ACQUIRED", room, userId, nickName, msg.nodeId(), null, null)
+                    controlMsg("LOCK_ACQUIRED", room, userId, nickName, msg.nodeId(), null, null, lockService.getLockTtlMs())
             );
         } else {
             Long lockedBy = lockService
@@ -183,7 +184,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                     .orElse(null);
 
             RawCursorMessage denied =
-                    controlMsg("LOCK_DENIED", room, lockedBy, nickName, msg.nodeId(), null, null);
+                    controlMsg("LOCK_DENIED", room, lockedBy, nickName, msg.nodeId(), null, null, null);
 
             sendDirect(session, denied);
         }
@@ -204,7 +205,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
 
         if (released) {
             publishReliable(
-                    controlMsg("LOCK_RELEASED", room, userId, nickName, msg.nodeId(), null, null)
+                    controlMsg("LOCK_RELEASED", room, userId, nickName, msg.nodeId(), null, null, null)
             );
         }
     }
@@ -249,6 +250,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                                 userId,
                                 nickName != null ? nickName : "",
                                 nodeId,
+                                null,
                                 null,
                                 null
                         )
@@ -348,7 +350,8 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                                         String nickName,
                                         Long nodeId,
                                         List<String> fields,
-                                        Integer baseVersion) {
+                                        Integer baseVersion,
+                                        Long lockTtlMs) {
         return new RawCursorMessage(
                 TYPE_CONTROL,
                 subType,
@@ -361,7 +364,8 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 0,
                 System.currentTimeMillis(),
                 fields,
-                baseVersion
+                baseVersion,
+                lockTtlMs
         );
     }
 
