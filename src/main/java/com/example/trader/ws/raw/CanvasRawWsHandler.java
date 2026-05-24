@@ -15,7 +15,6 @@ import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorato
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.net.URI;
 import java.util.List;
 import java.util.Set;
 
@@ -28,6 +27,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final RealtimePublisher realtimePublisher;
     private final CanvasLockService lockService;
+    private final WsCapacityManager capacityManager;
 
     private static final String TYPE_CURSOR  = "CURSOR";
     private static final String TYPE_DRAG    = "DRAG_PREVIEW";
@@ -45,7 +45,8 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         try {
-            RoomIds room = parseRoomIds(session.getUri());
+            var params = UriComponentsBuilder.fromUri(session.getUri()).build().getQueryParams();
+            RoomIds room = parseRoomIds(params);
             String roomKey = registry.roomKey(room.teamId(), room.graphId());
 
             WebSocketSession safeSession =
@@ -54,6 +55,14 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             session.getAttributes().put(WsAttrs.ROOM_IDS, room);
             session.getAttributes().put(WsAttrs.ROOM_KEY, roomKey);
             session.getAttributes().put(WsAttrs.SAFE_SESSION, safeSession);
+
+            String groupIdStr      = params.getFirst("groupId");
+            String targetInstanceId = params.getFirst("targetInstanceId");
+            if (groupIdStr != null && targetInstanceId != null) {
+                session.getAttributes().put(WsAttrs.GROUP_ID, Long.valueOf(groupIdStr));
+                session.getAttributes().put(WsAttrs.TARGET_INSTANCE_ID, targetInstanceId);
+                capacityManager.confirm(Long.parseLong(groupIdStr), targetInstanceId);
+            }
 
             if (session.getAttributes().get(WsAttrs.USER_ID) == null) {
                 session.close(CloseStatus.NOT_ACCEPTABLE.withReason("unauthorized"));
@@ -238,6 +247,12 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             registry.leave(roomKey, safeOf(session));
         }
 
+        Long groupId         = (Long)   session.getAttributes().get(WsAttrs.GROUP_ID);
+        String targetInstance = (String) session.getAttributes().get(WsAttrs.TARGET_INSTANCE_ID);
+        if (groupId != null && targetInstance != null) {
+            capacityManager.release(groupId, targetInstance);
+        }
+
         if (room != null && userId != null) {
             List<Long> releasedNodeIds =
                     lockService.releaseAllByUser(room.teamId(), room.graphId(), userId);
@@ -325,14 +340,8 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         return value instanceof WebSocketSession ws ? ws : session;
     }
 
-    private RoomIds parseRoomIds(URI uri) {
-        if (uri == null) {
-            throw new IllegalArgumentException("uri required");
-        }
-
-        var params = UriComponentsBuilder.fromUri(uri).build().getQueryParams();
-
-        String teamIdStr = params.getFirst("teamId");
+    private RoomIds parseRoomIds(org.springframework.util.MultiValueMap<String, String> params) {
+        String teamIdStr  = params.getFirst("teamId");
         String graphIdStr = params.getFirst("graphId");
 
         if (teamIdStr == null || graphIdStr == null) {

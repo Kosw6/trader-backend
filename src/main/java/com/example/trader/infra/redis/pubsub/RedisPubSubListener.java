@@ -14,6 +14,7 @@ import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
@@ -43,6 +44,14 @@ public class RedisPubSubListener implements MessageListener {
             log.info("[REDIS-INBOUND] type={}, subType={}, eventId={}",
                     envelope.getType(), envelope.getSubType(), envelope.getEventId());
             if (envelope.getType() == RealtimeType.RELIABLE) {
+                // 발행 → 수신 구간 lag 측정 (publishedAt이 없는 구버전 메시지는 skip)
+                if (envelope.getPublishedAt() != null) {
+                    long lagMs = System.currentTimeMillis() - envelope.getPublishedAt();
+                    meterRegistry.timer(
+                            "realtime.pubsub.reliable.latency",
+                            "subType", envelope.getSubType() == null ? "unknown" : envelope.getSubType().name()
+                    ).record(lagMs, TimeUnit.MILLISECONDS);
+                }
                 reliableInboundHandler.handle(envelope);
                 return;
             }

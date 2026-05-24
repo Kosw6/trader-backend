@@ -35,6 +35,12 @@ public class KafkaReliablePublisher{//DegradableReliablePublisher의 하위 구�
                 ? "default"
                 : envelope.getGraphId().toString();
 
-        kafkaTemplate.send(topic, key, envelope).get(1, TimeUnit.SECONDS);
+        // publishedAt이 없으면 kafkaTemplate.send 직전에 세팅
+        // envelope 생성 시점이 아닌 실제 발행 시점 기준으로 lag 측정
+        RealtimeEnvelope stamped = envelope.getPublishedAt() != null
+                ? envelope
+                : envelope.toBuilder().publishedAt(System.currentTimeMillis()).build();
+
+        kafkaTemplate.send(topic, key, stamped).get(1, TimeUnit.SECONDS);
     }
 }

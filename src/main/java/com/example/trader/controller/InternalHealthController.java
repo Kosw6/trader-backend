@@ -1,21 +1,32 @@
 package com.example.trader.controller;
 
-import org.springframework.http.ResponseEntity;
+import com.example.trader.server.ServerStateManager;
+import java.util.Map;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 인스턴스 간 HTTP relay health check 전용 엔드포인트.
- * DefaultHttpHealthChecker가 REALTIME_HTTP_HEALTH_URL로 폴링하며 HTTP relay 활성 여부를 판단한다.
- * /internal/** 경로는 SecurityConfig에서 permitAll 처리됨.
- */
 @RestController
 @RequestMapping("/internal")
+@RequiredArgsConstructor
 public class InternalHealthController {
 
+    private final ServerStateManager serverStateManager;
+
+    @Value("${INSTANCE_ID:unknown}")
+    private String instanceId;
+
     @GetMapping("/health")
-    public ResponseEntity<String> health() {
-        return ResponseEntity.ok("ok");
+    public Map<String, Object> health() {
+        return Map.of(
+                "instanceId", instanceId,
+                "serverType", "ws",
+                "up", serverStateManager.isUp(),
+                "ready", serverStateManager.isReady(),
+                "draining", serverStateManager.isDraining(),
+                "timestamp", System.currentTimeMillis()
+        );
     }
 }

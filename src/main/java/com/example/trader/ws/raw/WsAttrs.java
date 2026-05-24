@@ -10,4 +10,7 @@ public final class WsAttrs {
     public static final String NICKNAME = "nickName";
 
     public static final String SAFE_SESSION = "SAFE_SESSION";
+
+    public static final String GROUP_ID          = "groupId";
+    public static final String TARGET_INSTANCE_ID = "targetInstanceId";
 }

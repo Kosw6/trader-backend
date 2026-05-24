@@ -26,7 +26,12 @@ public class RedisPubSubPublisher {
                     envelope.getGraphId()
             );
 
-            String message = objectMapper.writeValueAsString(envelope);
+            // publishedAt이 없으면 최초 발행 시점 기록
+            RealtimeEnvelope stamped = envelope.getPublishedAt() != null
+                    ? envelope
+                    : envelope.toBuilder().publishedAt(System.currentTimeMillis()).build();
+
+            String message = objectMapper.writeValueAsString(stamped);
             stringRedisTemplate.convertAndSend(channel, message);
 
         } catch (JsonProcessingException e) {

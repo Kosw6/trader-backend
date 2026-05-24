@@ -1,5 +1,8 @@
 package com.example.trader.realtime;
 
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -8,9 +11,31 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class RealtimeHealthState {
 
     private final AtomicBoolean kafkaAvailable = new AtomicBoolean(false);
-    private final AtomicBoolean grpcAvailable = new AtomicBoolean(false);
-    private final AtomicBoolean httpAvailable = new AtomicBoolean(false);
+    private final AtomicBoolean grpcAvailable  = new AtomicBoolean(false);
+    private final AtomicBoolean httpAvailable  = new AtomicBoolean(false);
     private final AtomicBoolean redisAvailable = new AtomicBoolean(false);
+
+    private final MeterRegistry meterRegistry;
+
+    public RealtimeHealthState(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
+
+    @PostConstruct
+    public void registerMetrics() {
+        Gauge.builder("realtime_health_redis", redisAvailable, b -> b.get() ? 1.0 : 0.0)
+             .description("Redis 연결 상태 (1=UP, 0=DOWN)")
+             .register(meterRegistry);
+        Gauge.builder("realtime_health_kafka", kafkaAvailable, b -> b.get() ? 1.0 : 0.0)
+             .description("Kafka 연결 상태 (1=UP, 0=DOWN)")
+             .register(meterRegistry);
+        Gauge.builder("realtime_health_grpc", grpcAvailable, b -> b.get() ? 1.0 : 0.0)
+             .description("gRPC relay 상태 (1=UP, 0=DOWN)")
+             .register(meterRegistry);
+        Gauge.builder("realtime_health_http", httpAvailable, b -> b.get() ? 1.0 : 0.0)
+             .description("HTTP relay 상태 (1=UP, 0=DOWN)")
+             .register(meterRegistry);
+    }
 
     public boolean isKafkaAvailable() {
         return kafkaAvailable.get();

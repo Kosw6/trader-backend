@@ -1,5 +1,6 @@
 package com.example.trader.realtime.grpc;
 
+import com.example.trader.realtime.ReliablePropagationDedup;
 import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.inbound.VolatileInboundHandler;
 import com.example.trader.realtime.message.RealtimeEnvelope;
@@ -9,10 +10,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.grpc.stub.StreamObserver;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.server.service.GrpcService;
 
 import java.util.Map;
 
+@Slf4j
 @GrpcService
 @RequiredArgsConstructor
 public class RealtimeCommandGrpcService
@@ -21,6 +24,7 @@ public class RealtimeCommandGrpcService
     private final ObjectMapper objectMapper;
     private final ReliableInboundHandler reliableInboundHandler;
     private final VolatileInboundHandler volatileInboundHandler;
+    private final ReliablePropagationDedup propagationDedup;
     private final MeterRegistry meterRegistry;
 
     @Override
@@ -49,6 +53,10 @@ public class RealtimeCommandGrpcService
             ).increment();
 
             if (envelope.getType() == RealtimeType.RELIABLE) {
+                // ReliableInboundHandler.handle() 내부에서 WS 브로드캐스트 + markPropagated() 호출.
+                // gRPC 경유로 수신한 Reliable 이벤트도 dedup key가 기록되어
+                // Kafka consumer가 동일 eventId 수신 시 중복 재전파를 skip한다.
+                log.info("[GRPC-INBOUND] RELIABLE relay received. eventId={}, subType={}", envelope.getEventId(), envelope.getSubType());
                 reliableInboundHandler.handle(envelope);
             } else if (envelope.getType() == RealtimeType.VOLATILE) {
                 volatileInboundHandler.handle(envelope);

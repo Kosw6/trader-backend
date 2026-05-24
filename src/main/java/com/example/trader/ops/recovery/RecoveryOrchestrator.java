@@ -1,9 +1,13 @@
 package com.example.trader.ops.recovery;
 
 import com.example.trader.server.ServerStateManager;
+import com.netflix.appinfo.ApplicationInfoManager;
+import com.netflix.appinfo.InstanceInfo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 @Slf4j
@@ -17,6 +21,13 @@ public class RecoveryOrchestrator {
     private final RecoveryReadinessManager recoveryReadinessManager;
     private final ServerStateManager serverStateManager;
     private final ReplayStateTracker replayStateTracker;
+    private final ApplicationInfoManager applicationInfoManager;
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void onApplicationReady() {
+        log.info("[LIFECYCLE] application ready → starting broadcast mode");
+        startBroadcast();
+    }
 
     public void startBroadcast() {
         replayStateTracker.reset();
@@ -53,11 +64,13 @@ public class RecoveryOrchestrator {
 
     public void startDrain() {
         serverStateManager.markDraining(true);
+        applicationInfoManager.setInstanceStatus(InstanceInfo.InstanceStatus.OUT_OF_SERVICE);
         log.info("[LIFECYCLE] drain started state={}", serverStateManager.snapshot());
     }
 
     public void stopDrain() {
         serverStateManager.markDraining(false);
+        applicationInfoManager.setInstanceStatus(InstanceInfo.InstanceStatus.UP);
         log.info("[LIFECYCLE] drain stopped state={}", serverStateManager.snapshot());
     }
 }

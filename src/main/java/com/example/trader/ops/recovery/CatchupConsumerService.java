@@ -2,7 +2,6 @@ package com.example.trader.ops.recovery;
 
 import com.example.trader.infra.redis.pubsub.RedisPubSubPublisher;
 import com.example.trader.realtime.message.RealtimeEnvelope;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.ListOffsetsResult;
@@ -10,6 +9,7 @@ import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.ConsumerFactory;
@@ -24,7 +24,6 @@ import java.util.Map;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 @ConditionalOnProperty(name = "app.mode", havingValue = "multi")
 public class CatchupConsumerService {
 
@@ -35,7 +34,20 @@ public class CatchupConsumerService {
     private final ReplayStateTracker replayStateTracker;
     private final RecoveryReadinessManager recoveryReadinessManager;
     private final BroadcastConsumerService broadcastConsumerService;
-    private final RedisPubSubPublisher redisPubSubPublisher;
+    private final ObjectProvider<RedisPubSubPublisher> redisPubSubPublisher;
+
+    public CatchupConsumerService(
+            ConsumerFactory<String, RealtimeEnvelope> consumerFactory,
+            ReplayStateTracker replayStateTracker,
+            RecoveryReadinessManager recoveryReadinessManager,
+            BroadcastConsumerService broadcastConsumerService,
+            ObjectProvider<RedisPubSubPublisher> redisPubSubPublisher) {
+        this.consumerFactory = consumerFactory;
+        this.replayStateTracker = replayStateTracker;
+        this.recoveryReadinessManager = recoveryReadinessManager;
+        this.broadcastConsumerService = broadcastConsumerService;
+        this.redisPubSubPublisher = redisPubSubPublisher;
+    }
 
     @Value("${spring.kafka.bootstrap-servers:localhost:9092}")
     private String bootstrapServers;
@@ -92,7 +104,12 @@ public class CatchupConsumerService {
                             envelope != null ? envelope.getGraphId() : null);
 
                     if (envelope != null) {
-                        redisPubSubPublisher.publish(envelope);
+                        RedisPubSubPublisher publisher = redisPubSubPublisher.getIfAvailable();
+                        if (publisher != null) {
+                            publisher.publish(envelope);
+                        } else {
+                            log.warn("[CATCHUP] RedisPubSubPublisher not available (pubsub disabled), skip publish. subType={}", envelope.getSubType());
+                        }
                     }
 
                     replayStateTracker.onReplay(record.partition(), record.offset());

@@ -1,13 +1,18 @@
 package com.example.trader.infra.kafka;
 
-import com.example.trader.realtime.RealtimeEventDeduplicator;
+import com.example.trader.realtime.ReliablePropagationDedup;
+import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.message.RealtimeEnvelope;
+import com.example.trader.realtime.message.RealtimeType;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
@@ -16,39 +21,73 @@ import org.springframework.stereotype.Component;
 public class KafkaConsumer {
 
     /**
-     * Kafka 소비 역할 변경: 실시간 전파 → 이벤트 로그 수신 확인
+     * Kafka consumer 역할: Reliable 이벤트 누락 보정 경로.
      *
-     * [이전 역할] Kafka 소비 → Redis Pub/Sub 재발행 → WebSocket broadcast
-     * [현재 역할] Kafka 소비 → 이벤트 수신 확인 (감사 로그, 향후 팬아웃 확장 지점)
+     * <p>Redis Pub/Sub은 fire-and-forget 구조이므로 서버 다운·순간 단절 구간에서
+     * Reliable 이벤트가 누락될 수 있다.
+     * Kafka는 이 누락을 보정하는 2차 경로로 동작한다.
      *
-     * 실시간 전파는 DegradableReliablePublisher에서 Redis Pub/Sub으로 직접 처리한다.
-     * Kafka는 이벤트 저장 및 복구 용도이므로 consumer가 Redis로 재발행할 필요가 없다.
+     * <p>동작 흐름:
+     * <pre>
+     * Kafka consumer 수신
+     *   → processed:reliable:{instanceId}:{eventId} 확인
+     *   → key 있음: Redis Pub/Sub으로 이미 전파됨 → skip
+     *   → key 없음: 누락된 이벤트 → WS 재전파 + dedup key 기록
+     * </pre>
      *
-     * Outbox 재발행 시 중복 수신 방지를 위해 eventId 기반 dedup 처리는 유지한다.
+     * <p>groupId는 서버별 고유 ID를 사용한다.
+     * 공통 groupId 사용 시 partition 분배로 인해 각 서버가 전체 이벤트를
+     * 수신하지 못해 누락 보정이 불가능해진다.
      */
 
-    private final RealtimeEventDeduplicator deduplicator;
+    private final ReliablePropagationDedup propagationDedup;
+    private final ReliableInboundHandler reliableInboundHandler;
     private final MeterRegistry meterRegistry;
 
     @KafkaListener(
             topics = "${realtime.kafka.topic:canvas-events}",
-            groupId = "${realtime.kafka.group-id:canvas-broadcast-group}",
+            groupId = "reliable-replay-${app.instance-id:local}",
             containerFactory = "kafkaListenerContainerFactory"
     )
-    public void consume(RealtimeEnvelope envelope) {
+    public void consume(ConsumerRecord<String, RealtimeEnvelope> record) {
+        RealtimeEnvelope envelope = record.value();
+
         if (envelope.getEventId() == null) {
             log.warn("[KAFKA-CONSUMER] eventId null, skipping. subType={}", envelope.getSubType());
             meterRegistry.counter("realtime.kafka.consume", "result", "skip_no_id").increment();
             return;
         }
 
-        if (deduplicator.isDuplicate(envelope.getEventId())) {
-            meterRegistry.counter("realtime.kafka.consume", "result", "duplicate").increment();
+        // VOLATILE 이벤트는 보정 대상 아님 (누락 허용)
+        if (envelope.getType() == RealtimeType.VOLATILE) {
+            meterRegistry.counter("realtime.kafka.consume", "result", "skip_volatile").increment();
             return;
         }
 
-        meterRegistry.counter("realtime.kafka.consume", "result", "received").increment();
-        log.info("[KAFKA-CONSUMER] event received. eventId={}, subType={}, graphId={}",
-                envelope.getEventId(), envelope.getSubType(), envelope.getGraphId());
+        // dedup 확인: 이 서버가 Redis Pub/Sub으로 이미 전파했으면 skip
+        if (propagationDedup.hasBeenPropagated(envelope.getEventId())) {
+            log.info("[KAFKA-CONSUMER] already propagated via pub/sub, skip. eventId={}", envelope.getEventId());
+            meterRegistry.counter("realtime.kafka.consume", "result", "skip_dedup").increment();
+            return;
+        }
+
+        // Redis Pub/Sub 누락 감지 → WS 재전파
+        // publishedAt 우선: 원본 발행 시점 기준 end-to-end lag
+        // 없으면 record.timestamp() fallback: Kafka 브로커 수신 시점 기준
+        long baseline = envelope.getPublishedAt() != null
+                ? envelope.getPublishedAt()
+                : record.timestamp();
+        long lagMs = System.currentTimeMillis() - baseline;
+        log.info("[KAFKA-CONSUMER] pub/sub miss detected. replaying. eventId={}, subType={}, graphId={}, lagMs={}",
+                envelope.getEventId(), envelope.getSubType(), envelope.getGraphId(), lagMs);
+
+        meterRegistry.counter("realtime.kafka.consume", "result", "replay").increment();
+        meterRegistry.timer(
+                "realtime.kafka.replay.latency",
+                "subType", envelope.getSubType() == null ? "unknown" : envelope.getSubType().name()
+        ).record(lagMs, TimeUnit.MILLISECONDS);
+
+        reliableInboundHandler.handle(envelope);
+        // handle() 내부에서 markPropagated() 호출됨
     }
 }

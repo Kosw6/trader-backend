@@ -6,6 +6,7 @@ import com.example.trader.security.oauth2.CustomOAuth2UserService;
 import com.example.trader.security.oauth2.OAuth2SuccessHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -43,6 +44,9 @@ public class SecurityConfig {
     private final JwtFilter jwtFilter;
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
 
+    @Value("${cors.allowed-origins:http://localhost:*}")
+    private List<String> allowedOrigins;
+
     // AuthenticationManager 빈을 설정하여 인증을 처리
     @Bean
     public AuthenticationManager authenticationManager(HttpSecurity http) throws Exception {
@@ -54,7 +58,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of("http://localhost:*"));
+        configuration.setAllowedOriginPatterns(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE","PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Requested-With","Access-Control-Request-Method","Access-Control-Request-Headers","Access-Control-Allow-Origin","Access-Control-Allow-Credentials"));
         configuration.setAllowCredentials(true);
