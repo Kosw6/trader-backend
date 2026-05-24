@@ -70,7 +70,9 @@ public class TeamService {
 
     @Transactional
     public void changeTeamRole(Long teamId, Long userId, TeamRole role){
-
+        UserTeam userTeam = utRepository.findAllByUserIdAndTeamId(userId, teamId)
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.INVALID_USER));
+        userTeam.changeRole(role); // OWNER는 변경 불가 (엔티티 내부에서 검증)
     }
 
     @Transactional

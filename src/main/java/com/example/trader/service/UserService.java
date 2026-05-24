@@ -17,20 +17,17 @@ import org.apache.commons.lang3.RandomStringUtils;
 @Transactional
 public class UserService {
     private final UserRepository userRepository;
-//    @Cacheable(cacheNames = "userById",key = "#userId",unless = "#result == null")
+
     @Transactional(readOnly = true)
     public User findUserByUserId(Long userId) {
         return userRepository.findById(userId).orElseThrow(()->{
             throw new BaseException(BaseResponseStatus.USER_NOT_FOUND);});
     }
-//    @Cacheable(cacheNames = "userByLoginId",key = "#loginId",unless = "#result == null")
+
     @Transactional(readOnly = true)
     public User findUserByLoginId(String loginId) {
         return userRepository.findByLoginId(loginId).orElseThrow();
     }
-//    public User findUserByEmail(String email) {
-//        return userRepository.findByEmail(email).orElseThrow();
-//    }
 
     public Long createUser(User user) {
         validateDuplicateUser(user);
@@ -58,13 +55,6 @@ public class UserService {
         }
         userRepository.deleteById(userId);
     }
-
-//    public User findUserByEmailAndProviderId(String email,String providerId){
-//        User user = userRepository.findByEmailAndProviderId(email, providerId).orElseThrow(() -> {
-//            throw new BaseException(BaseResponseStatus.NON_EXIST_USER);
-//        });
-//        return user;
-//    }
 
     public User upsertOAuthUser(String provider, String providerId, String email, String name) {
 

@@ -6,7 +6,6 @@ import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.repository.DirectoryRepository;
 import com.example.trader.repository.PageRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.crossstore.ChangeSetPersister;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,12 +24,6 @@ public class ContentCoordinator {
         return initQuery.loadAll(userId);
     }
 
-//    /** 디렉토리 수정 후 해당 디렉토리와 페이지 목록 재전달 */
-//    @Transactional
-//    public DirectoryWithPagesDto updateDirectoryAndReload(Long dirId, UpdateDirReq req, Long userId) {
-//        directoryService.updateDirectory(dirId, req, userId); // 권한/밸리데이션 포함
-//        return initQuery.reloadDirectoryWithPages(dirId, userId);
-//    }
     /**해당 디렉토리와 하위 재갱신*/
     @Transactional(readOnly = true)
     public DirectoryWithPagesDto loadDirectoryWithPages(Long dirId, Long userId){

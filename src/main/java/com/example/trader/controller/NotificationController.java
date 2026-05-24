@@ -25,9 +25,4 @@ public class NotificationController {
     public List<ResponseNotifycationDto> getReadAllNoti(@AuthenticationPrincipal UserContext user){
         return service.getNotifycationList(user.getUserDto().getId());
     }
-
-//    @GetMapping("/mark")
-//    public List<ResponseNotifycationDto> markNoty(@AuthenticationPrincipal UserContext user){
-//        return service.
-//    }
 }

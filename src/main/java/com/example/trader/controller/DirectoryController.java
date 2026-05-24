@@ -3,7 +3,6 @@ package com.example.trader.controller;
 
 import com.example.trader.dto.map.RequestDirectoryDto;
 import com.example.trader.dto.map.ResponseDirectoryDto;
-import com.example.trader.dto.map.UpdateDirReq;
 import com.example.trader.entity.User;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.security.service.SecurityService;
@@ -40,18 +39,5 @@ public class DirectoryController {
         return directoryService.getAllDirectoryByUserId(user.getUserDto().getId());
     }
 
-    /** 디렉토리 이름 수정*/
-    @PutMapping("/{id}")
-    public ResponseEntity<ResponseDirectoryDto> updateDirectory(@PathVariable Long id, @RequestBody UpdateDirReq dto, @AuthenticationPrincipal UserContext user) {
-        return ResponseEntity.ok(directoryService.updateDirectory(id, dto,user.getUserDto().getId()));
-    }
-    /** 디렉토리 삭제
-     * 명시적 코드
-     * 실제로는 ContentController사용
-     * */
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Long> deleteDirectory(@PathVariable Long id,@AuthenticationPrincipal UserContext user) {
-        directoryService.deleteDirectory(id,user.getUserDto().getId());
-        return ResponseEntity.noContent().build();
-    }
 }
+

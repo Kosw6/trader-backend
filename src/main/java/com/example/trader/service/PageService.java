@@ -82,12 +82,6 @@ public class PageService {
     public List<ResponsePageDto> getPages(Long userId){
         return pageRepository.findAllByUserId(userId).stream().map(this::toResponseDto).collect(Collectors.toList());
     }
-    @Transactional(readOnly = true)
-    public List<Long> findIdsByDirectory(Long dirId, Long userId) {
-        return pageRepository.findIdsByDirectory(dirId, userId);
-    }
-
-
     //페이지를 다른 디렉토리로 이동한다.
     public Long move(Long pageId, Long targetDirId, Long userId) {
         // 1. 페이지 조회 + 소유권 검증
