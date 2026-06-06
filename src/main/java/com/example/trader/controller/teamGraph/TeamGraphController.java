@@ -23,10 +23,9 @@ public class TeamGraphController {
     @GetMapping("/{graphId}")
     public ResponseEntity<ResponseGraphDto> getTeamGraph(
             @PathVariable Long teamId,
-            @PathVariable Long graphId,
-            @AuthenticationPrincipal UserContext context
+            @PathVariable Long graphId
     ) {
-        ResponseGraphDto dto = graphService.getTeamGraph(teamId, graphId, context.getUserDto().getId());
+        ResponseGraphDto dto = graphService.getTeamGraph(teamId, graphId);
         return ResponseEntity.ok(dto);
     }
 }

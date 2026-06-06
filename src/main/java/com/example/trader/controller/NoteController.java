@@ -23,6 +23,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
@@ -85,8 +86,8 @@ public class NoteController {
 
     @GetMapping("/{noteId}")
     @PreAuthorize("@securityService.canAccessNote(authentication, #noteId)")
-    public ResponseEntity findNoteByNoteId(@PathVariable Long noteId) {
-        Note note = noteService.findNoteById(noteId);
+    public ResponseEntity findNoteByNoteId(@PathVariable Long noteId,@AuthenticationPrincipal UserContext userDetails) {
+        Note note = noteService.findNoteById(userDetails.getUserDto().getId(), noteId);
         NoteDto noteDto = NoteDto.builder()
                 .id(noteId)
                 .teamId(note.getTeamId())
@@ -129,8 +130,8 @@ public class NoteController {
     @ApiResponse(responseCode = "200", description = "성공")
     @PutMapping("/update/{noteId}")
     @PreAuthorize("@securityService.canAccessNote(authentication, #noteId)")
-    public ResponseEntity updateNote(@Valid @RequestBody RequestNoteDto noteDto, @PathVariable Long noteId) {
-        Note note = noteService.findNoteById(noteId);
+    public ResponseEntity updateNote(@Valid @RequestBody RequestNoteDto noteDto, @PathVariable Long noteId,@AuthenticationPrincipal UserContext userDetails) {
+        Note note = noteService.findNoteById(userDetails.getUserDto().getId(), noteId);
         note.changeContent(noteDto.content());
         note.changestockSymb(noteDto.stockSymb());
         note.changeSubject(noteDto.subject());

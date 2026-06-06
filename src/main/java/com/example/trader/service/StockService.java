@@ -24,7 +24,7 @@ public class StockService {
     public List<Stock> getTimeSeriesData(LocalDateTime start, LocalDateTime end, String stockName) {
         OffsetDateTime from = toOffset(start);
         OffsetDateTime to   = toOffset(end);
-        return repository.findBySymbAndTimestampBetweenOrderByTimestampAsc(stockName, from, to).orElseThrow(()->new IllegalArgumentException(“존재하지 않는 주식명입니다.”));
+        return repository.findBySymbAndTimestampBetweenOrderByTimestampAsc(stockName, from, to).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 주식명입니다."));
     }
 
     @Transactional(readOnly = true)
@@ -33,7 +33,7 @@ public class StockService {
         List<Stock> rowsDesc = repository
                 .findBySymbAndTimestampLessThanEqualOrderByTimestampDesc(
                         stock, cursor, PageRequest.of(0, Math.max(count, 1))
-                ).orElseThrow(()->new IllegalArgumentException(“존재하지 않는 주식명입니다.”)).getContent();
+                ).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 주식명입니다.")).getContent();
         return rowsDesc;
     }
 
@@ -43,7 +43,7 @@ public class StockService {
         return repository
                 .findBySymbAndTimestampGreaterThanEqualOrderByTimestampAsc(
                         stock, cursor, PageRequest.of(0, Math.max(count, 1))
-                ).orElseThrow(()->new IllegalArgumentException("존재하지 않는 주식명입니다."))
+                ).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 주식명입니다."))
                 .getContent();
     }
 

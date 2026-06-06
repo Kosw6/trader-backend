@@ -29,16 +29,16 @@ public class GraphService {
     @Transactional(readOnly = true)
     public ResponseGraphDto getGraph(Long pageId, Long userId) {
         if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
-            throw new IllegalArgumentException("Page not found or no permission");
+            throw new BaseException(BaseResponseStatus.ACCESS_DENIED);
         }
 
         return graphCacheService.getCachedGraph(pageId);
     }
 
     @Transactional(readOnly = true)
-    public ResponseGraphDto getTeamGraph(Long teamId, Long graphId, Long userId) {
+    public ResponseGraphDto getTeamGraph(Long teamId, Long graphId) {
         if (!pageRepository.existsByIdAndDirectoryTeamId(graphId, teamId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+            throw new BaseException(BaseResponseStatus.ACCESS_DENIED);
         }
 
         return graphCacheService.getCachedGraph(graphId);

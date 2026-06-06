@@ -3,11 +3,12 @@ package com.example.trader.service;
 import com.example.trader.entity.Role;
 import com.example.trader.entity.User;
 import com.example.trader.exception.BaseException;
+import com.example.trader.httpresponse.BaseResponseStatus;
 import jakarta.transaction.Transactional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.junit.jupiter.api.BeforeEach;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -33,65 +34,79 @@ class UserServiceTest {
     }
 
     @Test
-    void findUserByUserId() {
-        User userByUserId = userService.findUserByUserId(1L);
-        assertThat(1L).isEqualTo(userByUserId.getId());
+    void findUserByUserId_존재하는유저_반환() {
+        Long userId = userService.createUser(testUser);
+
+        User found = userService.findUserByUserId(userId);
+
+        assertThat(found.getId()).isEqualTo(userId);
+        assertThat(found.getLoginId()).isEqualTo(testUser.getLoginId());
     }
 
     @Test
-    void createUser() {
-        Long userId = userService.createUser(testUser);
-        assertThat(testUser.getLoginId()).isEqualTo(userService.findUserByUserId(userId).getLoginId());
+    void findUserByUserId_없는ID_예외() {
+        assertThatThrownBy(() -> userService.findUserByUserId(99999L))
+                .isInstanceOf(BaseException.class)
+                .satisfies(e -> assertThat(((BaseException) e).getStatus())
+                        .isEqualTo(BaseResponseStatus.USER_NOT_FOUND));
     }
 
+    @Test
+    void createUser_정상저장() {
+        Long userId = userService.createUser(testUser);
+
+        assertThat(userId).isNotNull();
+        assertThat(userService.findUserByUserId(userId).getLoginId())
+                .isEqualTo(testUser.getLoginId());
+    }
+
+    @Test
+    void createUser_이메일_중복시_예외() {
+        userService.createUser(testUser);
+
+        assertThatThrownBy(() -> userService.createUser(testUser))
+                .isInstanceOf(BaseException.class)
+                .satisfies(e -> assertThat(((BaseException) e).getStatus())
+                        .isEqualTo(BaseResponseStatus.EXIST_EMAIL));
+    }
 
     @Test
     void deleteUser_정상삭제_이후조회시_예외() {
-        // given
-        User testUser = User.builder()
-                .email("delete@test.com")
-                .username("Delete Me")
-                .loginId("delete@test.com")
-                .password("pw")
-                .nickName("del")
-                .role(Role.USER)
-                .build();
         Long userId = userService.createUser(testUser);
 
-        // when
         userService.deleteUser(userId);
 
-        // then (삭제된 ID 재조회 시 예외가 나야 함 — 너희 서비스 구현에 맞춘 예외 타입으로 바꿔!)
         assertThatThrownBy(() -> userService.findUserByUserId(userId))
-                // 예: .isInstanceOf(UserNotFoundException.class);
-                .isInstanceOf(Exception.class); // 임시로 넓게
+                .isInstanceOf(BaseException.class)
+                .satisfies(e -> assertThat(((BaseException) e).getStatus())
+                        .isEqualTo(BaseResponseStatus.USER_NOT_FOUND));
     }
 
     @Test
     void deleteUser_없는ID_예외() {
-        // then (없는 ID 삭제 시 — 스프링 데이터 JPA 기본은 EmptyResultDataAccessException)
         assertThatThrownBy(() -> userService.deleteUser(99999L))
-                // 예: .isInstanceOf(EmptyResultDataAccessException.class);
-                .isInstanceOf(BaseException.class); // 임시로 넓게
-    }
-    @Test
-    void validateDuplicateUser(){
-        userService.createUser(testUser);
-        assertThatThrownBy(()->{userService.createUser(testUser);}).isInstanceOf(BaseException.class)
-                .hasFieldOrPropertyWithValue("status","INVALID_USER");
-    }
-    @Test
-    void updateUser(){
-        Long userId = userService.createUser(testUser);
-        User changedUser = User.builder().role(Role.USER)
-                .email("Changed")
-                .id(userId)
-                .loginId("Changed")
-                .password("Changed")
-                .nickName("Changed")
-                .username("Changed").build();
-        userService.updateUser(changedUser);
-        assertThat(userService.findUserByUserId(userId).getEmail()).isEqualTo("Changed");
+                .isInstanceOf(BaseException.class)
+                .satisfies(e -> assertThat(((BaseException) e).getStatus())
+                        .isEqualTo(BaseResponseStatus.USER_NOT_FOUND));
     }
 
+    @Test
+    void updateUser_정상변경() {
+        Long userId = userService.createUser(testUser);
+
+        User changedUser = User.builder()
+                .id(userId)
+                .email("changed@test.com")
+                .username("Changed")
+                .loginId("changedID")
+                .password("changedPW")
+                .nickName("changedNick")
+                .role(Role.USER)
+                .build();
+
+        userService.updateUser(changedUser);
+
+        assertThat(userService.findUserByUserId(userId).getEmail())
+                .isEqualTo("changed@test.com");
+    }
 }

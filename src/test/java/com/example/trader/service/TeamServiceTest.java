@@ -1,13 +1,11 @@
-package com.example.trader.application;
+package com.example.trader.service;
 
 import com.example.trader.dto.RequestTeamNameDto;
 import com.example.trader.entity.*;
 import com.example.trader.exception.BaseException;
 import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.repository.*;
-import com.example.trader.service.NotifycationService;
 
-import com.example.trader.service.TeamService;
 import com.example.trader.support.fixtures.TestFixtures;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

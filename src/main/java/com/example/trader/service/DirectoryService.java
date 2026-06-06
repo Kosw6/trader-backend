@@ -30,16 +30,16 @@ public class DirectoryService {
     private final UserTeamRepository userTeamRepository;
 
 
-    //유저 추가
     @Transactional
     public ResponseDirectoryDto createDirectory(RequestDirectoryDto dto, User user) {
-        boolean exists = directoryRepository.existsByIdAndUserId(dto.getParentId(), user.getId());
-        if(!exists){
-            throw new IllegalArgumentException("Parent directory not found");
-        }
         Directory parent = null;
-        //널값이나 0이 아니면 부모도 조회 널이거나 0이면 부모없이 생성
-        if (dto.getParentId() != null && dto.getParentId()!=0L) {
+
+        // parentId가 있을 때만 검증
+        if (dto.getParentId() != null && dto.getParentId() != 0L) {
+            boolean exists = directoryRepository.existsByIdAndUserId(dto.getParentId(), user.getId());
+            if (!exists) {
+                throw new IllegalArgumentException("Parent directory not found");
+            }
             parent = directoryRepository.findById(dto.getParentId())
                     .orElseThrow(() -> new IllegalArgumentException("Parent directory not found"));
         }
@@ -50,8 +50,7 @@ public class DirectoryService {
                 .parent(parent)
                 .build();
 
-        Directory saved = directoryRepository.save(directory);
-        return toResponseDto(saved);
+        return toResponseDto(directoryRepository.save(directory));
     }
 
     @Transactional(readOnly = true)
@@ -71,12 +70,13 @@ public class DirectoryService {
     public ResponseDirectoryDto updateDirectory(Long id, UpdateDirReq dto,Long userId) {
         Directory directory = directoryRepository.findByIdAndUserId(id,userId)
                 .orElseThrow(() -> new IllegalArgumentException("Directory not found"));
-        boolean exists = directoryRepository.existsByIdAndUserId(dto.parentId(), userId);
-        if(!exists){
-            throw new IllegalArgumentException("Parent directory not found");
-        }
+
         Directory parent = null;
-        if (dto.parentId() != null && dto.parentId() !=0L) {
+        if (dto.parentId() != null && dto.parentId() != 0L) {
+            boolean exists = directoryRepository.existsByIdAndUserId(dto.parentId(), userId);
+            if (!exists) {
+                throw new IllegalArgumentException("Parent directory not found");
+            }
             parent = directoryRepository.findById(dto.parentId())
                     .orElseThrow(() -> new IllegalArgumentException("Parent directory not found"));
         }
@@ -144,18 +144,18 @@ public class DirectoryService {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
 
-        boolean exists = directoryRepository.existsByIdAndTeamId(dto.parentId(),teamId);
-        if(!exists){
-            throw new IllegalArgumentException("Parent directory not found");
-        }
         Directory parent = null;
-        if (dto.parentId() != null && dto.parentId() !=0L) {
+        if (dto.parentId() != null && dto.parentId() != 0L) {
+            boolean exists = directoryRepository.existsByIdAndTeamId(dto.parentId(), teamId);
+            if (!exists) {
+                throw new IllegalArgumentException("Parent directory not found");
+            }
             parent = directoryRepository.findById(dto.parentId())
                     .orElseThrow(() -> new IllegalArgumentException("Parent directory not found"));
         }
 
         dir.setParent(parent);
-        dir.rename(dto.name()); // 너 기존 스타일대로
+        dir.rename(dto.name());
         return ResponseDirectoryDto.ofDto(dir);
     }
 

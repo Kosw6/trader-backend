@@ -30,13 +30,13 @@ public class EdgeService {
     @Transactional
     public ResponseEdgeDto createTeamEdge(Long teamId, Long graphId, RequestEdgeDto dto) {
         if (!pageRepository.existsByIdAndDirectoryTeamId(graphId, teamId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+            throw new BaseException(BaseResponseStatus.ACCESS_DENIED);
         }
 
         Node source = nodeRepository.findTeamNode(dto.getSourceId(), graphId, teamId)
-                .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.ACCESS_DENIED));
         Node target = nodeRepository.findTeamNode(dto.getTargetId(), graphId, teamId)
-                .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.ACCESS_DENIED));
 
         if (edgeRepository.existsInPageBySourceTarget(graphId, dto.getSourceId(), dto.getTargetId())) {
             throw new IllegalArgumentException("sourceNode and targetNode edge already exist in this graph");
@@ -66,12 +66,12 @@ public class EdgeService {
     @Transactional
     public ResponseEdgeDto updateTeamEdge(Long teamId, Long graphId, Long edgeId, RequestEdgeDto dto) {
         Edge toDelete = edgeRepository.findByIdInTeamGraph(edgeId, graphId, teamId)
-                .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.ACCESS_DENIED));
 
         Node source = nodeRepository.findTeamNode(dto.getSourceId(), graphId, teamId)
-                .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.ACCESS_DENIED));
         Node target = nodeRepository.findTeamNode(dto.getTargetId(), graphId, teamId)
-                .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.ACCESS_DENIED));
 
         if (edgeRepository.existsInPageBySourceTarget(graphId, dto.getSourceId(), dto.getTargetId())
                 && !(toDelete.getSource().getId().equals(dto.getSourceId())
@@ -106,7 +106,7 @@ public class EdgeService {
     @Transactional
     public void deleteTeamEdge(Long teamId, Long graphId, Long edgeId) {
         Edge edge = edgeRepository.findByIdInTeamGraph(edgeId, graphId, teamId)
-                .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.ACCESS_DENIED));
 
         edgeRepository.delete(edge);
         graphCacheService.evictGraph(graphId);
@@ -120,7 +120,7 @@ public class EdgeService {
     public ResponseEdgeDto createEdge(RequestEdgeDto dto, Long pageId, Long userId) {
         // 1) page 소유권 체크
         if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+            throw new BaseException(BaseResponseStatus.ACCESS_DENIED);
         }
 
         // 2) source / target 조회
@@ -131,7 +131,7 @@ public class EdgeService {
 
         // 3) source / target 이 둘 다 해당 page에 속하는지 검증
         if (!source.getPage().getId().equals(pageId) || !target.getPage().getId().equals(pageId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+            throw new BaseException(BaseResponseStatus.ACCESS_DENIED);
         }
 
         // 4) 같은 page 안에서만 중복 edge 체크
@@ -164,7 +164,7 @@ public class EdgeService {
     public ResponseEdgeDto updateEdge(Long edgeId, RequestEdgeDto dto, Long pageId, Long userId) {
         // 1) page 소유권 체크
         if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+            throw new BaseException(BaseResponseStatus.ACCESS_DENIED);
         }
 
         // 2) 기존 edge가 해당 page에 속하는지 확인
@@ -172,7 +172,7 @@ public class EdgeService {
                 .orElseThrow(() -> new IllegalArgumentException("Edge not found"));
 
         if (!toDelete.getPage().getId().equals(pageId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+            throw new BaseException(BaseResponseStatus.ACCESS_DENIED);
         }
 
         // 3) 새 source / target 검증
@@ -182,7 +182,7 @@ public class EdgeService {
                 .orElseThrow(() -> new IllegalArgumentException("targetNode not found"));
 
         if (!source.getPage().getId().equals(pageId) || !target.getPage().getId().equals(pageId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+            throw new BaseException(BaseResponseStatus.ACCESS_DENIED);
         }
 
         // 4) 자기 자신 제외 중복 체크
@@ -220,7 +220,7 @@ public class EdgeService {
     public void deleteEdge(Long pageId, Long edgeId, Long userId) {
         // 1) page 소유권 체크
         if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+            throw new BaseException(BaseResponseStatus.ACCESS_DENIED);
         }
 
         // 2) edge가 해당 page에 속하는지 확인
@@ -228,7 +228,7 @@ public class EdgeService {
                 .orElseThrow(() -> new IllegalArgumentException("Edge not found"));
 
         if (!edge.getPage().getId().equals(pageId)) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+            throw new BaseException(BaseResponseStatus.ACCESS_DENIED);
         }
 
         edgeRepository.delete(edge);
