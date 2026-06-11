@@ -45,5 +45,5 @@ out/
 .idea/
 *.iml
 application.yml.env
-.yml
+*.yml
 k6/outputs/*.json
