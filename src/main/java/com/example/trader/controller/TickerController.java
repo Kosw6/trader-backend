@@ -4,10 +4,6 @@ import com.example.trader.dto.TickerDto;
 import com.example.trader.service.TickerService;
 import io.swagger.v3.oas.annotations.Parameter;
 import lombok.RequiredArgsConstructor;
-import org.springdoc.core.annotations.ParameterObject;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,7 +21,6 @@ public class TickerController {
     @GetMapping(params = {"q"})
     public ResponseEntity<List<TickerDto>> suggestTicker(@Parameter(name = "ticker", example = "TSLA") @RequestParam String q){
         if (q.length()<2) return ResponseEntity.ok(List.of());
-        List list = tickerService.suggestTicker(q);
-        return ResponseEntity.ok(list);
+        return ResponseEntity.ok(tickerService.suggestTicker(q));
     }
 }

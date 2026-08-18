@@ -2,6 +2,8 @@ package com.example.trader.controller.teamGraph;
 
 import com.example.trader.common.interceptor.TeamMemberRequired;
 import com.example.trader.dto.UpdateNodePositionReq;
+import com.example.trader.dto.canvas.DraftAutosaveReq;
+import com.example.trader.dto.canvas.EditSessionDto;
 import com.example.trader.dto.canvas.EditStartReq;
 import com.example.trader.dto.map.RequestNodeDto;
 import com.example.trader.dto.map.ResponseNodeDto;
@@ -82,8 +84,6 @@ public class TeamNodesController {
                     dto
             );
 
-            editSessionService.endEditSession(teamId, graphId, nodeId, userId);
-
             return ResponseEntity.ok(result);
 
         } catch (NodeConflictException ex) {
@@ -132,7 +132,7 @@ public class TeamNodesController {
             @PathVariable Long teamId,
             @PathVariable Long graphId,
             @PathVariable Long nodeId,
-            @RequestBody RequestNodeDto dto,
+            @RequestBody DraftAutosaveReq req,
             @AuthenticationPrincipal UserContext context
     ) {
         Long userId = context.getUserDto().getId();
@@ -142,8 +142,9 @@ public class TeamNodesController {
                 graphId,
                 nodeId,
                 userId,
-                dto,
-                dto.getDirtyFields()
+                req.baseVersion() != null ? req.baseVersion() : 0,
+                req.draftData(),
+                req.dirtyFields() != null ? req.dirtyFields() : List.of()
         );
 
         if (!saved) {
@@ -151,6 +152,20 @@ public class TeamNodesController {
         }
 
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{nodeId}/draft")
+    public ResponseEntity<EditSessionDto> getDraft(
+            @PathVariable Long teamId,
+            @PathVariable Long graphId,
+            @PathVariable Long nodeId,
+            @AuthenticationPrincipal UserContext context
+    ) {
+        Long userId = context.getUserDto().getId();
+
+        return editSessionService.getEditSession(teamId, graphId, nodeId, userId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @GetMapping("/{nodeId}")

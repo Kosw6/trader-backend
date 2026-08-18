@@ -73,8 +73,16 @@ public class NodeEditSessionService {
         String key = editSessionKey(teamId, graphId, nodeId, userId);
 
         try {
+            EditSessionDto existing = getEditSession(teamId, graphId, nodeId, userId)
+                    .orElse(null);
+            boolean preserveDraft = existing != null && existing.draftData() != null;
+
             String json = objectMapper.writeValueAsString(
-                    new EditSessionDto(baseVersion, fields)
+                    new EditSessionDto(
+                            preserveDraft ? existing.baseVersion() : baseVersion,
+                            preserveDraft ? existing.fields() : fields,
+                            preserveDraft ? existing.draftData() : null
+                    )
             );
 
             if (!redisHealthState.isAvailable()) {
@@ -154,6 +162,8 @@ public class NodeEditSessionService {
     private void removeSession(Long teamId, Long graphId, Long nodeId, Long userId) {
         String key = editSessionKey(teamId, graphId, nodeId, userId);
 
+        localSessions.remove(key);
+
         if (!redisHealthState.isAvailable()) {
             removeSessionFallback(teamId, graphId, nodeId, userId, key, "redis_unavailable");
             return;
@@ -162,6 +172,10 @@ public class NodeEditSessionService {
         try {
             redis.delete(key);
             redisHealthState.markUp();
+
+            if (dbFallbackEnabled()) {
+                editSessionRepository.deleteById(new EditSessionId(teamId, graphId, nodeId, userId));
+            }
         } catch (Exception e) {
             redisHealthState.markDown();
             removeSessionFallback(teamId, graphId, nodeId, userId, key, "redis_delete_failed");
@@ -187,14 +201,47 @@ public class NodeEditSessionService {
         try {
             String json = readSessionJson(key);
 
-            if (json == null) {
-                return Optional.empty();
+            if (json != null) {
+                return Optional.of(objectMapper.readValue(json, EditSessionDto.class));
             }
 
-            return Optional.of(objectMapper.readValue(json, EditSessionDto.class));
+            return readSessionFromDb(teamId, graphId, nodeId, userId);
 
         } catch (Exception e) {
             log.warn("[EditSession] getEditSession failed. key={}, reason={}", key, e.getMessage());
+            return readSessionFromDb(teamId, graphId, nodeId, userId);
+        }
+    }
+
+    private Optional<EditSessionDto> readSessionFromDb(Long teamId, Long graphId,
+                                                       Long nodeId, Long userId) {
+        if (!dbFallbackEnabled()) {
+            return Optional.empty();
+        }
+
+        try {
+            return editSessionRepository
+                    .findWithDirtyFieldsByTeamIdAndGraphIdAndNodeIdAndUserId(
+                            teamId, graphId, nodeId, userId)
+                    .map(entity -> {
+                        Object draftData = null;
+                        if (entity.getDraftData() != null && !entity.getDraftData().isBlank()) {
+                            try {
+                                draftData = objectMapper.readValue(entity.getDraftData(), Object.class);
+                            } catch (Exception e) {
+                                throw new IllegalStateException("Failed to deserialize DB draft", e);
+                            }
+                        }
+
+                        return new EditSessionDto(
+                                entity.getBaseVersion() != null ? entity.getBaseVersion() : 0,
+                                entity.getDirtyFields() != null ? entity.getDirtyFields() : List.of(),
+                                draftData
+                        );
+                    });
+        } catch (Exception e) {
+            log.warn("[EditSession-READ-DB-FAILED] nodeId={}, userId={}, reason={}",
+                    nodeId, userId, e.getMessage());
             return Optional.empty();
         }
     }
@@ -228,7 +275,7 @@ public class NodeEditSessionService {
     }
 
     public boolean saveDraft(Long teamId, Long graphId, Long nodeId, Long userId,
-                             Object draftData, List<String> dirtyFields) {
+                             int baseVersion, Object draftData, List<String> dirtyFields) {
 
         String key = editSessionKey(teamId, graphId, nodeId, userId);
 
@@ -251,7 +298,8 @@ public class NodeEditSessionService {
 
                 // Redis가 읽기 성공 후 쓰기 시점에 다운된 경우 → db fallback으로 즉시 전환
                 if (!redisHealthState.isAvailable() && dbFallbackEnabled()) {
-                    return saveDraftToDb(teamId, graphId, nodeId, userId, draftData, dirtyFields);
+                    return saveDraftToDb(teamId, graphId, nodeId, userId,
+                            baseVersion, draftData, dirtyFields);
                 }
 
                 return writeUpdatedDraft(key, updatedJson, nodeId, userId, dirtyFields);
@@ -259,7 +307,7 @@ public class NodeEditSessionService {
 
             if (localFallbackEnabled()) {
                 EditSessionDto created = new EditSessionDto(
-                        0,
+                        baseVersion,
                         dirtyFields != null ? dirtyFields : List.of(),
                         draftData
                 );
@@ -273,7 +321,8 @@ public class NodeEditSessionService {
             }
 
             if (dbFallbackEnabled()) {
-                return saveDraftToDb(teamId, graphId, nodeId, userId, draftData, dirtyFields);
+                return saveDraftToDb(teamId, graphId, nodeId, userId,
+                        baseVersion, draftData, dirtyFields);
             }
 
             log.warn("[EditSession-AUTOSAVE-SKIPPED] fallbackMode=off, key={}, nodeId={}, userId={}",
@@ -340,7 +389,7 @@ public class NodeEditSessionService {
     }
 
     private boolean saveDraftToDb(Long teamId, Long graphId, Long nodeId, Long userId,
-                                  Object draftData, List<String> dirtyFields) {
+                                  int baseVersion, Object draftData, List<String> dirtyFields) {
         try {
             EditSessionId id = new EditSessionId(teamId, graphId, nodeId, userId);
 
@@ -353,7 +402,7 @@ public class NodeEditSessionService {
                                 .graphId(graphId)
                                 .nodeId(nodeId)
                                 .userId(userId)
-                                .baseVersion(0)
+                                .baseVersion(baseVersion)
                                 .build();
                     });
 

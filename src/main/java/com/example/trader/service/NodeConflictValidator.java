@@ -139,6 +139,14 @@ public class NodeConflictValidator {
      * NodeService에서 changedFields 계산 시에도 재사용.
      */
     public List<String> extractChangedFields(RequestNodeDto req) {
+        if (req.getDirtyFields() != null) {
+            return req.getDirtyFields().stream()
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .filter(field -> hasIncomingValue(req, field))
+                    .toList();
+        }
+
         List<String> fields = new ArrayList<>();
         if (req.getSubject()    != null) fields.add("subject");
         if (req.getContent()    != null) fields.add("content");
@@ -146,6 +154,17 @@ public class NodeConflictValidator {
         if (req.getRecordDate() != null) fields.add("recordDate");
         if (!req.isNoteIdsOmitted())     fields.add("noteIds");
         return fields;
+    }
+
+    private boolean hasIncomingValue(RequestNodeDto req, String field) {
+        return switch (field) {
+            case "subject" -> req.getSubject() != null;
+            case "content" -> req.getContent() != null;
+            case "symb" -> req.getSymb() != null;
+            case "recordDate" -> req.getRecordDate() != null;
+            case "noteIds" -> !req.isNoteIdsOmitted();
+            default -> false;
+        };
     }
 
     // ── private helpers ───────────────────────────────────────────────────────

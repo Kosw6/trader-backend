@@ -1,11 +1,15 @@
 package com.example.trader.dto;
 
-import com.example.trader.entity.Ticker;
-import lombok.Builder;
-import lombok.Data;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-
-
-public record TickerDto(String symb, String name, String eName) {
+/**
+ * stock_info 검색 결과를 신규 Asset 식별자로 연결한 자동완성 응답.
+ */
+public record TickerDto(
+        Long assetId,
+        String ticker,
+        String name,
+        String englishName,
+        String exchange,
+        String currency,
+        String assetType
+) {
 }

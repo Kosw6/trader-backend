@@ -8,7 +8,7 @@ import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.service.NodeConflictValidator;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,8 +38,7 @@ class NodeConflictValidatorTest {
     @Mock NodeEditSessionService editSessionService;
     @Mock NodeHistoryRepository  nodeHistoryRepository;
     @Mock Node                   node;
-    @Mock
-    MeterRegistry meterRegistry;
+    final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     // 실제 ObjectMapper 사용 (JSON 파싱 로직 검증 포함)
     final ObjectMapper objectMapper = new ObjectMapper();
@@ -199,6 +198,17 @@ class NodeConflictValidatorTest {
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
         assertThat(result.conflictingFields()).containsExactly("subject");
+    }
+
+    @Test
+    @DisplayName("명시한 dirtyFields만 변경 필드로 판단")
+    void extract_changed_fields_prefers_explicit_dirty_fields() {
+        RequestNodeDto req = new RequestNodeDto();
+        req.setSubject("새 제목");
+        req.setContent("화면 DTO에 함께 들어왔지만 수정하지 않은 내용");
+        req.setDirtyFields(List.of("subject"));
+
+        assertThat(validator.extractChangedFields(req)).containsExactly("subject");
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────

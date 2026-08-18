@@ -12,14 +12,23 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TickerService {
     private final TickerRepository repository;
+
     @Transactional(readOnly = true)
-    public List suggestTicker(String ticker){
-        var rows = repository.suggestFuzzy(ticker, 10);
-        List<TickerDto> tickerDtos = rows.stream().map(r -> new TickerDto(
-                (String) r[0],                     // symbol
-                (String) r[1],                     // name_ko
-                (String) r[2]                     // name_en
+    public List<TickerDto> suggestTicker(String query) {
+        String normalized = query == null ? "" : query.trim();
+        if (normalized.length() < 2) {
+            return List.of();
+        }
+
+        var rows = repository.suggestFuzzy(normalized, 10);
+        return rows.stream().map(row -> new TickerDto(
+                ((Number) row[0]).longValue(),
+                (String) row[1],
+                (String) row[2],
+                (String) row[3],
+                (String) row[4],
+                (String) row[5],
+                (String) row[6]
         )).toList();
-        return tickerDtos;
     }
 }
