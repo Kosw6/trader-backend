@@ -5,7 +5,7 @@ import com.example.trader.dto.canvas.VersionHintDto;
 import com.example.trader.entity.EditSessionEntity;
 import com.example.trader.entity.EditSessionId;
 import com.example.trader.infra.redis.RedisHealthState;
-import com.example.trader.realtime.RealtimePublisher;
+import com.example.trader.realtime.LiveRealtimePublisher;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeSubType;
 import com.example.trader.realtime.message.RealtimeType;
@@ -35,7 +35,7 @@ public class NodeEditSessionService {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final EditSessionRepository editSessionRepository;
-    private final RealtimePublisher realtimePublisher;
+    private final LiveRealtimePublisher liveRealtimePublisher;
     private final RedisHealthState redisHealthState;
     private final MeterRegistry meterRegistry;
 
@@ -565,7 +565,7 @@ public class NodeEditSessionService {
                 payload.put("fields", fields);
             }
 
-            realtimePublisher.publish(
+            liveRealtimePublisher.publishTransient(
                     RealtimeEnvelope.builder()
                             .type(RealtimeType.TRANSIENT)
                             .subType(subType)

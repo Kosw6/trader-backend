@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "app.mode", havingValue = "multi")
-public class MultiRealtimePublisher implements RealtimePublisher {
+public class MultiRealtimePublisher implements LiveRealtimePublisher {
 
     private final RawPresenceBroadcaster broadcaster;
     private final ObjectMapper objectMapper;
@@ -30,9 +30,23 @@ public class MultiRealtimePublisher implements RealtimePublisher {
     private String instanceId;
 
     @Override
-    public void publish(RealtimeEnvelope envelope) {
-        if (envelope.getType() == com.example.trader.realtime.message.RealtimeType.RELIABLE) {
-            throw new IllegalArgumentException("RELIABLE events must be staged through the transactional outbox");
+    public void publishTransient(RealtimeEnvelope envelope) {
+        publishLive(envelope, com.example.trader.realtime.message.RealtimeType.TRANSIENT);
+    }
+
+    @Override
+    public void publishVolatile(RealtimeEnvelope envelope) {
+        publishLive(envelope, com.example.trader.realtime.message.RealtimeType.VOLATILE);
+    }
+
+    private void publishLive(
+            RealtimeEnvelope envelope,
+            com.example.trader.realtime.message.RealtimeType expectedType
+    ) {
+        if (envelope.getType() != expectedType) {
+            throw new IllegalArgumentException(
+                    "Expected " + expectedType + " event but got " + envelope.getType()
+            );
         }
 
         RealtimeEnvelope event = envelope.ensureEventId().ensureOriginInstanceId(instanceId);

@@ -1,6 +1,6 @@
 package com.example.trader.ws.raw;
 
-import com.example.trader.realtime.RealtimePublisher;
+import com.example.trader.realtime.LiveRealtimePublisher;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeSubType;
 import com.example.trader.realtime.message.RealtimeType;
@@ -25,7 +25,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
 
     private final CanvasSessionRegistry registry;
     private final ObjectMapper objectMapper;
-    private final RealtimePublisher realtimePublisher;
+    private final LiveRealtimePublisher liveRealtimePublisher;
     private final CanvasLockService lockService;
     private final WsCapacityManager capacityManager;
 
@@ -275,7 +275,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
     }
 
     private void publishTransient(RawCursorMessage msg) {
-        realtimePublisher.publish(
+        liveRealtimePublisher.publishTransient(
                 RealtimeEnvelope.builder()
                         .type(RealtimeType.TRANSIENT)
                         .subType(toRealtimeSubType(msg))
@@ -287,7 +287,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
     }
 
     private void publishVolatile(RawCursorMessage msg) {
-        realtimePublisher.publish(
+        liveRealtimePublisher.publishVolatile(
                 RealtimeEnvelope.builder()
                         .type(RealtimeType.VOLATILE)
                         .subType(toRealtimeSubType(msg))

@@ -19,39 +19,41 @@ import org.springframework.stereotype.Component;
         havingValue = "single",
         matchIfMissing = true
 )
-public class LocalRealtimePublisher implements RealtimePublisher {
+public class LocalRealtimePublisher implements LiveRealtimePublisher {
 
     private final RawPresenceBroadcaster broadcaster;
     private final ObjectMapper objectMapper;
     private final RealtimeLatestKeyResolver latestKeyResolver;
 
     @Override
-    public void publish(RealtimeEnvelope envelope) {
+    public void publishTransient(RealtimeEnvelope envelope) {
+        requireType(envelope, RealtimeType.TRANSIENT);
         String roomKey = "team:%d:graph:%d".formatted(
                 envelope.getTeamId(),
                 envelope.getGraphId()
         );
+        broadcaster.enqueueOrdered(roomKey, envelope);
+    }
 
-        if (envelope.getType() == RealtimeType.TRANSIENT) {
-            broadcaster.enqueueOrdered(roomKey, envelope);
-            return;
-        }
+    @Override
+    public void publishVolatile(RealtimeEnvelope envelope) {
+        requireType(envelope, RealtimeType.VOLATILE);
+        String roomKey = "team:%d:graph:%d".formatted(
+                envelope.getTeamId(),
+                envelope.getGraphId()
+        );
+        RawCursorMessage msg = objectMapper.convertValue(
+                envelope.getPayload(),
+                RawCursorMessage.class
+        );
+        broadcaster.publishLatest(roomKey, latestKeyResolver.resolve(msg), msg);
+    }
 
-        if (envelope.getType() == RealtimeType.VOLATILE) {
-            RawCursorMessage msg = objectMapper.convertValue(
-                    envelope.getPayload(),
-                    RawCursorMessage.class
+    private void requireType(RealtimeEnvelope envelope, RealtimeType expected) {
+        if (envelope.getType() != expected) {
+            throw new IllegalArgumentException(
+                    "Expected " + expected + " event but got " + envelope.getType()
             );
-
-            String latestKey = latestKeyResolver.resolve(msg);
-            broadcaster.publishLatest(roomKey, latestKey, msg);
-            return;
         }
-
-        if (envelope.getType() == RealtimeType.RELIABLE) {
-            throw new IllegalArgumentException("RELIABLE events must be staged through the transactional outbox");
-        }
-
-        throw new IllegalArgumentException("Unsupported realtime type: " + envelope.getType());
     }
 }

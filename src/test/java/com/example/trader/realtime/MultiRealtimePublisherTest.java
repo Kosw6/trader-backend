@@ -32,7 +32,7 @@ class MultiRealtimePublisherTest {
                 .payload("control")
                 .build();
 
-        fixture.publisher.publish(event);
+        fixture.publisher.publishTransient(event);
 
         verify(fixture.broadcaster).enqueueOrdered(
                 org.mockito.ArgumentMatchers.eq("team:1:graph:2"),
@@ -59,13 +59,13 @@ class MultiRealtimePublisherTest {
         doThrow(new IllegalStateException("local failed"))
                 .when(fixture.broadcaster).publishLatest(any(), any(), any());
 
-        fixture.publisher.publish(event);
+        fixture.publisher.publishVolatile(event);
 
         verify(fixture.redisPublisher).publish(any(RealtimeEnvelope.class));
     }
 
     @Test
-    void reliableMustUseTransactionalOutbox() {
+    void transientMethodRejectsReliableEvent() {
         Fixture fixture = fixture();
         RealtimeEnvelope event = RealtimeEnvelope.builder()
                 .type(RealtimeType.RELIABLE)
@@ -73,9 +73,9 @@ class MultiRealtimePublisherTest {
                 .graphId(2L)
                 .build();
 
-        assertThatThrownBy(() -> fixture.publisher.publish(event))
+        assertThatThrownBy(() -> fixture.publisher.publishTransient(event))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("transactional outbox");
+                .hasMessageContaining("Expected TRANSIENT");
 
         verify(fixture.broadcaster, never()).enqueueOrdered(any(), any());
         verify(fixture.redisPublisher, never()).publish(any());
