@@ -1,8 +1,8 @@
 package com.example.trader.realtime.propagation;
 
+import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeType;
-import com.example.trader.ws.raw.RawPresenceBroadcaster;
 import org.junit.jupiter.api.Test;
 
 import static org.mockito.Mockito.mock;
@@ -12,13 +12,13 @@ class SingleCommittedEventPropagatorTest {
 
     @Test
     void propagatesToLocalWebSocketWithoutExternalPublisher() {
-        RawPresenceBroadcaster broadcaster = mock(RawPresenceBroadcaster.class);
-        SingleCommittedEventPropagator propagator = new SingleCommittedEventPropagator(broadcaster);
+        ReliableInboundHandler reliableInboundHandler = mock(ReliableInboundHandler.class);
+        SingleCommittedEventPropagator propagator = new SingleCommittedEventPropagator(reliableInboundHandler);
         RealtimeEnvelope event = reliableEvent();
 
         propagator.propagate(event);
 
-        verify(broadcaster).enqueueOrdered("team:1:graph:2", event);
+        verify(reliableInboundHandler).handle(event);
     }
 
     private RealtimeEnvelope reliableEvent() {

@@ -1,6 +1,5 @@
 package com.example.trader.infra.kafka;
 
-import com.example.trader.realtime.ReliablePropagationDedup;
 import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeType;
@@ -28,17 +27,19 @@ public class KafkaConsumer {
      * <p>동작 흐름:
      * <pre>
      * Kafka consumer 수신
-     *   → processed:reliable:{instanceId}:{eventId} 확인
-     *   → key 있음: Redis Pub/Sub으로 이미 전파됨 → skip
-     *   → key 없음: 누락된 이벤트 → WS 재전파 + dedup key 기록
+     *   → 현재 서버의 로컬 eventId 캐시를 원자적으로 선점
+     *   → 선점 실패: 다른 경로에서 이미 로컬 전파됨 → skip
+     *   → 선점 성공: 누락된 이벤트 → WS 재전파
      * </pre>
+     *
+     * <p>중복 억제 캐시는 서버 재시작 시 사라지는 best-effort 상태다.
+     * 재접속 시 DB 스냅샷과 이벤트 version 검사가 최종 상태를 보호한다.
      *
      * <p>groupId는 서버별 고유 ID를 사용한다.
      * 공통 groupId 사용 시 partition 분배로 인해 각 서버가 전체 이벤트를
      * 수신하지 못해 누락 보정이 불가능해진다.
      */
 
-    private final ReliablePropagationDedup propagationDedup;
     private final ReliableInboundHandler reliableInboundHandler;
 
     @KafkaListener(
@@ -59,9 +60,10 @@ public class KafkaConsumer {
             return;
         }
 
-        // dedup 확인: 이 서버가 Redis Pub/Sub으로 이미 전파했으면 skip
-        if (propagationDedup.hasBeenPropagated(envelope.getEventId())) {
-            log.info("[KAFKA-CONSUMER] already propagated via pub/sub, skip. eventId={}", envelope.getEventId());
+        boolean propagated = reliableInboundHandler.handle(envelope);
+        if (!propagated) {
+            log.debug("[KAFKA-CONSUMER] already propagated on this instance, skip. eventId={}",
+                    envelope.getEventId());
             return;
         }
 
@@ -72,10 +74,8 @@ public class KafkaConsumer {
                 ? envelope.getPublishedAt()
                 : record.timestamp();
         long lagMs = System.currentTimeMillis() - baseline;
-        log.info("[KAFKA-CONSUMER] pub/sub miss detected. replaying. eventId={}, subType={}, graphId={}, lagMs={}",
+        log.info("[KAFKA-CONSUMER] pub/sub miss recovered. eventId={}, subType={}, graphId={}, lagMs={}",
                 envelope.getEventId(), envelope.getSubType(), envelope.getGraphId(), lagMs);
 
-        reliableInboundHandler.handle(envelope);
-        // handle() 내부에서 markPropagated() 호출됨
     }
 }

@@ -1,6 +1,5 @@
 package com.example.trader.realtime.grpc;
 
-import com.example.trader.realtime.ReliablePropagationDedup;
 import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.inbound.VolatileInboundHandler;
 import com.example.trader.realtime.inbound.TransientInboundHandler;
@@ -25,7 +24,6 @@ public class RealtimeCommandGrpcService
     private final ReliableInboundHandler reliableInboundHandler;
     private final VolatileInboundHandler volatileInboundHandler;
     private final TransientInboundHandler transientInboundHandler;
-    private final ReliablePropagationDedup propagationDedup;
 
     @Override
     public void publishRealtimeEvent(
@@ -44,9 +42,7 @@ public class RealtimeCommandGrpcService
                     .payload(payload)
                     .build();
             if (envelope.getType() == RealtimeType.RELIABLE) {
-                // ReliableInboundHandler.handle() 내부에서 WS 브로드캐스트 + markPropagated() 호출.
-                // gRPC 경유로 수신한 Reliable 이벤트도 dedup key가 기록되어
-                // Kafka consumer가 동일 eventId 수신 시 중복 재전파를 skip한다.
+                // 모든 RELIABLE 수신 경로는 동일한 로컬 eventId 선점 계약을 사용한다.
                 log.info("[GRPC-INBOUND] RELIABLE relay received. eventId={}, subType={}", envelope.getEventId(), envelope.getSubType());
                 reliableInboundHandler.handle(envelope);
             } else if (envelope.getType() == RealtimeType.TRANSIENT) {

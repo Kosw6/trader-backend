@@ -1,6 +1,5 @@
 package com.example.trader.controller;
 
-import com.example.trader.realtime.ReliablePropagationDedup;
 import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.inbound.VolatileInboundHandler;
 import com.example.trader.realtime.inbound.TransientInboundHandler;
@@ -30,7 +29,6 @@ public class InternalRealtimeController {
     private final ReliableInboundHandler reliableInboundHandler;
     private final VolatileInboundHandler volatileInboundHandler;
     private final TransientInboundHandler transientInboundHandler;
-    private final ReliablePropagationDedup propagationDedup;
     private final MeterRegistry meterRegistry;
 
     @PostMapping("/events")
@@ -39,9 +37,7 @@ public class InternalRealtimeController {
             log.info("[HTTP-RELAY-INBOUND] type={}, eventId={}", envelope.getType(), envelope.getEventId());
 
             if (envelope.getType() == RealtimeType.RELIABLE) {
-                // ReliableInboundHandler.handle() 내부에서 WS 브로드캐스트 + markPropagated() 호출.
-                // HTTP relay 경유로 수신한 Reliable 이벤트도 dedup key가 기록되어
-                // Kafka consumer가 동일 eventId 수신 시 중복 재전파를 skip한다.
+                // 모든 RELIABLE 수신 경로는 동일한 로컬 eventId 선점 계약을 사용한다.
                 reliableInboundHandler.handle(envelope);
                 meterRegistry.counter(
                         "realtime.relay.inbound",

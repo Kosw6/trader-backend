@@ -2,9 +2,9 @@ package com.example.trader.realtime.propagation;
 
 import com.example.trader.infra.redis.RedisHealthState;
 import com.example.trader.infra.redis.pubsub.RedisPubSubPublisher;
+import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeType;
-import com.example.trader.ws.raw.RawPresenceBroadcaster;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -22,7 +22,7 @@ class MultiCommittedEventPropagatorTest {
 
         fixture.propagator.propagate(event);
 
-        verify(fixture.broadcaster).enqueueOrdered("team:1:graph:2", event);
+        verify(fixture.reliableInboundHandler).handle(event);
         verify(fixture.redisPublisher).publish(event);
     }
 
@@ -31,7 +31,7 @@ class MultiCommittedEventPropagatorTest {
         Fixture fixture = fixture();
         RealtimeEnvelope event = reliableEvent();
         doThrow(new IllegalStateException("local failed"))
-                .when(fixture.broadcaster).enqueueOrdered("team:1:graph:2", event);
+                .when(fixture.reliableInboundHandler).handle(event);
 
         fixture.propagator.propagate(event);
 
@@ -39,7 +39,7 @@ class MultiCommittedEventPropagatorTest {
     }
 
     private Fixture fixture() {
-        RawPresenceBroadcaster broadcaster = mock(RawPresenceBroadcaster.class);
+        ReliableInboundHandler reliableInboundHandler = mock(ReliableInboundHandler.class);
         RedisPubSubPublisher redisPublisher = mock(RedisPubSubPublisher.class);
         @SuppressWarnings("unchecked")
         ObjectProvider<RedisPubSubPublisher> provider = mock(ObjectProvider.class);
@@ -49,11 +49,11 @@ class MultiCommittedEventPropagatorTest {
 
         return new Fixture(
                 new MultiCommittedEventPropagator(
-                        broadcaster,
+                        reliableInboundHandler,
                         provider,
                         healthState
                 ),
-                broadcaster,
+                reliableInboundHandler,
                 redisPublisher
         );
     }
@@ -69,7 +69,7 @@ class MultiCommittedEventPropagatorTest {
 
     private record Fixture(
             MultiCommittedEventPropagator propagator,
-            RawPresenceBroadcaster broadcaster,
+            ReliableInboundHandler reliableInboundHandler,
             RedisPubSubPublisher redisPublisher
     ) {
     }

@@ -2,8 +2,8 @@ package com.example.trader.realtime.propagation;
 
 import com.example.trader.infra.redis.RedisHealthState;
 import com.example.trader.infra.redis.pubsub.RedisPubSubPublisher;
+import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.message.RealtimeEnvelope;
-import com.example.trader.ws.raw.RawPresenceBroadcaster;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "app.mode", havingValue = "multi")
 public class MultiCommittedEventPropagator implements CommittedEventPropagator {
 
-    private final RawPresenceBroadcaster broadcaster;
+    private final ReliableInboundHandler reliableInboundHandler;
     private final ObjectProvider<RedisPubSubPublisher> redisPublisher;
     private final RedisHealthState redisHealthState;
 
@@ -28,7 +28,7 @@ public class MultiCommittedEventPropagator implements CommittedEventPropagator {
 
     private void propagateLocal(RealtimeEnvelope envelope) {
         try {
-            broadcaster.enqueueOrdered(roomKey(envelope), envelope);
+            reliableInboundHandler.handle(envelope);
         } catch (Exception e) {
             log.warn("[REALTIME-LOCAL-AFTER-COMMIT-FAILED] eventId={}, reason={}",
                     envelope.getEventId(), e.getMessage());
@@ -55,7 +55,4 @@ public class MultiCommittedEventPropagator implements CommittedEventPropagator {
         }
     }
 
-    private String roomKey(RealtimeEnvelope envelope) {
-        return "team:%d:graph:%d".formatted(envelope.getTeamId(), envelope.getGraphId());
-    }
 }

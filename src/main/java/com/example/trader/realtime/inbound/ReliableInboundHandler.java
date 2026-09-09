@@ -1,6 +1,6 @@
 package com.example.trader.realtime.inbound;
 
-import com.example.trader.realtime.ReliablePropagationDedup;
+import com.example.trader.realtime.LocalReliableEventDeduplicator;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.ws.raw.RawPresenceBroadcaster;
 import lombok.RequiredArgsConstructor;
@@ -13,22 +13,29 @@ import org.springframework.stereotype.Component;
 public class ReliableInboundHandler {
 
     private final RawPresenceBroadcaster rawPresenceBroadcaster;
-    private final ReliablePropagationDedup propagationDedup;
+    private final LocalReliableEventDeduplicator deduplicator;
 
     /**
-     * Redis Pub/Sub 수신 경로.
-     * WS 브로드캐스트 후 이 서버가 해당 이벤트를 전파했음을 dedup key로 기록한다.
-     * Kafka consumer가 동일 eventId 수신 시 dedup key 확인 → skip.
+     * RELIABLE 이벤트의 모든 로컬 수신 경로에서 공통으로 사용한다.
+     * eventId를 먼저 원자적으로 선점하며, 큐 적재 실패 시 선점을 해제해 다른 경로의 복구를 허용한다.
      */
-    public void handle(RealtimeEnvelope envelope) {
+    public boolean handle(RealtimeEnvelope envelope) {
+        if (!deduplicator.tryClaim(envelope.getEventId())) {
+            log.debug("[RELIABLE-INBOUND] duplicate skipped. eventId={}", envelope.getEventId());
+            return false;
+        }
+
         String roomKey = "team:%d:graph:%d".formatted(
                 envelope.getTeamId(),
                 envelope.getGraphId()
         );
-        log.info("[RELIABLE-INBOUND] roomKey={}, eventId={}", roomKey, envelope.getEventId());
-        rawPresenceBroadcaster.enqueueOrdered(roomKey, envelope);
-
-        // Pub/Sub 전파 완료 → dedup key 기록 (Kafka consumer skip 기준)
-        propagationDedup.markPropagated(envelope.getEventId());
+        try {
+            log.info("[RELIABLE-INBOUND] roomKey={}, eventId={}", roomKey, envelope.getEventId());
+            rawPresenceBroadcaster.enqueueOrdered(roomKey, envelope);
+            return true;
+        } catch (RuntimeException e) {
+            deduplicator.release(envelope.getEventId());
+            throw e;
+        }
     }
 }

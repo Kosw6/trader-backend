@@ -3,7 +3,6 @@ package com.example.trader.infra.redis.pubsub;
 import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.inbound.VolatileInboundHandler;
 import com.example.trader.realtime.inbound.TransientInboundHandler;
-import com.example.trader.realtime.ReliablePropagationDedup;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeType;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,7 +29,6 @@ public class RedisPubSubListener implements MessageListener {
     private final ReliableInboundHandler reliableInboundHandler;
     private final VolatileInboundHandler volatileInboundHandler;
     private final TransientInboundHandler transientInboundHandler;
-    private final ReliablePropagationDedup propagationDedup;
     @Value("${app.instance-id:local}")
     private String instanceId;
 
@@ -42,18 +40,13 @@ public class RedisPubSubListener implements MessageListener {
             log.info("[REDIS-INBOUND] type={}, subType={}, eventId={}",
                     envelope.getType(), envelope.getSubType(), envelope.getEventId());
 
-            if (instanceId.equals(envelope.getOriginInstanceId())) {
+            if (envelope.getType() != RealtimeType.RELIABLE
+                    && instanceId.equals(envelope.getOriginInstanceId())) {
                 log.debug("[REDIS-INBOUND] origin loopback skipped. eventId={}", envelope.getEventId());
                 return;
             }
 
             if (envelope.getType() == RealtimeType.RELIABLE) {
-                if (propagationDedup.hasBeenPropagated(envelope.getEventId())) {
-                    log.info("[REDIS-INBOUND] already propagated on this instance, skip. eventId={}",
-                            envelope.getEventId());
-                    return;
-                }
-                // 발행 → 수신 구간 lag 측정 (publishedAt이 없는 구버전 메시지는 skip)
                 reliableInboundHandler.handle(envelope);
                 return;
             }
