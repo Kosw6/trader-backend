@@ -28,6 +28,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
     private final LiveRealtimePublisher liveRealtimePublisher;
     private final CanvasLockService lockService;
     private final WsCapacityManager capacityManager;
+    private final RawPresenceBroadcaster rawPresenceBroadcaster;
 
     private static final String TYPE_CURSOR  = "CURSOR";
     private static final String TYPE_DRAG    = "DRAG_PREVIEW";
@@ -41,6 +42,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
     private static final String SUB_LOCK_KEEPALIVE = "LOCK_KEEPALIVE";
     private static final String SUB_EDIT_START     = "EDIT_START";
     private static final String SUB_EDIT_END       = "EDIT_END";
+    private static final String SUB_TRANSIENT_SNAPSHOT_REQUEST = "TRANSIENT_SNAPSHOT_REQUEST";
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -70,6 +72,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             }
 
             registry.join(roomKey, safeSession);
+            sendDirect(safeSession, liveSnapshot(room));
 
         } catch (Exception e) {
             log.error("[RAW] afterConnectionEstablished failed session={} uri={}",
@@ -162,6 +165,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             case SUB_LOCK_ACQUIRE -> handleLockAcquire(session, room, msg, userId, nickName);
             case SUB_LOCK_RELEASE -> handleLockRelease(room, msg, userId, nickName);
             case SUB_LOCK_KEEPALIVE -> handleLockKeepalive(room, msg, userId);
+            case SUB_TRANSIENT_SNAPSHOT_REQUEST -> sendDirect(session, liveSnapshot(room));
             case SUB_EDIT_START, SUB_EDIT_END -> {
                 // REST 엔드포인트에서 처리하므로 WS 경로에서는 무시
             }
@@ -317,6 +321,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 case "LOCK_KEEPALIVE" -> RealtimeSubType.LOCK_KEEPALIVE;
                 case "EDIT_START" -> RealtimeSubType.EDIT_START;
                 case "EDIT_END" -> RealtimeSubType.EDIT_END;
+                case "TRANSIENT_SNAPSHOT_REQUEST" -> RealtimeSubType.CONTROL;
                 default -> RealtimeSubType.CONTROL;
             };
         }
@@ -324,7 +329,11 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         return RealtimeSubType.CONTROL;
     }
 
-    private void sendDirect(WebSocketSession session, RawCursorMessage msg) {
+    private Object liveSnapshot(RoomIds room) {
+        return rawPresenceBroadcaster.transientSnapshotEnvelope(room.teamId(), room.graphId());
+    }
+
+    private void sendDirect(WebSocketSession session, Object msg) {
         WebSocketSession safe = safeOf(session);
         if (!safe.isOpen()) return;
 

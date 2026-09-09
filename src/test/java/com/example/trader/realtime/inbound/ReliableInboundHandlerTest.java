@@ -26,7 +26,7 @@ class ReliableInboundHandlerTest {
         assertThat(handler.handle(event)).isTrue();
         assertThat(handler.handle(event)).isFalse();
 
-        verify(broadcaster, times(1)).enqueueOrdered("team:1:graph:2", event);
+        verify(broadcaster, times(1)).enqueueReliable("team:1:graph:2", event);
     }
 
     @Test
@@ -36,14 +36,14 @@ class ReliableInboundHandlerTest {
         RealtimeEnvelope event = event();
         doThrow(new IllegalStateException("queue full"))
                 .doNothing()
-                .when(broadcaster).enqueueOrdered("team:1:graph:2", event);
+                .when(broadcaster).enqueueReliable("team:1:graph:2", event);
 
         assertThatThrownBy(() -> handler.handle(event))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("queue full");
 
         assertThat(handler.handle(event)).isTrue();
-        verify(broadcaster, times(2)).enqueueOrdered("team:1:graph:2", event);
+        verify(broadcaster, times(2)).enqueueReliable("team:1:graph:2", event);
     }
 
     private ReliableInboundHandler handler(RawPresenceBroadcaster broadcaster) {

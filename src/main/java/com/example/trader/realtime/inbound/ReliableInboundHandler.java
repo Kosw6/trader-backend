@@ -31,7 +31,7 @@ public class ReliableInboundHandler {
         );
         try {
             log.info("[RELIABLE-INBOUND] roomKey={}, eventId={}", roomKey, envelope.getEventId());
-            rawPresenceBroadcaster.enqueueOrdered(roomKey, envelope);
+            rawPresenceBroadcaster.enqueueReliable(roomKey, envelope);
             return true;
         } catch (RuntimeException e) {
             deduplicator.release(envelope.getEventId());

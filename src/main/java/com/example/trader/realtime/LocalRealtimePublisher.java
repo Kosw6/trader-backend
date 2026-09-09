@@ -3,6 +3,7 @@ package com.example.trader.realtime;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeLatestKeyResolver;
 import com.example.trader.realtime.message.RealtimeType;
+import com.example.trader.realtime.snapshot.TransientRoomStateStore;
 import com.example.trader.ws.raw.RawPresenceBroadcaster;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,15 +25,17 @@ public class LocalRealtimePublisher implements LiveRealtimePublisher {
     private final RawPresenceBroadcaster broadcaster;
     private final ObjectMapper objectMapper;
     private final RealtimeLatestKeyResolver latestKeyResolver;
+    private final TransientRoomStateStore transientStateStore;
 
     @Override
     public void publishTransient(RealtimeEnvelope envelope) {
         requireType(envelope, RealtimeType.TRANSIENT);
+        RealtimeEnvelope event = transientStateStore.record(envelope.ensureEventId());
         String roomKey = "team:%d:graph:%d".formatted(
-                envelope.getTeamId(),
-                envelope.getGraphId()
+                event.getTeamId(),
+                event.getGraphId()
         );
-        broadcaster.enqueueOrdered(roomKey, envelope);
+        broadcaster.enqueueTransient(roomKey, event);
     }
 
     @Override

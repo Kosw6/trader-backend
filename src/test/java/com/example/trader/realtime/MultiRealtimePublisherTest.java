@@ -5,6 +5,7 @@ import com.example.trader.infra.redis.pubsub.RedisPubSubPublisher;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeLatestKeyResolver;
 import com.example.trader.realtime.message.RealtimeType;
+import com.example.trader.realtime.snapshot.TransientRoomStateStore;
 import com.example.trader.ws.raw.RawPresenceBroadcaster;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,7 +35,7 @@ class MultiRealtimePublisherTest {
 
         fixture.publisher.publishTransient(event);
 
-        verify(fixture.broadcaster).enqueueOrdered(
+        verify(fixture.broadcaster).enqueueTransient(
                 org.mockito.ArgumentMatchers.eq("team:1:graph:2"),
                 org.mockito.ArgumentMatchers.argThat(sent ->
                         sent.getEventId() != null && "ws-1".equals(sent.getOriginInstanceId()))
@@ -77,7 +78,7 @@ class MultiRealtimePublisherTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Expected TRANSIENT");
 
-        verify(fixture.broadcaster, never()).enqueueOrdered(any(), any());
+        verify(fixture.broadcaster, never()).enqueueTransient(any(), any());
         verify(fixture.redisPublisher, never()).publish(any());
     }
 
@@ -87,15 +88,19 @@ class MultiRealtimePublisherTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<RedisPubSubPublisher> provider = mock(ObjectProvider.class);
         RedisHealthState health = mock(RedisHealthState.class);
+        TransientRoomStateStore transientStateStore = mock(TransientRoomStateStore.class);
         when(provider.getIfAvailable()).thenReturn(redisPublisher);
         when(health.isAvailable()).thenReturn(true);
+        when(transientStateStore.record(any(RealtimeEnvelope.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         MultiRealtimePublisher publisher = new MultiRealtimePublisher(
                 broadcaster,
                 new ObjectMapper(),
                 new RealtimeLatestKeyResolver(),
                 provider,
-                health
+                health,
+                transientStateStore
         );
         ReflectionTestUtils.setField(publisher, "instanceId", "ws-1");
         return new Fixture(publisher, broadcaster, redisPublisher);

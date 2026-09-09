@@ -29,6 +29,9 @@ public class RealtimeEnvelope {
      */
     private Long publishedAt;
 
+    /** 방별 TRANSIENT 상태 변경 순서. Redis 장애로 전역 순서를 만들 수 없으면 null이다. */
+    private Long transientRevision;
+
     public RealtimeEnvelope ensureEventId() {
         if (this.eventId != null && !this.eventId.isBlank()) {
             return this;

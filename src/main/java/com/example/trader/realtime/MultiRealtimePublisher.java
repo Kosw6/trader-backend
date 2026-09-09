@@ -4,6 +4,7 @@ import com.example.trader.infra.redis.RedisHealthState;
 import com.example.trader.infra.redis.pubsub.RedisPubSubPublisher;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeLatestKeyResolver;
+import com.example.trader.realtime.snapshot.TransientRoomStateStore;
 import com.example.trader.ws.raw.RawPresenceBroadcaster;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +26,7 @@ public class MultiRealtimePublisher implements LiveRealtimePublisher {
     private final RealtimeLatestKeyResolver latestKeyResolver;
     private final ObjectProvider<RedisPubSubPublisher> redisPublisher;
     private final RedisHealthState redisHealthState;
+    private final TransientRoomStateStore transientStateStore;
 
     @Value("${app.instance-id:local}")
     private String instanceId;
@@ -50,6 +52,9 @@ public class MultiRealtimePublisher implements LiveRealtimePublisher {
         }
 
         RealtimeEnvelope event = envelope.ensureEventId().ensureOriginInstanceId(instanceId);
+        if (expectedType == com.example.trader.realtime.message.RealtimeType.TRANSIENT) {
+            event = transientStateStore.record(event);
+        }
         propagateLocal(event);
         propagateRedis(event);
     }
@@ -58,7 +63,7 @@ public class MultiRealtimePublisher implements LiveRealtimePublisher {
         try {
             String roomKey = roomKey(event);
             switch (event.getType()) {
-                case TRANSIENT -> broadcaster.enqueueOrdered(roomKey, event);
+                case TRANSIENT -> broadcaster.enqueueTransient(roomKey, event);
                 case VOLATILE -> {
                     RawCursorMessage message = objectMapper.convertValue(event.getPayload(), RawCursorMessage.class);
                     broadcaster.publishLatest(roomKey, latestKeyResolver.resolve(message), message);
