@@ -1,6 +1,5 @@
 package com.example.trader.realtime.publisher;
 
-import com.example.trader.realtime.ReliablePublisher;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +14,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "realtime.kafka.enabled", havingValue = "true")
-public class KafkaReliablePublisher{//DegradableReliablePublisher의 하위 구현체
+public class KafkaReliablePublisher {
 
     private final KafkaTemplate<String, RealtimeEnvelope> kafkaTemplate;
 
