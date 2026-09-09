@@ -12,10 +12,10 @@ import com.example.trader.exception.BaseException;
 import com.example.trader.exception.NodeConflictException;
 import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.observability.ObservedLog;
-import com.example.trader.realtime.RealtimePublisher;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeSubType;
 import com.example.trader.realtime.message.RealtimeType;
+import com.example.trader.realtime.outbox.TransactionalReliableEventService;
 import com.example.trader.repository.*;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
@@ -51,7 +51,7 @@ public class NodeService {
     private final NodeHistoryRepository  nodeHistoryRepository;
     private final NodeConflictValidator  conflictValidator;
     private final NodeEditSessionService editSessionService;
-    private final RealtimePublisher realtimePublisher;
+    private final TransactionalReliableEventService transactionalReliableEventService;
 
     @Transactional
     public void deleteNode(Long pageId, Long nodeId, Long userId) {
@@ -481,7 +481,7 @@ public class NodeService {
                 null
         );
 
-        realtimePublisher.publish(
+        transactionalReliableEventService.stage(
                 RealtimeEnvelope.builder()
                         .type(RealtimeType.RELIABLE)
                         .subType(toRealtimeSubType(eventType))

@@ -90,7 +90,6 @@ public class RealtimeOutbox {
 
     public void markFailed(String reason) {
         this.status = OutboxStatus.FAILED;
-        this.retryCount += 1;
         this.lastTriedAt = LocalDateTime.now();
         this.lastErrorMessage = reason == null
                 ? null
@@ -101,4 +100,5 @@ public class RealtimeOutbox {
         this.status = OutboxStatus.PENDING;
         this.lastTriedAt = LocalDateTime.now();
     }
+
 }

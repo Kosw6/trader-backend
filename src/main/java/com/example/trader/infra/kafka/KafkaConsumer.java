@@ -4,7 +4,6 @@ import com.example.trader.realtime.ReliablePropagationDedup;
 import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeType;
-import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -12,7 +11,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
@@ -42,7 +40,6 @@ public class KafkaConsumer {
 
     private final ReliablePropagationDedup propagationDedup;
     private final ReliableInboundHandler reliableInboundHandler;
-    private final MeterRegistry meterRegistry;
 
     @KafkaListener(
             topics = "${realtime.kafka.topic:canvas-events}",
@@ -54,20 +51,17 @@ public class KafkaConsumer {
 
         if (envelope.getEventId() == null) {
             log.warn("[KAFKA-CONSUMER] eventId null, skipping. subType={}", envelope.getSubType());
-            meterRegistry.counter("realtime.kafka.consume", "result", "skip_no_id").increment();
             return;
         }
 
-        // VOLATILE 이벤트는 보정 대상 아님 (누락 허용)
-        if (envelope.getType() == RealtimeType.VOLATILE) {
-            meterRegistry.counter("realtime.kafka.consume", "result", "skip_volatile").increment();
+        // Kafka 복구 대상은 Outbox에 기록된 RELIABLE 이벤트뿐이다.
+        if (envelope.getType() != RealtimeType.RELIABLE) {
             return;
         }
 
         // dedup 확인: 이 서버가 Redis Pub/Sub으로 이미 전파했으면 skip
         if (propagationDedup.hasBeenPropagated(envelope.getEventId())) {
             log.info("[KAFKA-CONSUMER] already propagated via pub/sub, skip. eventId={}", envelope.getEventId());
-            meterRegistry.counter("realtime.kafka.consume", "result", "skip_dedup").increment();
             return;
         }
 
@@ -80,12 +74,6 @@ public class KafkaConsumer {
         long lagMs = System.currentTimeMillis() - baseline;
         log.info("[KAFKA-CONSUMER] pub/sub miss detected. replaying. eventId={}, subType={}, graphId={}, lagMs={}",
                 envelope.getEventId(), envelope.getSubType(), envelope.getGraphId(), lagMs);
-
-        meterRegistry.counter("realtime.kafka.consume", "result", "replay").increment();
-        meterRegistry.timer(
-                "realtime.kafka.replay.latency",
-                "subType", envelope.getSubType() == null ? "unknown" : envelope.getSubType().name()
-        ).record(lagMs, TimeUnit.MILLISECONDS);
 
         reliableInboundHandler.handle(envelope);
         // handle() 내부에서 markPropagated() 호출됨

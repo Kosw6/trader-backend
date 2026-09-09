@@ -1,9 +1,9 @@
-package com.example.trader.ws.raw;
+package com.example.trader.realtime;
 
-import com.example.trader.realtime.RealtimePublisher;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeLatestKeyResolver;
 import com.example.trader.realtime.message.RealtimeType;
+import com.example.trader.ws.raw.RawPresenceBroadcaster;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -32,8 +32,8 @@ public class LocalRealtimePublisher implements RealtimePublisher {
                 envelope.getGraphId()
         );
 
-        if (envelope.getType() == RealtimeType.RELIABLE) {
-            broadcaster.publishReliable(roomKey, envelope);
+        if (envelope.getType() == RealtimeType.TRANSIENT) {
+            broadcaster.enqueueOrdered(roomKey, envelope);
             return;
         }
 
@@ -46,6 +46,10 @@ public class LocalRealtimePublisher implements RealtimePublisher {
             String latestKey = latestKeyResolver.resolve(msg);
             broadcaster.publishLatest(roomKey, latestKey, msg);
             return;
+        }
+
+        if (envelope.getType() == RealtimeType.RELIABLE) {
+            throw new IllegalArgumentException("RELIABLE events must be staged through the transactional outbox");
         }
 
         throw new IllegalArgumentException("Unsupported realtime type: " + envelope.getType());

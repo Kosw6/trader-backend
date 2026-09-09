@@ -567,7 +567,7 @@ public class NodeEditSessionService {
 
             realtimePublisher.publish(
                     RealtimeEnvelope.builder()
-                            .type(RealtimeType.RELIABLE)
+                            .type(RealtimeType.TRANSIENT)
                             .subType(subType)
                             .teamId(teamId)
                             .graphId(graphId)

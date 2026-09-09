@@ -154,7 +154,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         String subType = msg.subType();
 
         if (subType == null) {
-            publishReliable(msg);
+            publishTransient(msg);
             return;
         }
 
@@ -165,7 +165,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             case SUB_EDIT_START, SUB_EDIT_END -> {
                 // REST 엔드포인트에서 처리하므로 WS 경로에서는 무시
             }
-            default -> publishReliable(msg);
+            default -> publishTransient(msg);
         }
     }
 
@@ -184,7 +184,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         );
 
         if (acquired) {
-            publishReliable(
+            publishTransient(
                     controlMsg("LOCK_ACQUIRED", room, userId, nickName, msg.nodeId(), null, null, lockService.getLockTtlMs())
             );
         } else {
@@ -213,7 +213,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         );
 
         if (released) {
-            publishReliable(
+            publishTransient(
                     controlMsg("LOCK_RELEASED", room, userId, nickName, msg.nodeId(), null, null, null)
             );
         }
@@ -258,7 +258,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                     lockService.releaseAllByUser(room.teamId(), room.graphId(), userId);
 
             for (Long nodeId : releasedNodeIds) {
-                publishReliable(
+                publishTransient(
                         controlMsg(
                                 "LOCK_RELEASED",
                                 room,
@@ -274,10 +274,10 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
         }
     }
 
-    private void publishReliable(RawCursorMessage msg) {
+    private void publishTransient(RawCursorMessage msg) {
         realtimePublisher.publish(
                 RealtimeEnvelope.builder()
-                        .type(RealtimeType.RELIABLE)
+                        .type(RealtimeType.TRANSIENT)
                         .subType(toRealtimeSubType(msg))
                         .teamId(msg.teamId())
                         .graphId(msg.graphId())

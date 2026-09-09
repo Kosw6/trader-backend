@@ -26,7 +26,7 @@ public class ReliableInboundHandler {
                 envelope.getGraphId()
         );
         log.info("[RELIABLE-INBOUND] roomKey={}, eventId={}", roomKey, envelope.getEventId());
-        rawPresenceBroadcaster.publishReliable(roomKey, envelope);
+        rawPresenceBroadcaster.enqueueOrdered(roomKey, envelope);
 
         // Pub/Sub 전파 완료 → dedup key 기록 (Kafka consumer skip 기준)
         propagationDedup.markPropagated(envelope.getEventId());

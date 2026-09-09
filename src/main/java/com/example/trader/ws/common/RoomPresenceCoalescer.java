@@ -13,7 +13,7 @@ public class RoomPresenceCoalescer<T> {
     private final ConcurrentHashMap<String, ConcurrentHashMap<String, T>> latestByRoom = new ConcurrentHashMap<>();
 
     // 신뢰 전송 이벤트: drop 금지 -> 큐에 쌓아서 순서대로 전송
-    private final ConcurrentHashMap<String, ConcurrentLinkedQueue<T>> reliableQueueByRoom = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ConcurrentLinkedQueue<T>> orderedQueueByRoom = new ConcurrentHashMap<>();
 
     //room에 이번 tick에 보낼 변경이 있었는지 표시
     private final ConcurrentHashMap<String, AtomicBoolean> dirtyByRoom = new ConcurrentHashMap<>();
@@ -32,8 +32,8 @@ public class RoomPresenceCoalescer<T> {
     }
 
     // 신뢰(순서 보장): enqueue
-    public void publishReliable(String roomKey, T msg) {
-        reliableQueueByRoom.computeIfAbsent(roomKey, rk -> new ConcurrentLinkedQueue<>()).add(msg);
+    public void enqueueOrdered(String roomKey, T msg) {
+        orderedQueueByRoom.computeIfAbsent(roomKey, rk -> new ConcurrentLinkedQueue<>()).add(msg);
         markDirty(roomKey);//e
     }
 
@@ -44,7 +44,7 @@ public class RoomPresenceCoalescer<T> {
     // room 제거/정리 (옵션)
     public void clearRoom(String roomKey) {
         latestByRoom.remove(roomKey);
-        reliableQueueByRoom.remove(roomKey);
+        orderedQueueByRoom.remove(roomKey);
         dirtyByRoom.remove(roomKey);
     }
 
@@ -77,8 +77,8 @@ public class RoomPresenceCoalescer<T> {
     }
 
     //reliable은 maxReliableDrainPerFlush까지만 drain
-    public List<T> drainReliable(String roomKey) {
-        var rq = reliableQueueByRoom.get(roomKey);
+    public List<T> drainOrdered(String roomKey) {
+        var rq = orderedQueueByRoom.get(roomKey);
         if (rq == null) return List.of();
 
         ArrayList<T> out = new ArrayList<>();

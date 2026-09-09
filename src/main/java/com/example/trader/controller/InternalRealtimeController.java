@@ -3,6 +3,7 @@ package com.example.trader.controller;
 import com.example.trader.realtime.ReliablePropagationDedup;
 import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.inbound.VolatileInboundHandler;
+import com.example.trader.realtime.inbound.TransientInboundHandler;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeType;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -28,6 +29,7 @@ public class InternalRealtimeController {
 
     private final ReliableInboundHandler reliableInboundHandler;
     private final VolatileInboundHandler volatileInboundHandler;
+    private final TransientInboundHandler transientInboundHandler;
     private final ReliablePropagationDedup propagationDedup;
     private final MeterRegistry meterRegistry;
 
@@ -47,6 +49,8 @@ public class InternalRealtimeController {
                         "type", envelope.getType().name(),
                         "subType", envelope.getSubType() == null ? "unknown" : envelope.getSubType().name()
                 ).increment();
+            } else if (envelope.getType() == RealtimeType.TRANSIENT) {
+                transientInboundHandler.handle(envelope);
             } else if (envelope.getType() == RealtimeType.VOLATILE) {
                 volatileInboundHandler.handle(envelope);
                 meterRegistry.counter(

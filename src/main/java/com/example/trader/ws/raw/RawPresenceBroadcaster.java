@@ -27,7 +27,7 @@ public class RawPresenceBroadcaster {
     private final RoomPresenceCoalescer<RawCursorMessage> presenceCoalescer =
             new RoomPresenceCoalescer<>(2000);
 
-    private final RoomPresenceCoalescer<RealtimeEnvelope> reliableCoalescer =
+    private final RoomPresenceCoalescer<RealtimeEnvelope> orderedCoalescer =
             new RoomPresenceCoalescer<>(2000);
 
     private final ScheduledExecutorService flusher = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -54,8 +54,8 @@ public class RawPresenceBroadcaster {
         presenceCoalescer.publishLatest(roomKey, key, msg);
     }
 
-    public void publishReliable(String roomKey, RealtimeEnvelope envelope) {
-        reliableCoalescer.publishReliable(roomKey, envelope);
+    public void enqueueOrdered(String roomKey, RealtimeEnvelope envelope) {
+        orderedCoalescer.enqueueOrdered(roomKey, envelope);
     }
 
     private void flushAllRoomsSafe() {
@@ -72,7 +72,7 @@ public class RawPresenceBroadcaster {
         var sessions = registry.snapshot(roomKey);
         if (sessions.isEmpty()) return;
 
-        for (RealtimeEnvelope envelope : reliableCoalescer.drainReliable(roomKey)) {
+        for (RealtimeEnvelope envelope : orderedCoalescer.drainOrdered(roomKey)) {
             fanout(sessions, roomKey, toText(envelope));
         }
 

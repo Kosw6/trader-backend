@@ -10,6 +10,9 @@ public class RealtimeEnvelope {
 
     private String eventId;
 
+    /** 최초 발행 서버. Redis loopback에서 원본 서버의 중복 전파를 막는다. */
+    private String originInstanceId;
+
     private RealtimeType type;
     private RealtimeSubType subType;
 
@@ -33,6 +36,15 @@ public class RealtimeEnvelope {
 
         return this.toBuilder()
                 .eventId(java.util.UUID.randomUUID().toString())
+                .build();
+    }
+
+    public RealtimeEnvelope ensureOriginInstanceId(String instanceId) {
+        if (this.originInstanceId != null && !this.originInstanceId.isBlank()) {
+            return this;
+        }
+        return this.toBuilder()
+                .originInstanceId(instanceId)
                 .build();
     }
 }

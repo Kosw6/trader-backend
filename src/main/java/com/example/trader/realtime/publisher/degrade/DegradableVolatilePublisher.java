@@ -6,7 +6,6 @@ import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.publisher.GrpcVolatilePublisher;
 import com.example.trader.realtime.publisher.HttpVolatilePublisher;
 import com.example.trader.realtime.publisher.RedisVolatilePublisher;
-import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -26,7 +25,6 @@ public class DegradableVolatilePublisher implements VolatilePublisher {
     private final ObjectProvider<GrpcVolatilePublisher> grpcPublisher;
     private final ObjectProvider<HttpVolatilePublisher> httpPublisher;
 
-    private final MeterRegistry meterRegistry;
 
     @Value("${realtime.volatile.route-mode:redis}")
     private String routeMode;
@@ -36,34 +34,23 @@ public class DegradableVolatilePublisher implements VolatilePublisher {
         RealtimeEnvelope event = envelope.ensureEventId();
         String path = normalize(routeMode);
 
-        meterRegistry.counter("realtime.volatile.relay.attempt", "path", path).increment();
-
         log.info("[VOLATILE-ROUTE] mode={}, eventId={}", routeMode, event.getEventId());
 
         try {
             switch (path) {
                 case "redis" -> {
-                    meterRegistry.timer("realtime.volatile.relay.latency", "path", "redis")
-                            .record(() -> publishToRedis(event));
-                    meterRegistry.counter("realtime.volatile.relay", "path", "redis").increment();
+                    publishToRedis(event);
                 }
                 case "grpc" -> {
-                    meterRegistry.timer("realtime.volatile.relay.latency", "path", "grpc")
-                            .record(() -> publishToGrpc(event));
-                    meterRegistry.counter("realtime.volatile.relay", "path", "grpc").increment();
+                    publishToGrpc(event);
                 }
                 case "http" -> {
-                    meterRegistry.timer("realtime.volatile.relay.latency", "path", "http")
-                            .record(() -> publishToHttp(event));
-                    meterRegistry.counter("realtime.volatile.relay", "path", "http").increment();
+                    publishToHttp(event);
                 }
-                case "local" -> {
-                    meterRegistry.counter("realtime.volatile.relay", "path", "local").increment();
-                }
+                case "local" -> { }
                 default -> throw new IllegalArgumentException("Unsupported volatile route-mode: " + routeMode);
             }
         } catch (Exception e) {
-            meterRegistry.counter("realtime.volatile.relay", "path", "dropped").increment();
             log.warn("[VOLATILE] publish skipped. routeMode={}, eventId={}, reason={}",
                     routeMode, event.getEventId(), e.getMessage());
         }
