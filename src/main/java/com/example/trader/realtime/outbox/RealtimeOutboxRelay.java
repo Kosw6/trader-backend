@@ -34,22 +34,32 @@ public class RealtimeOutboxRelay {
         }
     }
 
-    private void publishClaimed(RealtimeOutbox outbox) {
+    private void publishClaimed(ClaimedRealtimeOutbox outbox) {
         try {
             RealtimeEnvelope envelope = objectMapper.readValue(
-                    outbox.getEnvelopeJson(),
+                    outbox.envelopeJson(),
                     RealtimeEnvelope.class
             );
             kafkaPublisher.publishOrThrow(envelope);
-            claimService.markSent(outbox.getEventId());
             kafkaHealthState.markUp();
-            log.info("[REALTIME-OUTBOX-SENT] eventId={}, graphId={}, subType={}",
-                    outbox.getEventId(), outbox.getGraphId(), outbox.getSubType());
+            if (claimService.markSent(outbox.eventId(), outbox.claimToken())) {
+                log.info("[REALTIME-OUTBOX-SENT] eventId={}, graphId={}, subType={}",
+                        outbox.eventId(), outbox.graphId(), outbox.subType());
+            } else {
+                log.warn("[REALTIME-OUTBOX-STALE-RESULT-IGNORED] result=sent eventId={}",
+                        outbox.eventId());
+            }
         } catch (Exception e) {
             kafkaHealthState.markDown();
-            claimService.markPendingForRetry(outbox.getEventId(), e.getMessage());
-            log.warn("[REALTIME-OUTBOX-RETRY] eventId={}, reason={}",
-                    outbox.getEventId(), e.getMessage());
+            if (claimService.markPendingForRetry(
+                    outbox.eventId(), outbox.claimToken(), e.getMessage()
+            )) {
+                log.warn("[REALTIME-OUTBOX-RETRY] eventId={}, reason={}",
+                        outbox.eventId(), e.getMessage());
+            } else {
+                log.warn("[REALTIME-OUTBOX-STALE-RESULT-IGNORED] result=retry eventId={}, reason={}",
+                        outbox.eventId(), e.getMessage());
+            }
         }
     }
 }
