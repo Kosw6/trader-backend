@@ -130,6 +130,12 @@ public class CanvasLockService {
                 .map(CanvasLock::getUserId);
     }
 
+    public boolean isHeldBy(Long teamId, Long graphId, Long nodeId, Long userId) {
+        return getLockHolder(teamId, graphId, nodeId)
+                .filter(userId::equals)
+                .isPresent();
+    }
+
     public boolean release(Long teamId, Long graphId, Long nodeId, Long userId) {
         String key = lockKey(teamId, graphId, nodeId);
         String userKey = userLocksKey(teamId, graphId, userId);

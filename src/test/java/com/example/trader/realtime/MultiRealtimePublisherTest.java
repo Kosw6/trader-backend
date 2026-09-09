@@ -49,7 +49,7 @@ class MultiRealtimePublisherTest {
         Fixture fixture = fixture();
         RawCursorMessage cursor = new RawCursorMessage(
                 "CURSOR", null, 1L, 2L, 3L, "user", null,
-                10, 20, 100L, null, null, null
+                10, 20, 100L, null, null, null, null
         );
         RealtimeEnvelope event = RealtimeEnvelope.builder()
                 .type(RealtimeType.VOLATILE)

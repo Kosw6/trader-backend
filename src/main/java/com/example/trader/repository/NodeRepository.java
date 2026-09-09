@@ -199,9 +199,11 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
     @Query(value = """
     UPDATE node n
        SET x = :x,
-           y = :y
+           y = :y,
+           version = version + 1
      WHERE n.id = :nodeId
        AND n.page_id = :graphId
+       AND n.version = :expectedVersion
        AND EXISTS (
            SELECT 1
              FROM page p
@@ -210,11 +212,12 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
               AND d.team_id = :teamId
        )
     """, nativeQuery = true)
-    int updatePositionInTeam(@Param("teamId") Long teamId,
-                             @Param("graphId") Long graphId,
-                             @Param("nodeId") Long nodeId,
-                             @Param("x") double x,
-                             @Param("y") double y);
+    int updatePositionInTeamIfVersion(@Param("teamId") Long teamId,
+                                      @Param("graphId") Long graphId,
+                                      @Param("nodeId") Long nodeId,
+                                      @Param("expectedVersion") int expectedVersion,
+                                      @Param("x") double x,
+                                      @Param("y") double y);
 
 
     //2단계 조회 노드용

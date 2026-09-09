@@ -40,5 +40,6 @@ public record RawCursorMessage(
         long         sentAt,
         List<String> fields,        // EDIT_START: 편집 중인 필드 목록
         Integer      baseVersion,   // EDIT_START: 편집 시작 당시 노드 버전
-        Long         lockTtlMs      // LOCK_ACQUIRED: 클라이언트 TTL 카운트다운용 (ms)
+        Long         lockTtlMs,     // LOCK_ACQUIRED: 클라이언트 TTL 카운트다운용 (ms)
+        Integer      version        // RELIABLE Node 변경 완료 후 결과 버전
 ) {}

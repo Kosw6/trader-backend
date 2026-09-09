@@ -246,27 +246,6 @@ public class NodeService {
     }
 
     @Transactional
-    public void updatePositionInTeam(Long teamId, Long graphId, Long nodeId, double x, double y) {
-        if (nodeRepository.updatePositionInTeam(teamId, graphId, nodeId, x, y) == 0) {
-            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
-        }
-
-        nodeCacheService.evictPageNodes(graphId);
-        graphCacheService.evictGraph(graphId);
-        publishNodeChanged(
-                teamId,
-                graphId,
-                nodeId,
-                null,
-                "NODE_POSITION_UPDATED",
-                List.of("x", "y"),
-                null,
-                x,
-                y
-        );
-    }
-
-    @Transactional
     public ResponseNodeDto createNode(RequestNodeDto dto, Long pageId, Long userId) {
         if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
@@ -477,8 +456,9 @@ public class NodeService {
                 y != null ? y : 0,
                 System.currentTimeMillis(),
                 changedFields,
-                version,
-                null
+                null,
+                null,
+                version
         );
 
         transactionalReliableEventService.stage(

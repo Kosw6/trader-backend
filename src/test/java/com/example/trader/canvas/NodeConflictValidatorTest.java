@@ -201,6 +201,60 @@ class NodeConflictValidatorTest {
     }
 
     @Test
+    @DisplayName("위치 변경과 서버의 content 변경은 겹치지 않아 AUTO_MERGE")
+    void position_auto_merge_when_changed_fields_do_not_overlap() {
+        when(node.getVersion()).thenReturn(4);
+        when(node.getX()).thenReturn(10.0);
+        when(node.getY()).thenReturn(20.0);
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 2, 4))
+                .thenReturn(Map.of(3, List.of("content"), 4, List.of("subject")));
+
+        ConflictResult result = validator.validatePosition(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 2, 30.0, 40.0
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
+        assertThat(result.currentVersion()).isEqualTo(4);
+        verifyNoInteractions(nodeHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("위치 변경 이후 stale 위치 요청은 x,y 충돌과 양쪽 값을 반환")
+    void position_conflict_when_position_fields_overlap() {
+        when(node.getVersion()).thenReturn(4);
+        when(node.getX()).thenReturn(10.0);
+        when(node.getY()).thenReturn(20.0);
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, List.of("x", "y")));
+
+        ConflictResult result = validator.validatePosition(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, 30.0, 40.0
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
+        assertThat(result.conflictingFields()).containsExactlyInAnyOrder("x", "y");
+        assertThat(result.currentValues()).containsEntry("x", 10.0).containsEntry("y", 20.0);
+        assertThat(result.incomingValues()).containsEntry("x", 30.0).containsEntry("y", 40.0);
+    }
+
+    @Test
+    @DisplayName("서버보다 미래인 baseVersion은 조회 없이 충돌 처리")
+    void position_conflict_when_base_version_is_in_the_future() {
+        when(node.getVersion()).thenReturn(4);
+        when(node.getX()).thenReturn(10.0);
+        when(node.getY()).thenReturn(20.0);
+
+        ConflictResult result = validator.validatePosition(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 5, 30.0, 40.0
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
+        assertThat(result.baseVersion()).isEqualTo(5);
+        assertThat(result.currentVersion()).isEqualTo(4);
+        verifyNoInteractions(editSessionService, nodeHistoryRepository);
+    }
+
+    @Test
     @DisplayName("명시한 dirtyFields만 변경 필드로 판단")
     void extract_changed_fields_prefers_explicit_dirty_fields() {
         RequestNodeDto req = new RequestNodeDto();

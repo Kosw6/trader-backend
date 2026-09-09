@@ -2,6 +2,7 @@ package com.example.trader.controller.teamGraph;
 
 import com.example.trader.common.interceptor.TeamMemberRequired;
 import com.example.trader.dto.UpdateNodePositionReq;
+import com.example.trader.dto.UpdateNodePositionRes;
 import com.example.trader.dto.canvas.DraftAutosaveReq;
 import com.example.trader.dto.canvas.EditSessionDto;
 import com.example.trader.dto.canvas.EditStartReq;
@@ -10,7 +11,9 @@ import com.example.trader.dto.map.ResponseNodeDto;
 import com.example.trader.exception.NodeConflictException;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.service.NodeService;
+import com.example.trader.service.TeamNodePositionService;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -26,17 +29,27 @@ import java.util.List;
 public class TeamNodesController {
 
     private final NodeService nodeService;
+    private final TeamNodePositionService teamNodePositionService;
     private final NodeEditSessionService editSessionService;
 
     @PatchMapping("/{nodeId}/position")
-    public ResponseEntity<Void> updatePosition(
+    public ResponseEntity<UpdateNodePositionRes> updatePosition(
             @PathVariable Long teamId,
             @PathVariable Long graphId,
             @PathVariable Long nodeId,
-            @RequestBody UpdateNodePositionReq dto
+            @Valid @RequestBody UpdateNodePositionReq dto,
+            @AuthenticationPrincipal UserContext context
     ) {
-        nodeService.updatePositionInTeam(teamId, graphId, nodeId, dto.x(), dto.y());
-        return ResponseEntity.noContent().build();
+        UpdateNodePositionRes result = teamNodePositionService.updatePosition(
+                teamId,
+                graphId,
+                nodeId,
+                context.getUserDto().getId(),
+                dto.baseVersion(),
+                dto.x(),
+                dto.y()
+        );
+        return ResponseEntity.ok(result);
     }
 
     @DeleteMapping("/{nodeId}")

@@ -52,23 +52,70 @@ public class NodeConflictValidator {
      */
     public ConflictResult validate(Long teamId, Long graphId, Long nodeId,
                                    Node node, RequestNodeDto req) {
-
         Integer baseVersion = req.getBaseVersion();
-
-        // baseVersion 미제공 → 구버전 클라이언트, 충돌 체크 skip
         if (baseVersion == null) {
             return ConflictResult.pass(node.getVersion());
         }
 
-        int currentVersion = node.getVersion();
+        List<String> incomingFields = extractChangedFields(req);
+        Set<String> incomingFieldSet = new HashSet<>(incomingFields);
+        return validateFields(
+                teamId,
+                graphId,
+                nodeId,
+                baseVersion,
+                node.getVersion(),
+                incomingFields,
+                extractCurrentValues(node, incomingFieldSet),
+                extractIncomingValues(req, incomingFieldSet)
+        );
+    }
 
-        // 버전 변경 없음 → 충돌 없음
-        if (baseVersion >= currentVersion) {
+    public ConflictResult validatePosition(
+            Long teamId,
+            Long graphId,
+            Long nodeId,
+            Node node,
+            int baseVersion,
+            double x,
+            double y
+    ) {
+        return validateFields(
+                teamId,
+                graphId,
+                nodeId,
+                baseVersion,
+                node.getVersion(),
+                List.of("x", "y"),
+                Map.of("x", node.getX(), "y", node.getY()),
+                Map.of("x", x, "y", y)
+        );
+    }
+
+    private ConflictResult validateFields(
+            Long teamId,
+            Long graphId,
+            Long nodeId,
+            int baseVersion,
+            int currentVersion,
+            List<String> incomingFields,
+            Map<String, Object> currentValues,
+            Map<String, Object> incomingValues
+    ) {
+        if (baseVersion == currentVersion) {
             return ConflictResult.pass(currentVersion);
         }
 
-        // A가 변경하려는 필드 추출
-        List<String> incomingFields = extractChangedFields(req);
+        // 서버가 알지 못하는 미래 버전을 기준으로 한 요청은 안전하게 병합할 수 없다.
+        if (baseVersion > currentVersion) {
+            return ConflictResult.conflict(
+                    baseVersion,
+                    currentVersion,
+                    incomingFields,
+                    currentValues,
+                    incomingValues
+            );
+        }
 
         // ── Redis 힌트 체인 확인 ───────────────────────────────────────────────
         Timer.Sample sample = Timer.start(meterRegistry);
@@ -123,15 +170,21 @@ public class NodeConflictValidator {
         }
 
         // 충돌 → diff 반환
-        Map<String, Object> currentValues  = extractCurrentValues(node, conflicting);
-        Map<String, Object> incomingValues = extractIncomingValues(req, conflicting);
+        Map<String, Object> conflictingCurrentValues = retainValues(currentValues, conflicting);
+        Map<String, Object> conflictingIncomingValues = retainValues(incomingValues, conflicting);
 
         log.warn(
                 "node conflict validate result=conflict teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} conflictFields={}",
                 teamId, graphId, nodeId, baseVersion, currentVersion, conflicting
         );
         return ConflictResult.conflict(baseVersion, currentVersion,
-                new ArrayList<>(conflicting), currentValues, incomingValues);
+                new ArrayList<>(conflicting), conflictingCurrentValues, conflictingIncomingValues);
+    }
+
+    private Map<String, Object> retainValues(Map<String, Object> values, Set<String> fields) {
+        Map<String, Object> retained = new LinkedHashMap<>();
+        fields.forEach(field -> retained.put(field, values.get(field)));
+        return retained;
     }
 
     /**

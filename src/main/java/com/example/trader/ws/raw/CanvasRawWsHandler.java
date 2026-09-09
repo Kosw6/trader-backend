@@ -138,6 +138,7 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 in.sentAt(),
                 in.fields(),
                 in.baseVersion(),
+                null,
                 null
         );
 
@@ -383,7 +384,8 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 System.currentTimeMillis(),
                 fields,
                 baseVersion,
-                lockTtlMs
+                lockTtlMs,
+                null
         );
     }
 
