@@ -11,6 +11,8 @@ import com.example.trader.entity.Role;
 import com.example.trader.entity.User;
 import com.example.trader.exception.InvalidNodeChangeRequestException;
 import com.example.trader.exception.NodeChangeErrorCode;
+import com.example.trader.exception.NodeHistoryCorruptedException;
+import com.example.trader.exception.NodeHistoryCorruptionReason;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.outbox.TransactionalReliableEventService;
 import com.example.trader.repository.EdgeRepository;
@@ -165,14 +167,55 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any()))
+                .thenReturn(ConflictResult.conflict(
+                        1,
+                        3,
+                        List.of("subject"),
+                        java.util.Map.of("subject", "기존 제목"),
+                        java.util.Map.of("subject", "강제 제목")
+                ));
 
         nodeService.updateTeamNode(10L, 20L, 30L, 40L, request);
 
         assertThat(node.getSubject()).isEqualTo("강제 제목");
         assertThat(node.getVersion()).isEqualTo(4);
-        verify(conflictValidator, never()).validateContent(any(), any(), any(), any(), any(Integer.class), any());
+        verify(conflictValidator).validateContent(any(), any(), any(), any(), any(Integer.class), any());
         verify(nodeHistoryRepository).save(any());
         verify(reliableEventService).stage(any());
+    }
+
+    @Test
+    @DisplayName("force는 손상된 History를 우회하지 않고 어떤 상태도 변경하지 않음")
+    void force_does_not_bypass_corrupted_history() {
+        Node node = node();
+        UpdateTeamNodeContentRequest request = teamSubjectRequest("강제 제목", 1, true);
+        NodeHistory corruptedHistory = NodeHistory.builder()
+                .nodeId(30L)
+                .version(2)
+                .changedFields("[]")
+                .build();
+        NodeHistoryCorruptedException failure = new NodeHistoryCorruptedException(
+                corruptedHistory,
+                NodeHistoryCorruptionReason.EMPTY_CHANGED_FIELDS
+        );
+
+        when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
+                .thenReturn(true);
+        when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any()))
+                .thenThrow(failure);
+
+        assertThatThrownBy(() -> nodeService.updateTeamNode(10L, 20L, 30L, 40L, request))
+                .isSameAs(failure);
+
+        assertThat(node.getSubject()).isEqualTo("기존 제목");
+        assertThat(node.getVersion()).isEqualTo(3);
+        verify(nodeHistoryRepository, never()).save(any());
+        verify(editSessionService, never()).saveVersionHint(any(), any(), any(), any(Integer.class), any(), any());
+        verify(nodeCacheService, never()).evictPageNodes(any());
+        verify(graphCacheService, never()).evictGraph(any());
+        verify(reliableEventService, never()).stage(any());
     }
 
     @Test

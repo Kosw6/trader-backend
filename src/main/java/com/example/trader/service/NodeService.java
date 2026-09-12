@@ -166,19 +166,18 @@ public class NodeService {
             return ResponseNodeDto.from(node);
         }
 
-        // force는 요청 계약 검증이 아니라 같은 필드의 업무 충돌만 우회한다.
-        if (!req.isForce()) {
-            ConflictResult conflict = conflictValidator.validateContent(
-                    teamId,
-                    graphId,
-                    nodeId,
-                    node,
-                    req.getBaseVersion(),
-                    plan.effectiveChange()
-            );
-            if (conflict.isConflict()) {
-                throw new NodeConflictException(conflict);
-            }
+        // History 무결성 검증은 force와 무관하게 수행한다.
+        // force는 유효한 이력에서 확인된 동일 필드 업무 충돌만 우회한다.
+        ConflictResult conflict = conflictValidator.validateContent(
+                teamId,
+                graphId,
+                nodeId,
+                node,
+                req.getBaseVersion(),
+                plan.effectiveChange()
+        );
+        if (conflict.isConflict() && !req.isForce()) {
+            throw new NodeConflictException(conflict);
         }
 
         NodeChangeResult changeResult = node.applyContentChange(

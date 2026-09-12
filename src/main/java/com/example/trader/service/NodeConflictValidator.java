@@ -4,6 +4,9 @@ import com.example.trader.dto.canvas.ConflictResult;
 import com.example.trader.entity.Node;
 import com.example.trader.entity.NodeContentChange;
 import com.example.trader.entity.NodeHistory;
+import com.example.trader.entity.NodeHistoryField;
+import com.example.trader.exception.NodeHistoryCorruptedException;
+import com.example.trader.exception.NodeHistoryCorruptionReason;
 import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -149,7 +152,7 @@ public class NodeConflictValidator {
                     .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(nodeId, baseVersion);
 
             changedByOthers = histories.stream()
-                    .flatMap(h -> parseFields(h.getChangedFields()).stream())
+                    .flatMap(history -> parseFields(history).stream())
                     .collect(Collectors.toSet());
         }
 
@@ -206,13 +209,66 @@ public class NodeConflictValidator {
         return values;
     }
 
-    /** NodeHistory.changedFields JSON 문자열 → List<String> */
-    private List<String> parseFields(String json) {
-        try {
-            return objectMapper.readValue(json, new TypeReference<List<String>>() {});
-        } catch (JsonProcessingException e) {
-            log.warn("[Conflict] changedFields parse failed: {}", json);
-            return List.of();
+    /** NodeHistory.changedFields를 검증된 필드 집합으로 변환한다. */
+    private Set<String> parseFields(NodeHistory history) {
+        String json = history.getChangedFields();
+        if (json == null || json.isBlank()) {
+            throw corrupted(history, NodeHistoryCorruptionReason.MISSING_CHANGED_FIELDS);
         }
+
+        List<String> fields;
+        try {
+            fields = objectMapper.readValue(json, new TypeReference<List<String>>() {});
+        } catch (JsonProcessingException | IllegalArgumentException e) {
+            throw corrupted(
+                    history,
+                    NodeHistoryCorruptionReason.MALFORMED_CHANGED_FIELDS,
+                    e
+            );
+        }
+
+        if (fields == null) {
+            throw corrupted(history, NodeHistoryCorruptionReason.MISSING_CHANGED_FIELDS);
+        }
+        if (fields.isEmpty()) {
+            throw corrupted(history, NodeHistoryCorruptionReason.EMPTY_CHANGED_FIELDS);
+        }
+
+        Set<String> uniqueFields = new LinkedHashSet<>();
+        for (String field : fields) {
+            if (field == null || NodeHistoryField.fromExternalName(field).isEmpty()) {
+                throw corrupted(history, NodeHistoryCorruptionReason.UNSUPPORTED_CHANGED_FIELD);
+            }
+            if (!uniqueFields.add(field)) {
+                throw corrupted(history, NodeHistoryCorruptionReason.DUPLICATE_CHANGED_FIELD);
+            }
+        }
+        return Collections.unmodifiableSet(uniqueFields);
+    }
+
+    private NodeHistoryCorruptedException corrupted(
+            NodeHistory history,
+            NodeHistoryCorruptionReason reason
+    ) {
+        return corrupted(history, reason, null);
+    }
+
+    private NodeHistoryCorruptedException corrupted(
+            NodeHistory history,
+            NodeHistoryCorruptionReason reason,
+            Throwable cause
+    ) {
+        log.error(
+                "Node 변경 이력이 손상되어 충돌 검증을 중단합니다. historyId={}, nodeId={}, version={}, reason={}, reasonMessage={}",
+                history.getId(),
+                history.getNodeId(),
+                history.getVersion(),
+                reason,
+                reason.message()
+        );
+        if (cause == null) {
+            return new NodeHistoryCorruptedException(history, reason);
+        }
+        return new NodeHistoryCorruptedException(history, reason, cause);
     }
 }

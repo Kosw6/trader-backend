@@ -5,6 +5,8 @@ import com.example.trader.entity.Node;
 import com.example.trader.entity.NodeContentChange;
 import com.example.trader.entity.NodeContentField;
 import com.example.trader.entity.NodeHistory;
+import com.example.trader.exception.NodeHistoryCorruptedException;
+import com.example.trader.exception.NodeHistoryCorruptionReason;
 import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.service.NodeConflictValidator;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -189,6 +192,55 @@ class NodeConflictValidatorTest {
     }
 
     @Test
+    @DisplayName("DB 변경 이력이 잘못된 JSON이면 자동 병합하지 않고 검증을 중단")
+    void fail_closed_when_history_json_is_malformed() {
+        assertDbHistoryCorrupted("not-json", NodeHistoryCorruptionReason.MALFORMED_CHANGED_FIELDS);
+    }
+
+    @Test
+    @DisplayName("DB 변경 이력이 빈 배열이면 History 불변식 위반으로 검증을 중단")
+    void fail_closed_when_history_fields_are_empty() {
+        assertDbHistoryCorrupted("[]", NodeHistoryCorruptionReason.EMPTY_CHANGED_FIELDS);
+    }
+
+    @Test
+    @DisplayName("DB 변경 이력에 지원하지 않는 필드가 있으면 검증을 중단")
+    void fail_closed_when_history_contains_unsupported_field() {
+        assertDbHistoryCorrupted(
+                "[\"unknown\"]",
+                NodeHistoryCorruptionReason.UNSUPPORTED_CHANGED_FIELD
+        );
+    }
+
+    @Test
+    @DisplayName("DB 변경 이력에 중복 필드가 있으면 검증을 중단")
+    void fail_closed_when_history_contains_duplicate_field() {
+        assertDbHistoryCorrupted(
+                "[\"subject\",\"subject\"]",
+                NodeHistoryCorruptionReason.DUPLICATE_CHANGED_FIELD
+        );
+    }
+
+    @Test
+    @DisplayName("DB의 x,y 변경 이력은 유효한 위치 이력으로 처리")
+    void accept_position_fields_from_db_history() {
+        when(node.getVersion()).thenReturn(4);
+        when(node.getX()).thenReturn(10.0);
+        when(node.getY()).thenReturn(20.0);
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(null);
+        when(nodeHistoryRepository.findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 3))
+                .thenReturn(List.of(history(4, "[\"x\",\"y\"]")));
+
+        ConflictResult result = validator.validatePosition(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, 30.0, 40.0
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
+        assertThat(result.conflictingFields()).containsExactlyInAnyOrder("x", "y");
+    }
+
+    @Test
     @DisplayName("위치 변경과 서버의 content 변경은 겹치지 않아 AUTO_MERGE")
     void position_auto_merge_when_changed_fields_do_not_overlap() {
         when(node.getVersion()).thenReturn(4);
@@ -257,8 +309,39 @@ class NodeConflictValidatorTest {
         return NodeContentChange.of(Map.of(NodeContentField.SUBJECT, subject));
     }
 
+    private void assertDbHistoryCorrupted(
+            String changedFields,
+            NodeHistoryCorruptionReason expectedReason
+    ) {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(null);
+        when(nodeHistoryRepository.findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 3))
+                .thenReturn(List.of(history(4, changedFields)));
+
+        assertThatThrownBy(() -> validator.validateContent(
+                TEAM_ID,
+                GRAPH_ID,
+                NODE_ID,
+                node,
+                3,
+                subjectChange("새 제목")
+        )).isInstanceOfSatisfying(
+                NodeHistoryCorruptedException.class,
+                exception -> {
+                    assertThat(exception.getReason()).isEqualTo(expectedReason);
+                    assertThat(exception.getHistoryId()).isEqualTo(100L);
+                    assertThat(exception.getNodeId()).isEqualTo(NODE_ID);
+                    assertThat(exception.getVersion()).isEqualTo(4);
+                    assertThat(exception.getMessage())
+                            .isEqualTo("변경 이력을 해석할 수 없어 충돌을 검증하지 못했습니다.");
+                }
+        );
+    }
+
     private NodeHistory history(int version, String changedFieldsJson) {
         return NodeHistory.builder()
+                .id(100L)
                 .nodeId(NODE_ID).teamId(TEAM_ID).graphId(GRAPH_ID)
                 .version(version).changedBy(99L)
                 .changedFields(changedFieldsJson)

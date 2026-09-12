@@ -48,6 +48,7 @@ public enum BaseResponseStatus {
     NODE_EDIT_CONFLICT(false, HttpStatus.CONFLICT.value(), "다른 유저가 같은 필드를 수정했습니다. 변경 내용을 확인하세요.", "canvas", "NODE_EDIT_CONFLICT", Severity.MEDIUM),
 
     // 5xx : server error
+    NODE_HISTORY_CORRUPTED(false, HttpStatus.INTERNAL_SERVER_ERROR.value(), "변경 이력을 해석할 수 없어 충돌을 검증하지 못했습니다.", "canvas", "NODE_HISTORY_CORRUPTED", Severity.HIGH),
     DATABASE_INSERT_ERROR(false, HttpStatus.INTERNAL_SERVER_ERROR.value(), "데이터베이스 입력에 실패했습니다.", "database", "DATABASE_INSERT_ERROR", Severity.HIGH),
     FAIL_IMAGE_CONVERT(false, HttpStatus.INTERNAL_SERVER_ERROR.value(), "Multipart 파일 전환에 실패했습니다.", "file", "FAIL_IMAGE_CONVERT", Severity.MEDIUM),
     FAIL_CREATE_TEAM(false, HttpStatus.INTERNAL_SERVER_ERROR.value(), "팀 코드 생성에 실패했습니다. 잠시 후 다시 시도해주세요.", "team", "FAIL_CREATE_TEAM", Severity.HIGH),
