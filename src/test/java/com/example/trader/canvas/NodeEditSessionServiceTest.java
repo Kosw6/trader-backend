@@ -6,6 +6,8 @@ import com.example.trader.entity.EditSessionEntity;
 import com.example.trader.entity.EditSessionId;
 import com.example.trader.infra.redis.RedisHealthState;
 import com.example.trader.realtime.LiveRealtimePublisher;
+import com.example.trader.realtime.message.RealtimeEnvelope;
+import com.example.trader.realtime.message.RealtimeSubType;
 import com.example.trader.repository.EditSessionRepository;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -105,6 +107,23 @@ class NodeEditSessionServiceTest {
         service.endEditSession(TEAM_ID, GRAPH_ID, NODE_ID, USER_ID);
 
         verify(stringRedisTemplate).delete("canvas:editing:1:2:3:10");
+    }
+
+    @Test
+    @DisplayName("세션 저장소 정리가 실패해도 EDIT_END를 한 번 전파")
+    void end_edit_session_publishes_even_when_cleanup_fails() {
+        when(state.isAvailable()).thenReturn(false);
+        ReflectionTestUtils.setField(service, "fallbackMode", "db");
+        doThrow(new IllegalStateException("DB 삭제 실패"))
+                .when(repository)
+                .deleteById(new EditSessionId(TEAM_ID, GRAPH_ID, NODE_ID, USER_ID));
+
+        service.endEditSession(TEAM_ID, GRAPH_ID, NODE_ID, USER_ID);
+
+        ArgumentCaptor<RealtimeEnvelope> envelopeCaptor =
+                ArgumentCaptor.forClass(RealtimeEnvelope.class);
+        verify(publisher).publishTransient(envelopeCaptor.capture());
+        assertThat(envelopeCaptor.getValue().getSubType()).isEqualTo(RealtimeSubType.EDIT_END);
     }
 
     @Test

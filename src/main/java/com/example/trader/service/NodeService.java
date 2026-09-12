@@ -23,9 +23,8 @@ import com.example.trader.realtime.message.RealtimeSubType;
 import com.example.trader.realtime.message.RealtimeType;
 import com.example.trader.realtime.outbox.TransactionalReliableEventService;
 import com.example.trader.repository.*;
+import com.example.trader.service.event.TeamNodeChangeCommittedEvent;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
-import com.example.trader.ws.raw.edit.NodeEditSessionService;
-import com.example.trader.ws.raw.event.NodeChangedEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
@@ -57,8 +56,8 @@ public class NodeService {
     private final NodeHistoryRepository  nodeHistoryRepository;
     private final NodeChangeRequestValidator changeRequestValidator;
     private final NodeConflictValidator  conflictValidator;
-    private final NodeEditSessionService editSessionService;
     private final TransactionalReliableEventService transactionalReliableEventService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public void deleteNode(Long pageId, Long nodeId, Long userId) {
@@ -200,15 +199,6 @@ public class NodeService {
                 .changedAt(java.time.LocalDateTime.now())
                 .build());
 
-        // Redis 힌트의 트랜잭션 외부 격리는 1번 후속 범위에서 처리한다.
-        editSessionService.saveVersionHint(teamId, graphId, nodeId, newVersion, changedFields, userId);
-
-        // ── 편집 세션 정리 ───────────────────────────────────────────────────
-        editSessionService.endEditSession(teamId, graphId, nodeId, userId);
-
-        nodeCacheService.evictPageNodes(graphId);
-        graphCacheService.evictGraph(graphId);
-
         publishNodeChanged(
                 teamId,
                 graphId,
@@ -221,16 +211,14 @@ public class NodeService {
                 null
         );
 
-        log.info(
-                "node update committed teamId={} graphId={} nodeId={} userId={} newVersion={} changedFields={} redisHintSaved={}",
+        eventPublisher.publishEvent(new TeamNodeChangeCommittedEvent(
                 teamId,
                 graphId,
                 nodeId,
                 userId,
                 newVersion,
-                changedFields,
-                true
-        );
+                changedFields
+        ));
         return ResponseNodeDto.from(node);
     }
 

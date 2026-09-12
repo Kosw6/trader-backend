@@ -41,7 +41,7 @@ public class NodeEditSessionService {
 
     private final ConcurrentHashMap<String, String> localSessions = new ConcurrentHashMap<>();
 
-    private static final Duration SESSION_TTL = Duration.ofMinutes(10);
+    static final Duration SESSION_TTL = Duration.ofMinutes(10);
     private static final Duration HINT_TTL = Duration.ofHours(1);
 
     @Value("${edit-session.fallback-mode:local}")
@@ -133,7 +133,13 @@ public class NodeEditSessionService {
     }
 
     public void endEditSession(Long teamId, Long graphId, Long nodeId, Long userId) {
-        removeSession(teamId, graphId, nodeId, userId);
+        try {
+            removeSession(teamId, graphId, nodeId, userId);
+        } catch (Exception exception) {
+            // EDIT_END는 세션 저장소 정리와 독립적인 best-effort 신호다.
+            log.warn("[EditSession] end cleanup failed. nodeId={}, userId={}, reason={}",
+                    nodeId, userId, exception.getMessage(), exception);
+        }
         publishEditEvent(
                 RealtimeSubType.EDIT_END,
                 teamId,

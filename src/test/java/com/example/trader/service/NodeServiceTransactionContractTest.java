@@ -11,6 +11,10 @@ import com.example.trader.entity.User;
 import com.example.trader.realtime.outbox.TransactionalReliableEventService;
 import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.repository.NodeRepository;
+import com.example.trader.service.event.TeamNodeChangeAfterCommitListener;
+import com.example.trader.service.event.TeamNodeChangeCommittedEvent;
+import com.example.trader.service.cache.CacheInvalidationRetryService;
+import com.example.trader.service.cache.NodeQueryCacheInvalidator;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
@@ -21,6 +25,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
@@ -44,6 +49,7 @@ import static org.mockito.Mockito.when;
 @Import({
         NodeService.class,
         NodeChangeRequestValidator.class,
+        TeamNodeChangeAfterCommitListener.class,
         NodeServiceTransactionContractTest.ObjectMapperConfiguration.class
 })
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -54,12 +60,15 @@ class NodeServiceTransactionContractTest {
     @Autowired NodeHistoryRepository nodeHistoryRepository;
     @Autowired EntityManager entityManager;
     @Autowired PlatformTransactionManager transactionManager;
+    @Autowired ApplicationEventPublisher eventPublisher;
 
     @MockitoBean NodeCacheService nodeCacheService;
     @MockitoBean GraphCacheService graphCacheService;
     @MockitoBean NodeConflictValidator conflictValidator;
     @MockitoBean NodeEditSessionService editSessionService;
     @MockitoBean TransactionalReliableEventService reliableEventService;
+    @MockitoBean NodeQueryCacheInvalidator cacheInvalidator;
+    @MockitoBean CacheInvalidationRetryService cacheInvalidationRetryService;
 
     @Test
     @DisplayName("Outbox 적재 실패 시 Node와 History DB 변경을 함께 롤백")
@@ -90,6 +99,32 @@ class NodeServiceTransactionContractTest {
         assertThat(nodeHistoryRepository
                 .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(fixture.nodeId(), 0))
                 .isEmpty();
+    }
+
+    @Test
+    @DisplayName("커밋된 트랜잭션의 Node 후처리 이벤트만 실행")
+    void after_commit_tasks_run_only_for_committed_transaction() {
+        TeamNodeChangeCommittedEvent event =
+                new TeamNodeChangeCommittedEvent(1L, 2L, 3L, 4L, 5, List.of("subject"));
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+
+        template.executeWithoutResult(status -> {
+            eventPublisher.publishEvent(event);
+            status.setRollbackOnly();
+        });
+
+        org.mockito.Mockito.verifyNoInteractions(
+                editSessionService,
+                cacheInvalidator,
+                cacheInvalidationRetryService
+        );
+
+        template.executeWithoutResult(status -> eventPublisher.publishEvent(event));
+
+        org.mockito.Mockito.verify(editSessionService)
+                .saveVersionHint(1L, 2L, 3L, 5, List.of("subject"), 4L);
+        org.mockito.Mockito.verify(editSessionService).endEditSession(1L, 2L, 3L, 4L);
+        org.mockito.Mockito.verify(cacheInvalidator).invalidate(2L);
     }
 
     private Fixture createFixture() {

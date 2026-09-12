@@ -20,8 +20,8 @@ import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.repository.NodeRepository;
 import com.example.trader.repository.NoteRepository;
 import com.example.trader.repository.PageRepository;
+import com.example.trader.service.event.TeamNodeChangeCommittedEvent;
 import com.example.trader.ws.raw.dto.RawCursorMessage;
-import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +31,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -55,8 +56,8 @@ class NodeServiceContentUpdateTest {
     @Mock GraphCacheService graphCacheService;
     @Mock NodeHistoryRepository nodeHistoryRepository;
     @Mock NodeConflictValidator conflictValidator;
-    @Mock NodeEditSessionService editSessionService;
     @Mock TransactionalReliableEventService reliableEventService;
+    @Mock ApplicationEventPublisher eventPublisher;
 
     private NodeService nodeService;
 
@@ -74,13 +75,13 @@ class NodeServiceContentUpdateTest {
                 nodeHistoryRepository,
                 new NodeChangeRequestValidator(),
                 conflictValidator,
-                editSessionService,
-                reliableEventService
+                reliableEventService,
+                eventPublisher
         );
     }
 
     @Test
-    @DisplayName("정상 팀 변경은 적용 필드와 버전을 History, hint, Outbox에 동일하게 전달")
+    @DisplayName("정상 팀 변경은 적용 필드와 버전을 History, Outbox, 커밋 후 이벤트에 동일하게 전달")
     void successful_change_uses_one_applied_field_contract() {
         Node node = node();
         UpdateTeamNodeContentRequest request = teamSubjectRequest("새 제목", 3, false);
@@ -101,16 +102,20 @@ class NodeServiceContentUpdateTest {
         assertThat(history.getVersion()).isEqualTo(4);
         assertThat(history.getChangedFields()).isEqualTo("[\"subject\"]");
 
-        verify(editSessionService).saveVersionHint(10L, 20L, 30L, 4, List.of("subject"), 40L);
-        verify(editSessionService).endEditSession(10L, 20L, 30L, 40L);
-        verify(nodeCacheService).evictPageNodes(20L);
-        verify(graphCacheService).evictGraph(20L);
+        verify(nodeCacheService, never()).evictPageNodes(any());
+        verify(graphCacheService, never()).evictGraph(any());
 
         ArgumentCaptor<RealtimeEnvelope> envelopeCaptor = ArgumentCaptor.forClass(RealtimeEnvelope.class);
         verify(reliableEventService).stage(envelopeCaptor.capture());
         RawCursorMessage payload = (RawCursorMessage) envelopeCaptor.getValue().getPayload();
         assertThat(payload.version()).isEqualTo(4);
         assertThat(payload.fields()).containsExactly("subject");
+
+        ArgumentCaptor<TeamNodeChangeCommittedEvent> eventCaptor =
+                ArgumentCaptor.forClass(TeamNodeChangeCommittedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().version()).isEqualTo(4);
+        assertThat(eventCaptor.getValue().changedFields()).containsExactly("subject");
     }
 
     @Test
@@ -127,11 +132,10 @@ class NodeServiceContentUpdateTest {
         assertThat(response.getVersion()).isEqualTo(3);
         verify(conflictValidator, never()).validateContent(any(), any(), any(), any(), any(Integer.class), any());
         verify(nodeHistoryRepository, never()).save(any());
-        verify(editSessionService, never()).saveVersionHint(any(), any(), any(), any(Integer.class), any(), any());
-        verify(editSessionService, never()).endEditSession(any(), any(), any(), any());
         verify(nodeCacheService, never()).evictPageNodes(any());
         verify(graphCacheService, never()).evictGraph(any());
         verify(reliableEventService, never()).stage(any());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
@@ -157,6 +161,7 @@ class NodeServiceContentUpdateTest {
         verify(conflictValidator, never()).validateContent(any(), any(), any(), any(), any(Integer.class), any());
         verify(nodeHistoryRepository, never()).save(any());
         verify(reliableEventService, never()).stage(any());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
@@ -212,10 +217,10 @@ class NodeServiceContentUpdateTest {
         assertThat(node.getSubject()).isEqualTo("기존 제목");
         assertThat(node.getVersion()).isEqualTo(3);
         verify(nodeHistoryRepository, never()).save(any());
-        verify(editSessionService, never()).saveVersionHint(any(), any(), any(), any(Integer.class), any(), any());
         verify(nodeCacheService, never()).evictPageNodes(any());
         verify(graphCacheService, never()).evictGraph(any());
         verify(reliableEventService, never()).stage(any());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
@@ -242,7 +247,10 @@ class NodeServiceContentUpdateTest {
         ArgumentCaptor<NodeHistory> historyCaptor = ArgumentCaptor.forClass(NodeHistory.class);
         verify(nodeHistoryRepository).save(historyCaptor.capture());
         assertThat(historyCaptor.getValue().getChangedFields()).isEqualTo("[\"noteIds\"]");
-        verify(editSessionService).saveVersionHint(10L, 20L, 30L, 4, List.of("noteIds"), 40L);
+        ArgumentCaptor<TeamNodeChangeCommittedEvent> eventCaptor =
+                ArgumentCaptor.forClass(TeamNodeChangeCommittedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().changedFields()).containsExactly("noteIds");
     }
 
     @Test
