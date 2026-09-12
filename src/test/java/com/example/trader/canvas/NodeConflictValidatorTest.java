@@ -1,8 +1,9 @@
 package com.example.trader.canvas;
 
 import com.example.trader.dto.canvas.ConflictResult;
-import com.example.trader.dto.map.RequestNodeDto;
 import com.example.trader.entity.Node;
+import com.example.trader.entity.NodeContentChange;
+import com.example.trader.entity.NodeContentField;
 import com.example.trader.entity.NodeHistory;
 import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.service.NodeConflictValidator;
@@ -57,25 +58,12 @@ class NodeConflictValidatorTest {
     // ── 1. PASS 케이스 ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("baseVersion 없음 → PASS, Redis/DB 조회 없음")
-    void pass_when_baseVersion_null() {
-        when(node.getVersion()).thenReturn(5);
-        RequestNodeDto req = req(null, "새 제목");
-
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
-
-        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.PASS);
-        // Redis, DB 조회 없어야 함
-        verifyNoInteractions(editSessionService, nodeHistoryRepository);
-    }
-
-    @Test
-    @DisplayName("baseVersion >= currentVersion → PASS, Redis/DB 조회 없음")
+    @DisplayName("baseVersion == currentVersion → PASS, Redis/DB 조회 없음")
     void pass_when_no_version_change() {
         when(node.getVersion()).thenReturn(3);
-        RequestNodeDto req = req(3, "새 제목");
+        NodeContentChange change = subjectChange("새 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.PASS);
         assertThat(result.currentVersion()).isEqualTo(3);
@@ -94,9 +82,9 @@ class NodeConflictValidatorTest {
         when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 2, 4))
                 .thenReturn(hints);
 
-        RequestNodeDto req = req(2, "A의 새 제목"); // subject 만 변경
+        NodeContentChange change = subjectChange("A의 새 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
         assertThat(result.baseVersion()).isEqualTo(2);
@@ -118,9 +106,9 @@ class NodeConflictValidatorTest {
         when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 2, 3))
                 .thenReturn(hints);
 
-        RequestNodeDto req = req(2, "A가 쓰려던 제목");
+        NodeContentChange change = subjectChange("A가 쓰려던 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
         assertThat(result.conflictingFields()).containsExactly("subject");
@@ -145,9 +133,9 @@ class NodeConflictValidatorTest {
         when(nodeHistoryRepository.findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 2))
                 .thenReturn(List.of(history(3, "[\"content\"]")));
 
-        RequestNodeDto req = req(2, "A의 새 제목"); // subject만
+        NodeContentChange change = subjectChange("A의 새 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
         // DB 조회 반드시 발생해야 함
@@ -166,9 +154,9 @@ class NodeConflictValidatorTest {
         when(nodeHistoryRepository.findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 2))
                 .thenReturn(List.of(history(3, "[\"subject\"]")));
 
-        RequestNodeDto req = req(2, "A의 제목");
+        NodeContentChange change = subjectChange("A의 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
         assertThat(result.conflictingFields()).contains("subject");
@@ -192,9 +180,9 @@ class NodeConflictValidatorTest {
                         history(4, "[\"subject\"]")
                 ));
 
-        RequestNodeDto req = req(2, "A의 제목"); // subject 수정
+        NodeContentChange change = subjectChange("A의 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
         assertThat(result.conflictingFields()).containsExactly("subject");
@@ -255,23 +243,18 @@ class NodeConflictValidatorTest {
     }
 
     @Test
-    @DisplayName("명시한 dirtyFields만 변경 필드로 판단")
-    void extract_changed_fields_prefers_explicit_dirty_fields() {
-        RequestNodeDto req = new RequestNodeDto();
-        req.setSubject("새 제목");
-        req.setContent("화면 DTO에 함께 들어왔지만 수정하지 않은 내용");
-        req.setDirtyFields(List.of("subject"));
+    @DisplayName("검증된 변경 객체가 실제 적용 필드만 노출")
+    void content_change_exposes_exact_fields() {
+        NodeContentChange change = subjectChange("새 제목");
 
-        assertThat(validator.extractChangedFields(req)).containsExactly("subject");
+        assertThat(change.fieldNames()).containsExactly("subject");
+        assertThat(change.externalValues()).containsOnly(Map.entry("subject", "새 제목"));
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────
 
-    private RequestNodeDto req(Integer baseVersion, String subject) {
-        RequestNodeDto dto = new RequestNodeDto();
-        dto.setSubject(subject);
-        dto.setBaseVersion(baseVersion);
-        return dto;
+    private NodeContentChange subjectChange(String subject) {
+        return NodeContentChange.of(Map.of(NodeContentField.SUBJECT, subject));
     }
 
     private NodeHistory history(int version, String changedFieldsJson) {

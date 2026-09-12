@@ -1,8 +1,8 @@
 package com.example.trader.service;
 
 import com.example.trader.dto.canvas.ConflictResult;
-import com.example.trader.dto.map.RequestNodeDto;
 import com.example.trader.entity.Node;
+import com.example.trader.entity.NodeContentChange;
 import com.example.trader.entity.NodeHistory;
 import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
@@ -48,16 +48,17 @@ public class NodeConflictValidator {
      * @param graphId 그래프 ID
      * @param nodeId  노드 ID
      * @param node    현재 DB 상태 (findByIdWithLinks 로드된 것)
-     * @param req     클라이언트 요청 DTO
+     * @param change  요청 계약 검증 후 실제로 적용할 변경
      */
-    public ConflictResult validate(Long teamId, Long graphId, Long nodeId,
-                                   Node node, RequestNodeDto req) {
-        Integer baseVersion = req.getBaseVersion();
-        if (baseVersion == null) {
-            return ConflictResult.pass(node.getVersion());
-        }
-
-        List<String> incomingFields = extractChangedFields(req);
+    public ConflictResult validateContent(
+            Long teamId,
+            Long graphId,
+            Long nodeId,
+            Node node,
+            int baseVersion,
+            NodeContentChange change
+    ) {
+        List<String> incomingFields = change.fieldNames();
         Set<String> incomingFieldSet = new HashSet<>(incomingFields);
         return validateFields(
                 teamId,
@@ -67,7 +68,7 @@ public class NodeConflictValidator {
                 node.getVersion(),
                 incomingFields,
                 extractCurrentValues(node, incomingFieldSet),
-                extractIncomingValues(req, incomingFieldSet)
+                change.externalValues()
         );
     }
 
@@ -187,39 +188,6 @@ public class NodeConflictValidator {
         return retained;
     }
 
-    /**
-     * RequestNodeDto에서 null이 아닌(=변경 의도가 있는) 필드명 추출.
-     * NodeService에서 changedFields 계산 시에도 재사용.
-     */
-    public List<String> extractChangedFields(RequestNodeDto req) {
-        if (req.getDirtyFields() != null) {
-            return req.getDirtyFields().stream()
-                    .filter(Objects::nonNull)
-                    .distinct()
-                    .filter(field -> hasIncomingValue(req, field))
-                    .toList();
-        }
-
-        List<String> fields = new ArrayList<>();
-        if (req.getSubject()    != null) fields.add("subject");
-        if (req.getContent()    != null) fields.add("content");
-        if (req.getSymb()       != null) fields.add("symb");
-        if (req.getRecordDate() != null) fields.add("recordDate");
-        if (!req.isNoteIdsOmitted())     fields.add("noteIds");
-        return fields;
-    }
-
-    private boolean hasIncomingValue(RequestNodeDto req, String field) {
-        return switch (field) {
-            case "subject" -> req.getSubject() != null;
-            case "content" -> req.getContent() != null;
-            case "symb" -> req.getSymb() != null;
-            case "recordDate" -> req.getRecordDate() != null;
-            case "noteIds" -> !req.isNoteIdsOmitted();
-            default -> false;
-        };
-    }
-
     // ── private helpers ───────────────────────────────────────────────────────
 
     /** 현재 노드에서 충돌 필드의 값 추출 */
@@ -233,21 +201,6 @@ public class NodeConflictValidator {
                 case "recordDate" -> values.put(field, node.getRecordDate());
                 case "noteIds"    -> values.put(field, node.getNoteLinks().stream()
                         .map(l -> l.getNote().getId()).toList());
-            }
-        }
-        return values;
-    }
-
-    /** 요청 DTO에서 충돌 필드의 값 추출 */
-    private Map<String, Object> extractIncomingValues(RequestNodeDto req, Set<String> fields) {
-        Map<String, Object> values = new LinkedHashMap<>();
-        for (String field : fields) {
-            switch (field) {
-                case "subject"    -> values.put(field, req.getSubject());
-                case "content"    -> values.put(field, req.getContent());
-                case "symb"       -> values.put(field, req.getSymb());
-                case "recordDate" -> values.put(field, req.getRecordDate());
-                case "noteIds"    -> values.put(field, req.getNoteIds());
             }
         }
         return values;

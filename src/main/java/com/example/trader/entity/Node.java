@@ -1,7 +1,8 @@
 package com.example.trader.entity;
 
-import com.example.trader.dto.map.RequestNodeDto;
 import com.example.trader.entity.base.BaseTimeEntity;
+import com.example.trader.exception.InvalidNodeChangeRequestException;
+import com.example.trader.exception.NodeChangeErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.Formula;
@@ -68,18 +69,89 @@ public class Node extends BaseTimeEntity {
         this.version++;
     }
 
-    public void updateBasics(RequestNodeDto dto) {
-        if (dto.getX() != null) this.x = dto.getX();
-        if (dto.getY() != null) this.y = dto.getY();
-        if (dto.getSubject() != null) this.subject = dto.getSubject();
-        if (dto.getContent() != null) this.content = dto.getContent();
-        if (dto.getSymb() != null) this.symb = dto.getSymb();
-        if (dto.getRecordDate() != null) this.recordDate = dto.getRecordDate();
+    /**
+     * 검증된 내용 변경을 원자적으로 적용한다.
+     *
+     * @param desiredNotes noteIds 변경 시 목표 Note 집합, 그 외에는 빈 컬렉션
+     * @param replaceableNoteIds 이번 요청이 교체할 수 있는 기존 Note ID 집합
+     * @param versionPolicy 팀 변경은 증가, 개인 변경은 기존 정책 보존
+     */
+    public NodeChangeResult applyContentChange(
+            NodeContentChange change,
+            Collection<Note> desiredNotes,
+            Set<Long> replaceableNoteIds,
+            NodeVersionPolicy versionPolicy
+    ) {
+        validateContentChange(change, desiredNotes, replaceableNoteIds);
+
+        int previousVersion = version;
+        if (change.isEmpty()) {
+            return new NodeChangeResult(previousVersion, previousVersion, List.of());
+        }
+
+        if (change.contains(NodeContentField.SUBJECT)) {
+            this.subject = (String) change.value(NodeContentField.SUBJECT);
+        }
+        if (change.contains(NodeContentField.CONTENT)) {
+            this.content = (String) change.value(NodeContentField.CONTENT);
+        }
+        if (change.contains(NodeContentField.SYMBOL)) {
+            this.symb = (String) change.value(NodeContentField.SYMBOL);
+        }
+        if (change.contains(NodeContentField.RECORD_DATE)) {
+            this.recordDate = (LocalDate) change.value(NodeContentField.RECORD_DATE);
+        }
+        if (change.contains(NodeContentField.NOTE_IDS)) {
+            synchronizeNotes(desiredNotes, replaceableNoteIds);
+        }
+
+        if (versionPolicy == NodeVersionPolicy.ADVANCE_ON_CHANGE) {
+            incrementVersion();
+        }
+        return new NodeChangeResult(previousVersion, version, change.fieldNames());
     }
+
+    private void validateContentChange(
+            NodeContentChange change,
+            Collection<Note> desiredNotes,
+            Set<Long> replaceableNoteIds
+    ) {
+        if (change.contains(NodeContentField.SUBJECT)) {
+            String value = (String) change.value(NodeContentField.SUBJECT);
+            if (value == null) {
+                throw new InvalidNodeChangeRequestException(NodeChangeErrorCode.NULL_VALUE_NOT_ALLOWED);
+            }
+            if (value.isEmpty()) {
+                throw new InvalidNodeChangeRequestException(NodeChangeErrorCode.EMPTY_SUBJECT_NOT_ALLOWED);
+            }
+        }
+        if (change.contains(NodeContentField.CONTENT)
+                && change.value(NodeContentField.CONTENT) == null) {
+            throw new InvalidNodeChangeRequestException(NodeChangeErrorCode.NULL_VALUE_NOT_ALLOWED);
+        }
+        if (change.contains(NodeContentField.RECORD_DATE)
+                && change.value(NodeContentField.RECORD_DATE) == null) {
+            throw new InvalidNodeChangeRequestException(NodeChangeErrorCode.NULL_VALUE_NOT_ALLOWED);
+        }
+        if (change.contains(NodeContentField.NOTE_IDS)
+                && (desiredNotes == null || replaceableNoteIds == null)) {
+            throw new IllegalArgumentException("noteIds 변경에는 해석된 Note 집합이 필요합니다.");
+        }
+    }
+
+    private void synchronizeNotes(Collection<Note> desiredNotes, Set<Long> replaceableNoteIds) {
+        Set<Long> desiredIds = desiredNotes.stream()
+                .map(Note::getId)
+                .collect(Collectors.toSet());
+
+        noteLinks.removeIf(link -> replaceableNoteIds.contains(link.getNoteId())
+                && !desiredIds.contains(link.getNoteId()));
+        attachAll(desiredNotes);
+    }
+
     public void attach(Note note) {
         Long targetId = note.getId();
-        // 중복 방지
-//        if (noteLinks.stream().anyMatch(l -> Objects.equals(l.getNoteId(), targetId))) return;
+        if (noteLinks.stream().anyMatch(l -> Objects.equals(l.getNoteId(), targetId))) return;
         NodeNoteLink link = NodeNoteLink.of(this, note);
         noteLinks.add(link);
     }
@@ -115,7 +187,7 @@ public class Node extends BaseTimeEntity {
         Set<Long> targetIds = notes.stream()
                 .map(Note::getId)  // getId()는 프록시 초기화 안 함
                 .collect(Collectors.toSet());
-
+        noteLinks.removeIf(link -> targetIds.contains(link.getNoteId()));
     }
 
     private static String makePreview(String content) {

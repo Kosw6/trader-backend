@@ -1,9 +1,10 @@
 package com.example.trader.controller;
 
-import com.example.trader.dto.UpdateNodePositionReq;
-import com.example.trader.dto.map.RequestNodeDto;
+import com.example.trader.dto.UpdatePersonalNodePositionRequest;
+import com.example.trader.dto.map.CreateNodeRequest;
 import com.example.trader.dto.map.ResponseNodeDto;
 import com.example.trader.dto.map.ResponseNodeSummaryDto;
+import com.example.trader.dto.map.UpdatePersonalNodeContentRequest;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.service.NodeService;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +32,7 @@ public class NodeController {
     @PostMapping
     public ResponseEntity<ResponseNodeDto> createNode(
             @PathVariable Long pageId,
-            @RequestBody RequestNodeDto dto,
+            @RequestBody CreateNodeRequest dto,
             @AuthenticationPrincipal UserContext user
     ) {
         ResponseNodeDto saved = nodeService.createNode(dto, pageId, user.getUserDto().getId());
@@ -42,7 +43,7 @@ public class NodeController {
     public ResponseEntity<ResponseNodeDto> updateNode(
             @PathVariable Long pageId,
             @PathVariable Long nodeId,
-            @RequestBody RequestNodeDto dto,
+            @RequestBody UpdatePersonalNodeContentRequest dto,
             @AuthenticationPrincipal UserContext user
     ) {
         ResponseNodeDto response = nodeService.updateNode(pageId, nodeId, dto, user.getUserDto().getId());
@@ -53,7 +54,7 @@ public class NodeController {
     public ResponseEntity<Void> updateNodePosition(
             @PathVariable Long pageId,
             @PathVariable Long nodeId,
-            @RequestBody UpdateNodePositionReq dto,
+            @RequestBody UpdatePersonalNodePositionRequest dto,
             @AuthenticationPrincipal UserContext user
     ) {
         nodeService.updatePosition(pageId, nodeId, user.getUserDto().getId(), dto.x(), dto.y());

@@ -4,8 +4,8 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import jakarta.validation.constraints.NotNull;
 
-public record UpdateNodePositionReq(
+public record UpdatePersonalNodePositionRequest(
         @NotNull @JsonSetter(nulls = Nulls.FAIL) Double x,
-        @NotNull @JsonSetter(nulls = Nulls.FAIL) Double y,
-        Integer baseVersion
-) {}
+        @NotNull @JsonSetter(nulls = Nulls.FAIL) Double y
+) {
+}

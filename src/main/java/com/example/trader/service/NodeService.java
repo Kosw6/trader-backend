@@ -1,10 +1,16 @@
 package com.example.trader.service;
 
 import com.example.trader.dto.canvas.ConflictResult;
-import com.example.trader.dto.map.RequestNodeDto;
+import com.example.trader.dto.map.CreateNodeRequest;
 import com.example.trader.dto.map.ResponseNodeDto;
 import com.example.trader.dto.map.ResponseNodeSummaryDto;
+import com.example.trader.dto.map.UpdatePersonalNodeContentRequest;
+import com.example.trader.dto.map.UpdateTeamNodeContentRequest;
 import com.example.trader.entity.Node;
+import com.example.trader.entity.NodeChangePlan;
+import com.example.trader.entity.NodeChangeResult;
+import com.example.trader.entity.NodeContentField;
+import com.example.trader.entity.NodeVersionPolicy;
 import com.example.trader.entity.NodeHistory;
 import com.example.trader.entity.Note;
 import com.example.trader.entity.Page;
@@ -49,6 +55,7 @@ public class NodeService {
     private final NodeCacheService       nodeCacheService;
     private final GraphCacheService      graphCacheService;
     private final NodeHistoryRepository  nodeHistoryRepository;
+    private final NodeChangeRequestValidator changeRequestValidator;
     private final NodeConflictValidator  conflictValidator;
     private final NodeEditSessionService editSessionService;
     private final TransactionalReliableEventService transactionalReliableEventService;
@@ -92,7 +99,12 @@ public class NodeService {
     }
 
     @Transactional
-    public ResponseNodeDto updateNode(Long pageId, Long nodeId, RequestNodeDto req, Long userId) {
+    public ResponseNodeDto updateNode(
+            Long pageId,
+            Long nodeId,
+            UpdatePersonalNodeContentRequest req,
+            Long userId
+    ) {
         if (!nodeRepository.existsByIdAndPageIdAndPageUserId(nodeId, pageId, userId)) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
@@ -100,15 +112,18 @@ public class NodeService {
         Node node = nodeRepository.findByIdWithLinks(nodeId)
                 .orElseThrow(() -> new IllegalArgumentException("연결된 노트링크가 없습니다"));
 
-        node.updateBasics(req);
-
-        if (req.isNoteIdsOmitted()) {
-            // 변경 없음
-        } else if (req.isNoteIdsEmptySet()) {
-            syncNotes(node, List.of());
-        } else {
-            syncNotes(node, req.getNoteIds());
+        Set<Long> currentNoteIds = allNoteIds(node);
+        NodeChangePlan plan = changeRequestValidator.validatePersonal(req, node, currentNoteIds);
+        if (plan.isNoOp()) {
+            return ResponseNodeDto.from(node);
         }
+
+        node.applyContentChange(
+                plan.effectiveChange(),
+                resolvePersonalNotes(plan),
+                currentNoteIds,
+                NodeVersionPolicy.PRESERVE
+        );
 
         nodeCacheService.evictPageNodes(pageId);
         graphCacheService.evictGraph(pageId);
@@ -117,77 +132,77 @@ public class NodeService {
 
     @ObservedLog(domain = "node", api = "updateTeamNode")
     @Transactional
-    public ResponseNodeDto updateTeamNode(Long teamId, Long graphId, Long nodeId, Long userId, RequestNodeDto req) {
+    public ResponseNodeDto updateTeamNode(
+            Long teamId,
+            Long graphId,
+            Long nodeId,
+            Long userId,
+            UpdateTeamNodeContentRequest req
+    ) {
         if (!nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(nodeId, graphId, teamId)) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
 
-        log.info(
-                "node update request teamId={} graphId={} nodeId={} userId={} baseVersion={} force={} dirtyFields={}",
-                teamId,
-                graphId,
-                nodeId,
-                userId,
-                req.getBaseVersion(),
-                req.isForce(),
-                conflictValidator.extractChangedFields(req)
-        );
-
         Node node = nodeRepository.findByIdWithLinks(nodeId)
                 .orElseThrow(() -> new IllegalArgumentException("연결된 노트링크가 없습니다"));
 
+        Set<Long> replaceableNoteIds = teamNoteIdsOwnedBy(node, userId);
+        NodeChangePlan plan = changeRequestValidator.validateTeam(req, node, replaceableNoteIds);
+
         log.info(
-                "node update request teamId={} graphId={} nodeId={} userId={} baseVersion={} force={} dirtyFields={}",
+                "node update request teamId={} graphId={} nodeId={} userId={} baseVersion={} force={} requestedFields={} effectiveFields={}",
                 teamId,
                 graphId,
                 nodeId,
                 userId,
                 req.getBaseVersion(),
                 req.isForce(),
-                conflictValidator.extractChangedFields(req)
+                plan.requestedFields(),
+                plan.effectiveChange().fieldNames()
         );
 
-        // ── 충돌 검증 (force=true 이면 skip) ────────────────────────────────
+        // 동일 값 재요청은 충돌 검사와 모든 부수효과가 없는 멱등 성공이다.
+        if (plan.isNoOp()) {
+            return ResponseNodeDto.from(node);
+        }
+
+        // force는 요청 계약 검증이 아니라 같은 필드의 업무 충돌만 우회한다.
         if (!req.isForce()) {
-            ConflictResult conflict = conflictValidator.validate(teamId, graphId, nodeId, node, req);
+            ConflictResult conflict = conflictValidator.validateContent(
+                    teamId,
+                    graphId,
+                    nodeId,
+                    node,
+                    req.getBaseVersion(),
+                    plan.effectiveChange()
+            );
             if (conflict.isConflict()) {
                 throw new NodeConflictException(conflict);
             }
         }
 
-        // 변경될 필드 목록 (히스토리 저장용) — updateBasics 이전에 추출
-        List<String> changedFields = conflictValidator.extractChangedFields(req);
+        NodeChangeResult changeResult = node.applyContentChange(
+                plan.effectiveChange(),
+                resolveTeamNotes(plan, userId),
+                replaceableNoteIds,
+                NodeVersionPolicy.ADVANCE_ON_CHANGE
+        );
+        List<String> changedFields = changeResult.appliedFields();
+        int newVersion = changeResult.newVersion();
 
-        node.updateBasics(req);
+        String fieldsJson = toJson(changedFields);
+        nodeHistoryRepository.save(NodeHistory.builder()
+                .nodeId(nodeId)
+                .teamId(teamId)
+                .graphId(graphId)
+                .version(newVersion)
+                .changedBy(userId)
+                .changedFields(fieldsJson)
+                .changedAt(java.time.LocalDateTime.now())
+                .build());
 
-        if (req.isNoteIdsOmitted()) {
-            // 변경 없음
-        } else if (req.isNoteIdsEmptySet()) {
-            syncTeamNotesMineOnly(node, List.of(), userId);
-        } else {
-            syncTeamNotesMineOnly(node, req.getNoteIds(), userId);
-        }
-
-        // ── 버전 증가 ────────────────────────────────────────────────────────
-        node.incrementVersion();
-        int newVersion = node.getVersion();
-
-        // ── DB 버전 히스토리 저장 ────────────────────────────────────────────
-        if (!changedFields.isEmpty()) {
-            String fieldsJson = toJson(changedFields);
-            nodeHistoryRepository.save(NodeHistory.builder()
-                    .nodeId(nodeId)
-                    .teamId(teamId)
-                    .graphId(graphId)
-                    .version(newVersion)
-                    .changedBy(userId)
-                    .changedFields(fieldsJson)
-                    .changedAt(java.time.LocalDateTime.now())
-                    .build());
-
-            // ── Redis 버전 힌트 저장 (TTL 1시간) ────────────────────────────
-            editSessionService.saveVersionHint(teamId, graphId, nodeId, newVersion, changedFields, userId);
-        }
+        // Redis 힌트의 트랜잭션 외부 격리는 1번 후속 범위에서 처리한다.
+        editSessionService.saveVersionHint(teamId, graphId, nodeId, newVersion, changedFields, userId);
 
         // ── 편집 세션 정리 ───────────────────────────────────────────────────
         editSessionService.endEditSession(teamId, graphId, nodeId, userId);
@@ -215,7 +230,7 @@ public class NodeService {
                 userId,
                 newVersion,
                 changedFields,
-                !changedFields.isEmpty()
+                true
         );
         return ResponseNodeDto.from(node);
     }
@@ -246,7 +261,7 @@ public class NodeService {
     }
 
     @Transactional
-    public ResponseNodeDto createNode(RequestNodeDto dto, Long pageId, Long userId) {
+    public ResponseNodeDto createNode(CreateNodeRequest dto, Long pageId, Long userId) {
         if (!pageRepository.existsByIdAndUserId(pageId, userId)) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
@@ -266,7 +281,7 @@ public class NodeService {
 
         if (dto.isNoteIdsOmitted()) {
             // 변경 없음
-        } else if (dto.isNoteIdsEmptySet()) {
+        } else if (dto.getNoteIds().isEmpty()) {
             syncNotes(node, List.of());
         } else {
             syncNotes(node, dto.getNoteIds());
@@ -280,7 +295,7 @@ public class NodeService {
     }
 
     @Transactional
-    public ResponseNodeDto createTeamNode(RequestNodeDto dto, Long teamId, Long pageId, Long userId) {
+    public ResponseNodeDto createTeamNode(CreateNodeRequest dto, Long teamId, Long pageId, Long userId) {
         if (!pageRepository.existsByIdAndDirectoryTeamId(pageId, teamId)) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
@@ -300,7 +315,7 @@ public class NodeService {
 
         if (dto.isNoteIdsOmitted()) {
             // 변경 없음
-        } else if (dto.isNoteIdsEmptySet()) {
+        } else if (dto.getNoteIds().isEmpty()) {
             syncTeamNotesMineOnly(node, List.of(), userId);
         } else {
             syncTeamNotesMineOnly(node, dto.getNoteIds(), userId);
@@ -369,6 +384,46 @@ public class NodeService {
                 .orElseThrow(IllegalArgumentException::new);
 
         return ResponseNodeDto.from(findNode);
+    }
+
+    private Set<Long> allNoteIds(Node node) {
+        return node.getNoteLinks().stream()
+                .map(link -> link.getNote().getId())
+                .collect(Collectors.toSet());
+    }
+
+    private Set<Long> teamNoteIdsOwnedBy(Node node, Long userId) {
+        return node.getNoteLinks().stream()
+                .filter(link -> link.getNote().getUser().getId().equals(userId))
+                .map(link -> link.getNote().getId())
+                .collect(Collectors.toSet());
+    }
+
+    private List<Note> resolvePersonalNotes(NodeChangePlan plan) {
+        if (!plan.effectiveChange().contains(NodeContentField.NOTE_IDS)) {
+            return List.of();
+        }
+        return plan.effectiveChange().noteIds().stream()
+                .map(id -> em.getReference(Note.class, id))
+                .toList();
+    }
+
+    private List<Note> resolveTeamNotes(NodeChangePlan plan, Long userId) {
+        if (!plan.effectiveChange().contains(NodeContentField.NOTE_IDS)) {
+            return List.of();
+        }
+
+        Set<Long> requestedIds = new HashSet<>(plan.effectiveChange().noteIds());
+        if (requestedIds.isEmpty()) {
+            return List.of();
+        }
+        List<Long> allowedIds = noteRepository.findIdsByUserIdAndIdIn(userId, requestedIds);
+        if (allowedIds.size() != requestedIds.size()) {
+            throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
+        }
+        return allowedIds.stream()
+                .map(id -> em.getReference(Note.class, id))
+                .toList();
     }
 
     private void syncNotes(Node node, List<Long> desiredNoteIds) {
