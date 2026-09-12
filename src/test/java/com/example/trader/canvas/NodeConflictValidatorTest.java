@@ -123,6 +123,34 @@ class NodeConflictValidatorTest {
                 .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(any(), any());
     }
 
+    @Test
+    @DisplayName("저장 시점 CAS 충돌은 한 스냅샷의 전체 현재 값과 요청값을 반환")
+    void concurrent_update_contains_complete_review_snapshot() {
+        when(node.getVersion()).thenReturn(5);
+        when(node.getSubject()).thenReturn("서버 최신 제목");
+        when(node.getContent()).thenReturn("서버 최신 내용");
+        when(node.getSymb()).thenReturn(null);
+        when(node.getRecordDate()).thenReturn(java.time.LocalDate.of(2026, 9, 12));
+
+        ConflictResult result = validator.concurrentContentUpdate(
+                node,
+                4,
+                subjectChange("내가 저장할 제목")
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONCURRENT_UPDATE);
+        assertThat(result.baseVersion()).isEqualTo(4);
+        assertThat(result.currentVersion()).isEqualTo(5);
+        assertThat(result.conflictingFields()).containsExactly("subject");
+        assertThat(result.currentValues())
+                .containsEntry("subject", "서버 최신 제목")
+                .containsEntry("content", "서버 최신 내용")
+                .containsEntry("symb", null)
+                .containsEntry("recordDate", java.time.LocalDate.of(2026, 9, 12))
+                .containsEntry("noteIds", List.of());
+        assertThat(result.incomingValues()).containsEntry("subject", "내가 저장할 제목");
+    }
+
     // ── 4. DB fallback 케이스 ────────────────────────────────────────────────
 
     @Test

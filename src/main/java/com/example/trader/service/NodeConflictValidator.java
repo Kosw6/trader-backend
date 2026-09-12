@@ -39,6 +39,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class NodeConflictValidator {
 
+    private static final Set<String> ALL_CONTENT_FIELDS = Set.of(
+            "subject", "content", "symb", "recordDate", "noteIds"
+    );
+
     private final NodeEditSessionService editSessionService;
     private final NodeHistoryRepository  nodeHistoryRepository;
     private final ObjectMapper           objectMapper;
@@ -62,7 +66,6 @@ public class NodeConflictValidator {
             NodeContentChange change
     ) {
         List<String> incomingFields = change.fieldNames();
-        Set<String> incomingFieldSet = new HashSet<>(incomingFields);
         return validateFields(
                 teamId,
                 graphId,
@@ -70,8 +73,22 @@ public class NodeConflictValidator {
                 baseVersion,
                 node.getVersion(),
                 incomingFields,
-                extractCurrentValues(node, incomingFieldSet),
+                extractCurrentValues(node, ALL_CONTENT_FIELDS),
                 change.externalValues()
+        );
+    }
+
+    public ConflictResult concurrentContentUpdate(
+            Node node,
+            int baseVersion,
+            NodeContentChange requestedChange
+    ) {
+        return ConflictResult.concurrentUpdate(
+                baseVersion,
+                node.getVersion(),
+                requestedChange.fieldNames(),
+                extractCurrentValues(node, ALL_CONTENT_FIELDS),
+                requestedChange.externalValues()
         );
     }
 
@@ -174,7 +191,6 @@ public class NodeConflictValidator {
         }
 
         // 충돌 → diff 반환
-        Map<String, Object> conflictingCurrentValues = retainValues(currentValues, conflicting);
         Map<String, Object> conflictingIncomingValues = retainValues(incomingValues, conflicting);
 
         log.warn(
@@ -182,7 +198,7 @@ public class NodeConflictValidator {
                 teamId, graphId, nodeId, baseVersion, currentVersion, conflicting
         );
         return ConflictResult.conflict(baseVersion, currentVersion,
-                new ArrayList<>(conflicting), conflictingCurrentValues, conflictingIncomingValues);
+                new ArrayList<>(conflicting), currentValues, conflictingIncomingValues);
     }
 
     private Map<String, Object> retainValues(Map<String, Object> values, Set<String> fields) {

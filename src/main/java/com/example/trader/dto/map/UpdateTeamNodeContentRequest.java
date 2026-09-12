@@ -26,12 +26,15 @@ public final class UpdateTeamNodeContentRequest extends NodeContentUpdateRequest
 
     public Boolean getForce() { return force; }
 
+    /** @deprecated 충돌 해결은 확인한 currentVersion을 새 baseVersion으로 제출한다. */
+    @Deprecated
     @JsonSetter("force")
     public void setForce(Boolean force) {
         this.force = force;
     }
 
     @JsonIgnore
+    @Deprecated
     public boolean isForce() {
         return Boolean.TRUE.equals(force);
     }

@@ -21,7 +21,8 @@ public record ConflictResult(
     public enum ConflictType {
         PASS,
         AUTO_MERGE,
-        CONFLICT
+        CONFLICT,
+        CONCURRENT_UPDATE
     }
 
     public static ConflictResult pass(int version) {
@@ -42,7 +43,24 @@ public record ConflictResult(
                 conflictingFields, currentValues, incomingValues);
     }
 
+    public static ConflictResult concurrentUpdate(
+            int base,
+            int current,
+            List<String> fieldsToReview,
+            Map<String, Object> currentValues,
+            Map<String, Object> incomingValues
+    ) {
+        return new ConflictResult(
+                ConflictType.CONCURRENT_UPDATE,
+                base,
+                current,
+                fieldsToReview,
+                currentValues,
+                incomingValues
+        );
+    }
+
     public boolean isConflict() {
-        return type == ConflictType.CONFLICT;
+        return type == ConflictType.CONFLICT || type == ConflictType.CONCURRENT_UPDATE;
     }
 }

@@ -141,6 +141,7 @@ public class NodeChangeRequestValidator {
 
         return new NodeChangePlan(
                 requestedFields.stream().map(NodeContentField::externalName).toList(),
+                NodeContentChange.of(normalized),
                 NodeContentChange.of(effective)
         );
     }

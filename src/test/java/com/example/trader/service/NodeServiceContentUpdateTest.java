@@ -13,6 +13,7 @@ import com.example.trader.exception.InvalidNodeChangeRequestException;
 import com.example.trader.exception.NodeChangeErrorCode;
 import com.example.trader.exception.NodeHistoryCorruptedException;
 import com.example.trader.exception.NodeHistoryCorruptionReason;
+import com.example.trader.exception.NodeConflictException;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.outbox.TransactionalReliableEventService;
 import com.example.trader.repository.EdgeRepository;
@@ -165,8 +166,8 @@ class NodeServiceContentUpdateTest {
     }
 
     @Test
-    @DisplayName("force는 유효한 요청의 업무 충돌 검사만 우회")
-    void force_bypasses_only_business_conflict() {
+    @DisplayName("구버전 force 값도 업무 충돌과 CAS 계약을 우회하지 못함")
+    void force_does_not_bypass_business_conflict() {
         Node node = node();
         UpdateTeamNodeContentRequest request = teamSubjectRequest("강제 제목", 1, true);
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
@@ -181,13 +182,15 @@ class NodeServiceContentUpdateTest {
                         java.util.Map.of("subject", "강제 제목")
                 ));
 
-        nodeService.updateTeamNode(10L, 20L, 30L, 40L, request);
+        assertThatThrownBy(() -> nodeService.updateTeamNode(10L, 20L, 30L, 40L, request))
+                .isInstanceOf(NodeConflictException.class);
 
-        assertThat(node.getSubject()).isEqualTo("강제 제목");
-        assertThat(node.getVersion()).isEqualTo(4);
+        assertThat(node.getSubject()).isEqualTo("기존 제목");
+        assertThat(node.getVersion()).isEqualTo(3);
         verify(conflictValidator).validateContent(any(), any(), any(), any(), any(Integer.class), any());
-        verify(nodeHistoryRepository).save(any());
-        verify(reliableEventService).stage(any());
+        verify(nodeHistoryRepository, never()).save(any());
+        verify(reliableEventService, never()).stage(any());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test

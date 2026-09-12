@@ -60,6 +60,11 @@ public class Node extends BaseTimeEntity {
     @Column(nullable = false)
     private int version = 0;
 
+    /** DB 저장 시점의 동시 갱신만 검출하는 기술 버전. 업무 version과 분리한다. */
+    @Version
+    @Column(name = "lock_version", nullable = false)
+    private Long lockVersion;
+
     public void setPage(Page page){
         this.page = page;
     }

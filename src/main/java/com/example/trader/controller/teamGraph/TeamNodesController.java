@@ -12,6 +12,7 @@ import com.example.trader.dto.map.UpdateTeamNodeContentRequest;
 import com.example.trader.exception.NodeConflictException;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.service.NodeService;
+import com.example.trader.service.TeamNodeContentUpdateCoordinator;
 import com.example.trader.service.TeamNodePositionService;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import jakarta.validation.Valid;
@@ -30,6 +31,7 @@ import java.util.List;
 public class TeamNodesController {
 
     private final NodeService nodeService;
+    private final TeamNodeContentUpdateCoordinator teamNodeContentUpdateCoordinator;
     private final TeamNodePositionService teamNodePositionService;
     private final NodeEditSessionService editSessionService;
 
@@ -90,7 +92,7 @@ public class TeamNodesController {
         Long userId = context.getUserDto().getId();
 
         try {
-            ResponseNodeDto result = nodeService.updateTeamNode(
+            ResponseNodeDto result = teamNodeContentUpdateCoordinator.update(
                     teamId,
                     graphId,
                     nodeId,

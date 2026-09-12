@@ -188,7 +188,9 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
    update Node n
-      set n.x = :x, n.y = :y
+      set n.x = :x,
+          n.y = :y,
+          n.lockVersion = n.lockVersion + 1
     where n.id = :nodeId
    """)
     int updatePosition(@Param("nodeId") Long nodeId,
@@ -200,7 +202,8 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
     UPDATE node n
        SET x = :x,
            y = :y,
-           version = version + 1
+           version = version + 1,
+           lock_version = lock_version + 1
      WHERE n.id = :nodeId
        AND n.page_id = :graphId
        AND n.version = :expectedVersion
