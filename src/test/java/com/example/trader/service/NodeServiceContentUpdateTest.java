@@ -89,7 +89,7 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
                 .thenReturn(ConflictResult.pass(3));
 
         ResponseNodeDto response = nodeService.updateTeamNode(10L, 20L, 30L, 40L, request);
@@ -127,11 +127,13 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
+                .thenReturn(ConflictResult.pass(3));
 
         ResponseNodeDto response = nodeService.updateTeamNode(10L, 20L, 30L, 40L, request);
 
         assertThat(response.getVersion()).isEqualTo(3);
-        verify(conflictValidator, never()).validateContent(any(), any(), any(), any(), any(Integer.class), any());
+        verify(conflictValidator).validateContent(any(), any(), any(), any(), any(Integer.class), any(), any());
         verify(nodeHistoryRepository, never()).save(any());
         verify(nodeCacheService, never()).evictPageNodes(any());
         verify(graphCacheService, never()).evictGraph(any());
@@ -159,7 +161,7 @@ class NodeServiceContentUpdateTest {
         assertThat(node.getSubject()).isEqualTo("기존 제목");
         assertThat(node.getContent()).isEqualTo("기존 내용");
         assertThat(node.getVersion()).isEqualTo(3);
-        verify(conflictValidator, never()).validateContent(any(), any(), any(), any(), any(Integer.class), any());
+        verify(conflictValidator, never()).validateContent(any(), any(), any(), any(), any(Integer.class), any(), any());
         verify(nodeHistoryRepository, never()).save(any());
         verify(reliableEventService, never()).stage(any());
         verify(eventPublisher, never()).publishEvent(any());
@@ -173,7 +175,7 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
                 .thenReturn(ConflictResult.conflict(
                         1,
                         3,
@@ -187,7 +189,7 @@ class NodeServiceContentUpdateTest {
 
         assertThat(node.getSubject()).isEqualTo("기존 제목");
         assertThat(node.getVersion()).isEqualTo(3);
-        verify(conflictValidator).validateContent(any(), any(), any(), any(), any(Integer.class), any());
+        verify(conflictValidator).validateContent(any(), any(), any(), any(), any(Integer.class), any(), any());
         verify(nodeHistoryRepository, never()).save(any());
         verify(reliableEventService, never()).stage(any());
         verify(eventPublisher, never()).publishEvent(any());
@@ -211,7 +213,7 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
                 .thenThrow(failure);
 
         assertThatThrownBy(() -> nodeService.updateTeamNode(10L, 20L, 30L, 40L, request))
@@ -241,7 +243,7 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
                 .thenReturn(ConflictResult.pass(3));
 
         nodeService.updateTeamNode(10L, 20L, 30L, 40L, request);

@@ -54,9 +54,10 @@ public class TeamNodeConflictSnapshotService {
                     nodeId,
                     node,
                     request.getBaseVersion(),
+                    plan.requestedChange(),
                     plan.effectiveChange()
             );
-            if (conflict.isConflict()) {
+            if (conflict.requiresUserReview()) {
                 return conflict;
             }
         }

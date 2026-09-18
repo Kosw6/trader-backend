@@ -162,21 +162,22 @@ public class NodeService {
                 plan.effectiveChange().fieldNames()
         );
 
-        // 동일 값 재요청은 충돌 검사와 모든 부수효과가 없는 멱등 성공이다.
-        if (plan.isNoOp()) {
-            return ResponseNodeDto.from(node);
-        }
-
         ConflictResult conflict = conflictValidator.validateContent(
                 teamId,
                 graphId,
                 nodeId,
                 node,
                 req.getBaseVersion(),
+                plan.requestedChange(),
                 plan.effectiveChange()
         );
-        if (conflict.isConflict()) {
+        if (conflict.requiresUserReview()) {
             throw new NodeConflictException(conflict);
+        }
+
+        // 최신 문맥 검토까지 통과한 동일 값 재요청만 부수효과 없는 멱등 성공이다.
+        if (plan.isNoOp()) {
+            return ResponseNodeDto.from(node);
         }
 
         NodeChangeResult changeResult = node.applyContentChange(

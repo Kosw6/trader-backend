@@ -84,7 +84,7 @@ class NodeServiceTransactionContractTest {
     @DisplayName("Outbox 적재 실패 시 Node와 History DB 변경을 함께 롤백")
     void outbox_failure_rolls_back_node_and_history() {
         Fixture fixture = createFixture();
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
                 .thenReturn(ConflictResult.pass(3));
         doThrow(new IllegalStateException("outbox save failed"))
                 .when(reliableEventService).stage(any());
@@ -143,7 +143,7 @@ class NodeServiceTransactionContractTest {
         Fixture fixture = createFixture();
         CountDownLatch bothRequestsValidated = new CountDownLatch(2);
         CountDownLatch releaseWrites = new CountDownLatch(1);
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
                 .thenAnswer(invocation -> {
                     bothRequestsValidated.countDown();
                     if (!releaseWrites.await(5, TimeUnit.SECONDS)) {

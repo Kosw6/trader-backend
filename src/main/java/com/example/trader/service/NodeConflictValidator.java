@@ -30,8 +30,9 @@ import java.util.stream.Collectors;
  *   <li>baseVersion == currentVersion → PASS (변경 없음)</li>
  *   <li>Redis 힌트 체인 완전 → 힌트 기반 변경 필드 집계</li>
  *   <li>Redis 힌트 불완전 → DB NodeHistory fallback</li>
- *   <li>A 편집 필드 ∩ 변경 필드 = ∅ → AUTO_MERGE</li>
- *   <li>A 편집 필드 ∩ 변경 필드 ≠ ∅ → CONFLICT (diff 포함 반환)</li>
+ *   <li>콘텐츠의 서버 변경과 요청 변경이 겹치지 않음 → 사용자 병합 검토</li>
+ *   <li>콘텐츠의 서버 변경과 요청 변경이 겹침 → 충돌 선택 요청</li>
+ *   <li>위치 변경만 서로 독립적이면 → 내부 AUTO_MERGE</li>
  * </ol>
  */
 @Slf4j
@@ -39,7 +40,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class NodeConflictValidator {
 
-    private static final Set<String> ALL_CONTENT_FIELDS = Set.of(
+    private static final List<String> ALL_CONTENT_FIELDS = List.of(
             "subject", "content", "symb", "recordDate", "noteIds"
     );
 
@@ -55,7 +56,8 @@ public class NodeConflictValidator {
      * @param graphId 그래프 ID
      * @param nodeId  노드 ID
      * @param node    현재 DB 상태 (findByIdWithLinks 로드된 것)
-     * @param change  요청 계약 검증 후 실제로 적용할 변경
+     * @param requestedChange 사용자가 명시한 변경 의도
+     * @param effectiveChange 현재 값과 실제로 다른 변경
      */
     public ConflictResult validateContent(
             Long teamId,
@@ -63,18 +65,83 @@ public class NodeConflictValidator {
             Long nodeId,
             Node node,
             int baseVersion,
-            NodeContentChange change
+            NodeContentChange requestedChange,
+            NodeContentChange effectiveChange
     ) {
-        List<String> incomingFields = change.fieldNames();
-        return validateFields(
-                teamId,
-                graphId,
-                nodeId,
+        int currentVersion = node.getVersion();
+        if (baseVersion == currentVersion) {
+            return ConflictResult.pass(currentVersion);
+        }
+
+        List<String> requestedFields = requestedChange.fieldNames();
+        List<String> effectiveFields = effectiveChange.fieldNames();
+        Map<String, Object> currentValues = extractCurrentValues(node, ALL_CONTENT_FIELDS);
+        Map<String, Object> incomingValues = requestedChange.externalValues();
+        Map<String, Object> proposedValues = mergeValues(currentValues, incomingValues);
+
+        // 서버가 알지 못하는 미래 버전은 비교 기준 자체가 성립하지 않는다.
+        if (baseVersion > currentVersion) {
+            return ConflictResult.conflict(
+                    baseVersion,
+                    currentVersion,
+                    List.of(),
+                    requestedFields,
+                    effectiveFields,
+                    effectiveFields,
+                    currentValues,
+                    incomingValues,
+                    proposedValues
+            );
+        }
+
+        Set<String> changedByOthers = loadChangedFields(
+                teamId, graphId, nodeId, baseVersion, currentVersion, requestedFields
+        );
+        List<String> serverChangedFields = ALL_CONTENT_FIELDS.stream()
+                .filter(changedByOthers::contains)
+                .toList();
+
+        // 버전 차이가 위치 변경에서만 생겼다면 콘텐츠 계약에는 영향이 없다.
+        if (serverChangedFields.isEmpty()) {
+            return ConflictResult.autoMerge(baseVersion, currentVersion);
+        }
+
+        List<String> conflictingFields = effectiveFields.stream()
+                .filter(changedByOthers::contains)
+                .toList();
+
+        if (conflictingFields.isEmpty()) {
+            log.info(
+                    "node conflict validate result=merge_review_required teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} requestedFields={} effectiveFields={} serverChangedFields={}",
+                    teamId, graphId, nodeId, baseVersion, currentVersion,
+                    requestedFields, effectiveFields, serverChangedFields
+            );
+            return ConflictResult.mergeReviewRequired(
+                    baseVersion,
+                    currentVersion,
+                    serverChangedFields,
+                    requestedFields,
+                    effectiveFields,
+                    currentValues,
+                    incomingValues,
+                    proposedValues
+            );
+        }
+
+        log.warn(
+                "node conflict validate result=conflict teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} conflictingFields={}",
+                teamId, graphId, nodeId, baseVersion, currentVersion, conflictingFields
+        );
+        return ConflictResult.conflict(
                 baseVersion,
-                node.getVersion(),
-                incomingFields,
-                extractCurrentValues(node, ALL_CONTENT_FIELDS),
-                change.externalValues()
+                currentVersion,
+                serverChangedFields,
+                requestedFields,
+                effectiveFields,
+                conflictingFields,
+                currentValues,
+                incomingValues,
+                proposedValues
         );
     }
 
@@ -138,44 +205,9 @@ public class NodeConflictValidator {
             );
         }
 
-        // ── Redis 힌트 체인 확인 ───────────────────────────────────────────────
-        Timer.Sample sample = Timer.start(meterRegistry);
-
-        Map<Integer, List<String>> hints =
-                editSessionService.getVersionHints(teamId, graphId, nodeId, baseVersion, currentVersion);
-
-        Set<String> changedByOthers;
-        String validatePath;
-
-        if (hints != null) {
-            // ✅ 힌트 완전 → Redis 집계
-            validatePath = "redis-hint";
-            changedByOthers = hints.values().stream()
-                    .flatMap(List::stream)
-                    .collect(Collectors.toSet());
-            log.info(
-                    "node conflict validate path=redis_hint teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} incomingFields={} serverChangedFields={}",
-                    teamId, graphId, nodeId, baseVersion, currentVersion, incomingFields, changedByOthers
-            );
-        } else {
-            // ❌ 힌트 불완전 → DB NodeHistory fallback
-            validatePath = "db-fallback";
-            log.info(
-                    "node conflict validate path=db_fallback teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} incomingFields={}",
-                    teamId, graphId, nodeId, baseVersion, currentVersion, incomingFields
-            );
-
-            List<NodeHistory> histories = nodeHistoryRepository
-                    .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(nodeId, baseVersion);
-
-            changedByOthers = histories.stream()
-                    .flatMap(history -> parseFields(history).stream())
-                    .collect(Collectors.toSet());
-        }
-
-        sample.stop(Timer.builder("node.conflict.validate")
-                .tag("path", validatePath)
-                .register(meterRegistry));
+        Set<String> changedByOthers = loadChangedFields(
+                teamId, graphId, nodeId, baseVersion, currentVersion, incomingFields
+        );
 
         // ── 교집합 판정 ───────────────────────────────────────────────────────
         Set<String> conflicting = new HashSet<>(incomingFields);
@@ -207,10 +239,59 @@ public class NodeConflictValidator {
         return retained;
     }
 
+    private Set<String> loadChangedFields(
+            Long teamId,
+            Long graphId,
+            Long nodeId,
+            int baseVersion,
+            int currentVersion,
+            List<String> incomingFields
+    ) {
+        Timer.Sample sample = Timer.start(meterRegistry);
+        Map<Integer, List<String>> hints = editSessionService.getVersionHints(
+                teamId, graphId, nodeId, baseVersion, currentVersion
+        );
+
+        Set<String> changedByOthers;
+        String validatePath;
+        if (hints != null) {
+            validatePath = "redis-hint";
+            changedByOthers = hints.values().stream()
+                    .flatMap(List::stream)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+        } else {
+            validatePath = "db-fallback";
+            List<NodeHistory> histories = nodeHistoryRepository
+                    .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(nodeId, baseVersion);
+            changedByOthers = histories.stream()
+                    .flatMap(history -> parseFields(history).stream())
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+        }
+
+        sample.stop(Timer.builder("node.conflict.validate")
+                .tag("path", validatePath)
+                .register(meterRegistry));
+        log.info(
+                "node conflict validate path={} teamId={} graphId={} nodeId={} baseVersion={} currentVersion={} incomingFields={} serverChangedFields={}",
+                validatePath, teamId, graphId, nodeId, baseVersion, currentVersion,
+                incomingFields, changedByOthers
+        );
+        return changedByOthers;
+    }
+
+    private Map<String, Object> mergeValues(
+            Map<String, Object> currentValues,
+            Map<String, Object> incomingValues
+    ) {
+        Map<String, Object> proposed = new LinkedHashMap<>(currentValues);
+        proposed.putAll(incomingValues);
+        return proposed;
+    }
+
     // ── private helpers ───────────────────────────────────────────────────────
 
     /** 현재 노드에서 충돌 필드의 값 추출 */
-    private Map<String, Object> extractCurrentValues(Node node, Set<String> fields) {
+    private Map<String, Object> extractCurrentValues(Node node, Collection<String> fields) {
         Map<String, Object> values = new LinkedHashMap<>();
         for (String field : fields) {
             switch (field) {

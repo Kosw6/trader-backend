@@ -66,7 +66,7 @@ class NodeConflictValidatorTest {
         when(node.getVersion()).thenReturn(3);
         NodeContentChange change = subjectChange("새 제목");
 
-        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.PASS);
         assertThat(result.currentVersion()).isEqualTo(3);
@@ -76,7 +76,7 @@ class NodeConflictValidatorTest {
     // ── 2. AUTO_MERGE 케이스 ─────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Redis 완전 + 교집합 없음 → AUTO_MERGE, DB 미조회")
+    @DisplayName("Redis 완전 + 콘텐츠 변경이 서로 다름 → MERGE_REVIEW_REQUIRED, DB 미조회")
     void auto_merge_when_redis_complete_no_intersection() {
         // 현재 버전 4, A는 base=2 에서 편집 시작
         when(node.getVersion()).thenReturn(4);
@@ -87,11 +87,15 @@ class NodeConflictValidatorTest {
 
         NodeContentChange change = subjectChange("A의 새 제목");
 
-        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change, change);
 
-        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.MERGE_REVIEW_REQUIRED);
         assertThat(result.baseVersion()).isEqualTo(2);
         assertThat(result.currentVersion()).isEqualTo(4);
+        assertThat(result.serverChangedFields()).containsExactly("content");
+        assertThat(result.requestedFields()).containsExactly("subject");
+        assertThat(result.effectiveFields()).containsExactly("subject");
+        assertThat(result.proposedValues()).containsEntry("subject", "A의 새 제목");
         // DB fallback 없어야 함
         verify(nodeHistoryRepository, never())
                 .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(any(), any());
@@ -111,7 +115,7 @@ class NodeConflictValidatorTest {
 
         NodeContentChange change = subjectChange("A가 쓰려던 제목");
 
-        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
         assertThat(result.conflictingFields()).containsExactly("subject");
@@ -121,6 +125,63 @@ class NodeConflictValidatorTest {
         // DB fallback 없어야 함
         verify(nodeHistoryRepository, never())
                 .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(any(), any());
+    }
+
+    @Test
+    @DisplayName("서버 버전 차이가 위치 변경뿐이면 콘텐츠 수정은 내부 AUTO_MERGE")
+    void content_auto_merge_when_server_changed_only_position() {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, List.of("x", "y")));
+        NodeContentChange change = subjectChange("새 제목");
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change, change
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
+        verifyNoInteractions(nodeHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("사용자가 요청한 필드와 현재 상태에서 실제로 달라지는 필드를 구분")
+    void distinguish_requested_fields_from_effective_fields() {
+        when(node.getVersion()).thenReturn(4);
+        when(node.getContent()).thenReturn("서버 최신 내용");
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, List.of("content")));
+        NodeContentChange requested = NodeContentChange.of(Map.of(
+                NodeContentField.SUBJECT, "새 제목",
+                NodeContentField.CONTENT, "서버 최신 내용"
+        ));
+        NodeContentChange effective = subjectChange("새 제목");
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, requested, effective
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.MERGE_REVIEW_REQUIRED);
+        assertThat(result.requestedFields()).containsExactly("subject", "content");
+        assertThat(result.effectiveFields()).containsExactly("subject");
+        assertThat(result.conflictingFields()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("요청값이 최신값과 같아도 다른 콘텐츠 변경을 보지 못했다면 검토가 필요")
+    void stale_no_op_still_requires_context_review() {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, List.of("content")));
+        NodeContentChange requested = subjectChange("이미 반영된 제목");
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, requested, NodeContentChange.empty()
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.MERGE_REVIEW_REQUIRED);
+        assertThat(result.requestedFields()).containsExactly("subject");
+        assertThat(result.effectiveFields()).isEmpty();
+        assertThat(result.serverChangedFields()).containsExactly("content");
     }
 
     @Test
@@ -154,7 +215,7 @@ class NodeConflictValidatorTest {
     // ── 4. DB fallback 케이스 ────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Redis 불완전 → DB fallback + 교집합 없음 → AUTO_MERGE")
+    @DisplayName("Redis 불완전 → DB fallback + 콘텐츠 변경이 서로 다름 → MERGE_REVIEW_REQUIRED")
     void auto_merge_when_redis_incomplete_db_fallback_no_intersection() {
         when(node.getVersion()).thenReturn(4);
         // Redis 힌트 불완전 → null 반환
@@ -166,9 +227,9 @@ class NodeConflictValidatorTest {
 
         NodeContentChange change = subjectChange("A의 새 제목");
 
-        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change, change);
 
-        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.MERGE_REVIEW_REQUIRED);
         // DB 조회 반드시 발생해야 함
         verify(nodeHistoryRepository)
                 .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 2);
@@ -187,7 +248,7 @@ class NodeConflictValidatorTest {
 
         NodeContentChange change = subjectChange("A의 제목");
 
-        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
         assertThat(result.conflictingFields()).contains("subject");
@@ -213,7 +274,7 @@ class NodeConflictValidatorTest {
 
         NodeContentChange change = subjectChange("A의 제목");
 
-        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
         assertThat(result.conflictingFields()).containsExactly("subject");
@@ -353,6 +414,7 @@ class NodeConflictValidatorTest {
                 NODE_ID,
                 node,
                 3,
+                subjectChange("새 제목"),
                 subjectChange("새 제목")
         )).isInstanceOfSatisfying(
                 NodeHistoryCorruptedException.class,
