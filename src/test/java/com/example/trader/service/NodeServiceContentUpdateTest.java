@@ -1,6 +1,7 @@
 package com.example.trader.service;
 
 import com.example.trader.dto.canvas.ConflictResult;
+import com.example.trader.dto.map.CreateNodeRequest;
 import com.example.trader.dto.map.ResponseNodeDto;
 import com.example.trader.dto.map.UpdatePersonalNodeContentRequest;
 import com.example.trader.dto.map.UpdateTeamNodeContentRequest;
@@ -237,8 +238,10 @@ class NodeServiceContentUpdateTest {
         User owner = user(40L);
         Note note = Note.builder().id(50L).user(owner).subject("연결 노트").build();
         Node node = node();
-        node.attach(note);
-        node.attach(Note.builder().id(60L).user(user(41L)).subject("다른 사용자 노트").build());
+        node.replaceNoteLinks(List.of(
+                note,
+                Note.builder().id(60L).user(user(41L)).subject("다른 사용자 노트").build()
+        ), java.util.Set.of());
         UpdateTeamNodeContentRequest request = new UpdateTeamNodeContentRequest();
         request.setNoteIds(List.of());
         request.setDirtyFields(List.of("noteIds"));
@@ -274,8 +277,6 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any()))
-                .thenReturn(ConflictResult.pass(3));
         when(noteRepository.findIdsByUserIdAndIdIn(40L, java.util.Set.of(60L)))
                 .thenReturn(List.of());
 
@@ -290,7 +291,7 @@ class NodeServiceContentUpdateTest {
     void omitted_note_ids_preserve_personal_links() {
         Note note = Note.builder().id(50L).subject("연결 노트").build();
         Node node = node();
-        node.attach(note);
+        node.replaceNoteLinks(List.of(note), java.util.Set.of());
         UpdatePersonalNodeContentRequest request = new UpdatePersonalNodeContentRequest();
         request.setSubject("개인 새 제목");
 
@@ -304,6 +305,69 @@ class NodeServiceContentUpdateTest {
         assertThat(node.getVersion()).isEqualTo(3);
         verify(nodeCacheService).evictPageNodes(20L);
         verify(graphCacheService).evictGraph(20L);
+    }
+
+    @Test
+    @DisplayName("개인 Node 수정은 타인 소유 Note 연결을 변경 전에 거절")
+    void personal_update_rejects_another_users_note() {
+        Node node = node();
+        UpdatePersonalNodeContentRequest request = new UpdatePersonalNodeContentRequest();
+        request.setNoteIds(List.of(60L));
+        when(nodeRepository.existsByIdAndPageIdAndPageUserId(30L, 20L, 40L)).thenReturn(true);
+        when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
+        when(noteRepository.findIdsByUserIdAndIdIn(40L, java.util.Set.of(60L)))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> nodeService.updateNode(20L, 30L, request, 40L))
+                .isInstanceOf(com.example.trader.exception.BaseException.class);
+
+        assertThat(node.getNoteLinks()).isEmpty();
+        verify(nodeCacheService, never()).evictPageNodes(any());
+        verify(graphCacheService, never()).evictGraph(any());
+    }
+
+    @Test
+    @DisplayName("개인 Node의 동일 값 no-op 요청도 Note 소유권 검증을 우회하지 못함")
+    void personal_no_op_does_not_bypass_note_ownership() {
+        Node node = node();
+        node.replaceNoteLinks(List.of(
+                Note.builder().id(60L).user(user(41L)).subject("타인 노트").build()
+        ), java.util.Set.of());
+        UpdatePersonalNodeContentRequest request = new UpdatePersonalNodeContentRequest();
+        request.setNoteIds(List.of(60L));
+        when(nodeRepository.existsByIdAndPageIdAndPageUserId(30L, 20L, 40L)).thenReturn(true);
+        when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
+        when(noteRepository.findIdsByUserIdAndIdIn(40L, java.util.Set.of(60L)))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> nodeService.updateNode(20L, 30L, request, 40L))
+                .isInstanceOf(com.example.trader.exception.BaseException.class);
+
+        assertThat(node.getNoteLinks()).hasSize(1);
+        verify(nodeCacheService, never()).evictPageNodes(any());
+    }
+
+    @Test
+    @DisplayName("개인 Node 생성은 타인 소유 Note 연결을 저장 전에 거절")
+    void personal_create_rejects_another_users_note() {
+        CreateNodeRequest request = new CreateNodeRequest();
+        request.setX(10.0);
+        request.setY(20.0);
+        request.setSubject("개인 노드");
+        request.setContent("내용");
+        request.setNoteIds(List.of(60L));
+        when(pageRepository.existsByIdAndUserId(20L, 40L)).thenReturn(true);
+        when(pageRepository.findById(20L)).thenReturn(Optional.of(
+                com.example.trader.entity.Page.builder().id(20L).build()));
+        when(noteRepository.findIdsByUserIdAndIdIn(40L, java.util.Set.of(60L)))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> nodeService.createNode(request, 20L, 40L))
+                .isInstanceOf(com.example.trader.exception.BaseException.class);
+
+        verify(nodeRepository, never()).save(any());
+        verify(nodeCacheService, never()).evictPageNodes(any());
+        verify(graphCacheService, never()).evictGraph(any());
     }
 
     @Test
@@ -338,8 +402,10 @@ class NodeServiceContentUpdateTest {
     @DisplayName("팀 노드 응답은 모든 링크를 노출하되 요청자 소유 링크만 편집 가능")
     void team_node_response_marks_only_requester_links_editable() {
         Node node = node();
-        node.attach(Note.builder().id(50L).user(user(40L)).subject("내 노트").build());
-        node.attach(Note.builder().id(60L).user(user(41L)).subject("다른 노트").build());
+        node.replaceNoteLinks(List.of(
+                Note.builder().id(50L).user(user(40L)).subject("내 노트").build(),
+                Note.builder().id(60L).user(user(41L)).subject("다른 노트").build()
+        ), java.util.Set.of());
 
         ResponseNodeDto response = ResponseNodeDto.from(node, 40L);
 

@@ -38,7 +38,8 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashSet;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -118,13 +119,14 @@ public class NodeService {
 
         Set<Long> currentNoteIds = allNoteIds(node);
         NodeChangePlan plan = changeRequestValidator.validatePersonal(req, node, currentNoteIds);
+        List<Note> desiredNotes = resolveRequestedNotes(plan, userId);
         if (plan.isNoOp()) {
             return ResponseNodeDto.from(node);
         }
 
         node.applyContentChange(
                 plan.effectiveChange(),
-                resolvePersonalNotes(plan),
+                desiredNotes,
                 currentNoteIds,
                 NodeVersionPolicy.PRESERVE
         );
@@ -152,6 +154,7 @@ public class NodeService {
 
         Set<Long> replaceableNoteIds = teamNoteIdsOwnedBy(node, userId);
         NodeChangePlan plan = changeRequestValidator.validateTeam(req, node, replaceableNoteIds);
+        List<Note> desiredNotes = resolveRequestedNotes(plan, userId);
 
         log.info(
                 "node update request teamId={} graphId={} nodeId={} userId={} baseVersion={} requestedFields={} effectiveFields={}",
@@ -185,7 +188,7 @@ public class NodeService {
 
         NodeChangeResult changeResult = node.applyContentChange(
                 plan.effectiveChange(),
-                resolveTeamNotes(plan, userId),
+                desiredNotes,
                 replaceableNoteIds,
                 NodeVersionPolicy.ADVANCE_ON_CHANGE
         );
@@ -279,12 +282,8 @@ public class NodeService {
                 .recordDate(dto.getRecordDate())
                 .build();
 
-        if (dto.isNoteIdsOmitted()) {
-            // 변경 없음
-        } else if (dto.getNoteIds().isEmpty()) {
-            syncNotes(node, List.of());
-        } else {
-            syncNotes(node, dto.getNoteIds());
+        if (!dto.isNoteIdsOmitted()) {
+            node.replaceNoteLinks(resolveOwnedNotes(dto.getNoteIds(), userId), Set.of());
         }
 
         Node saved = nodeRepository.save(node);
@@ -313,12 +312,8 @@ public class NodeService {
                 .recordDate(dto.getRecordDate())
                 .build();
 
-        if (dto.isNoteIdsOmitted()) {
-            // 변경 없음
-        } else if (dto.getNoteIds().isEmpty()) {
-            syncTeamNotesMineOnly(node, List.of(), userId);
-        } else {
-            syncTeamNotesMineOnly(node, dto.getNoteIds(), userId);
+        if (!dto.isNoteIdsOmitted()) {
+            node.replaceNoteLinks(resolveOwnedNotes(dto.getNoteIds(), userId), Set.of());
         }
 
         Node saved = nodeRepository.save(node);
@@ -409,21 +404,15 @@ public class NodeService {
                 .collect(Collectors.toSet());
     }
 
-    private List<Note> resolvePersonalNotes(NodeChangePlan plan) {
-        if (!plan.effectiveChange().contains(NodeContentField.NOTE_IDS)) {
+    private List<Note> resolveRequestedNotes(NodeChangePlan plan, Long userId) {
+        if (!plan.requestedChange().contains(NodeContentField.NOTE_IDS)) {
             return List.of();
         }
-        return plan.effectiveChange().noteIds().stream()
-                .map(id -> em.getReference(Note.class, id))
-                .toList();
+        return resolveOwnedNotes(plan.requestedChange().noteIds(), userId);
     }
 
-    private List<Note> resolveTeamNotes(NodeChangePlan plan, Long userId) {
-        if (!plan.effectiveChange().contains(NodeContentField.NOTE_IDS)) {
-            return List.of();
-        }
-
-        Set<Long> requestedIds = new HashSet<>(plan.effectiveChange().noteIds());
+    private List<Note> resolveOwnedNotes(Collection<Long> noteIds, Long userId) {
+        Set<Long> requestedIds = new LinkedHashSet<>(noteIds == null ? List.of() : noteIds);
         if (requestedIds.isEmpty()) {
             return List.of();
         }
@@ -434,68 +423,6 @@ public class NodeService {
         return allowedIds.stream()
                 .map(id -> em.getReference(Note.class, id))
                 .toList();
-    }
-
-    private void syncNotes(Node node, List<Long> desiredNoteIds) {
-        Set<Long> current = node.getNoteLinks().stream()
-                .map(l -> l.getNote().getId())
-                .collect(Collectors.toSet());
-
-        Set<Long> desired = new HashSet<>(desiredNoteIds);
-
-        Set<Long> toAdd = new HashSet<>(desired);
-        toAdd.removeAll(current);
-
-        Set<Long> toRemove = new HashSet<>(current);
-        toRemove.removeAll(desired);
-
-        if (!toAdd.isEmpty()) {
-            var refs = toAdd.stream()
-                    .map(id -> em.getReference(Note.class, id))
-                    .toList();
-            node.attachAll(refs);
-        }
-
-        if (!toRemove.isEmpty()) {
-            var refs = toRemove.stream()
-                    .map(id -> em.getReference(Note.class, id))
-                    .toList();
-            node.detachAll(refs);
-        }
-    }
-
-    private void syncTeamNotesMineOnly(Node node, List<Long> desiredNoteIds, Long userId) {
-        Set<Long> desired = new HashSet<>(desiredNoteIds == null ? List.of() : desiredNoteIds);
-
-        Set<Long> currentMine = node.getNoteLinks().stream()
-                .filter(link -> link.getNote().getUser().getId().equals(userId))
-                .map(link -> link.getNote().getId())
-                .collect(Collectors.toSet());
-
-        Set<Long> toAdd = new HashSet<>(desired);
-        toAdd.removeAll(currentMine);
-
-        Set<Long> toRemove = new HashSet<>(currentMine);
-        toRemove.removeAll(desired);
-
-        if (!toAdd.isEmpty()) {
-            List<Long> allowedIds = noteRepository.findIdsByUserIdAndIdIn(userId, toAdd);
-            if (allowedIds.size() != toAdd.size()) {
-                throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
-            }
-
-            var refs = allowedIds.stream()
-                    .map(id -> em.getReference(Note.class, id))
-                    .toList();
-            node.attachAll(refs);
-        }
-
-        if (!toRemove.isEmpty()) {
-            var refs = toRemove.stream()
-                    .map(id -> em.getReference(Note.class, id))
-                    .toList();
-            node.detachAll(refs);
-        }
     }
 
     private void publishNodeChanged(

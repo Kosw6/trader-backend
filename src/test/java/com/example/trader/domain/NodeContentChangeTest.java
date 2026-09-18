@@ -103,7 +103,7 @@ class NodeContentChangeTest {
     void empty_note_ids_clear_links() {
         Note note = Note.builder().id(10L).build();
         Node node = node();
-        node.attach(note);
+        node.replaceNoteLinks(List.of(note), Set.of());
         NodeContentChange change = NodeContentChange.of(Map.of(
                 NodeContentField.NOTE_IDS, List.of()
         ));
@@ -117,6 +117,30 @@ class NodeContentChangeTest {
 
         assertThat(node.getNoteLinks()).isEmpty();
         assertThat(result.appliedFields()).containsExactly("noteIds");
+    }
+
+    @Test
+    @DisplayName("같은 Note를 반복 연결해도 하나의 링크만 유지하는 멱등 계약")
+    void duplicate_note_link_is_idempotent() {
+        Note note = Note.builder().id(10L).build();
+        Node node = node();
+
+        node.replaceNoteLinks(List.of(note, note), Set.of());
+        node.replaceNoteLinks(List.of(note), Set.of(10L));
+
+        assertThat(node.getNoteLinks()).hasSize(1);
+        assertThat(node.getNoteLinks().get(0).getNoteId()).isEqualTo(10L);
+    }
+
+    @Test
+    @DisplayName("외부에서 연결 컬렉션을 직접 변경할 수 없음")
+    void note_links_are_exposed_as_read_only() {
+        Node node = node();
+        node.replaceNoteLinks(List.of(Note.builder().id(10L).build()), Set.of());
+
+        assertThatThrownBy(() -> node.getNoteLinks().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThat(node.getNoteLinks()).hasSize(1);
     }
 
     private Node node() {

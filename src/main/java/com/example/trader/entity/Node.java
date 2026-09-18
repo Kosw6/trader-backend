@@ -151,18 +151,34 @@ public class Node extends BaseTimeEntity {
 
         noteLinks.removeIf(link -> replaceableNoteIds.contains(link.getNoteId())
                 && !desiredIds.contains(link.getNoteId()));
-        attachAll(desiredNotes);
+        desiredNotes.forEach(this::attachIfAbsent);
     }
 
-    public void attach(Note note) {
+    /**
+     * 검증된 목표 Note 집합으로 연결을 교체한다.
+     * 중복 Note는 이미 원하는 상태이므로 예외 없이 no-op 처리한다.
+     */
+    public void replaceNoteLinks(Collection<Note> desiredNotes, Set<Long> replaceableNoteIds) {
+        if (desiredNotes == null || replaceableNoteIds == null) {
+            throw new IllegalArgumentException("노트 연결 변경에는 목표 집합과 교체 가능 범위가 필요합니다.");
+        }
+        synchronizeNotes(desiredNotes, replaceableNoteIds);
+    }
+
+    private void attachIfAbsent(Note note) {
+        Objects.requireNonNull(note, "연결할 노트가 필요합니다.");
         Long targetId = note.getId();
+        if (targetId == null) {
+            throw new IllegalArgumentException("저장되지 않은 노트는 연결할 수 없습니다.");
+        }
         if (noteLinks.stream().anyMatch(l -> Objects.equals(l.getNoteId(), targetId))) return;
         NodeNoteLink link = NodeNoteLink.of(this, note);
         noteLinks.add(link);
     }
-    public void detach(Note note) {
-        Long targetId = note.getId();
-//        noteLinks.removeIf(l -> Objects.equals(l.getNoteId(), targetId));
+
+    /** 연결 상태는 읽기만 허용하고 변경은 도메인 메서드를 통해서만 수행한다. */
+    public List<NodeNoteLink> getNoteLinks() {
+        return Collections.unmodifiableList(noteLinks);
     }
 
     @Override
@@ -175,24 +191,6 @@ public class Node extends BaseTimeEntity {
     @Override
     public int hashCode() {
         return Objects.hash(id);
-    }
-
-    /** 여러 개 한꺼번에 추가 (null/중복 안전) */
-    public void attachAll(Collection<Note> notes) {
-        if (notes == null || notes.isEmpty()) return;
-        for (Note n : notes) {
-            attach(n); // 중복 체크는 attach 단건에서 처리
-        }
-    }
-    /** 여러 개 한꺼번에 제거 (null 안전, Lazy 초기화 방지) */
-    public void detachAll(Collection<Note> notes) {
-        if (notes == null || notes.isEmpty()) return;
-
-        // FK id만 뽑아서 비교하도록 변경
-        Set<Long> targetIds = notes.stream()
-                .map(Note::getId)  // getId()는 프록시 초기화 안 함
-                .collect(Collectors.toSet());
-        noteLinks.removeIf(link -> targetIds.contains(link.getNoteId()));
     }
 
     private static String makePreview(String content) {
