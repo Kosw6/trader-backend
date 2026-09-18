@@ -465,6 +465,19 @@ public class NodeEditSessionService {
     public Map<Integer, List<String>> getVersionHints(Long teamId, Long graphId, Long nodeId,
                                                       int fromVersion, int toVersion) {
 
+        Map<Integer, VersionHintDto> details = getVersionHintDetails(
+                teamId, graphId, nodeId, fromVersion, toVersion);
+        if (details == null) {
+            return null;
+        }
+        Map<Integer, List<String>> fields = new LinkedHashMap<>();
+        details.forEach((version, hint) -> fields.put(version, hint.changedFields()));
+        return fields;
+    }
+
+    public Map<Integer, VersionHintDto> getVersionHintDetails(
+            Long teamId, Long graphId, Long nodeId, int fromVersion, int toVersion) {
+
         if (!redisHealthState.isAvailable()) {
             return null;
         }
@@ -489,7 +502,7 @@ public class NodeEditSessionService {
                 return null;
             }
 
-            Map<Integer, List<String>> hints = new LinkedHashMap<>();
+            Map<Integer, VersionHintDto> hints = new LinkedHashMap<>();
             for (int i = 0; i < versions.size(); i++) {
                 String json = jsons.get(i);
                 if (json == null) {
@@ -497,7 +510,7 @@ public class NodeEditSessionService {
                     return null;
                 }
                 VersionHintDto dto = objectMapper.readValue(json, VersionHintDto.class);
-                hints.put(versions.get(i), dto.changedFields());
+                hints.put(versions.get(i), dto);
             }
 
             redisHealthState.markUp();

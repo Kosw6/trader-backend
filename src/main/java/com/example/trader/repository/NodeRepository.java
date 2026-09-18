@@ -71,6 +71,8 @@ public interface NodeRepository extends JpaRepository<Node,Long> {
         select distinct n 
         from Node n
         left join fetch n.noteLinks l
+        left join fetch l.note note
+        left join fetch note.user
         where n.id = :id
         """)
     Optional<Node> findByIdWithLinks(@Param("id") Long id);

@@ -68,6 +68,20 @@ public class NodeConflictValidator {
             NodeContentChange requestedChange,
             NodeContentChange effectiveChange
     ) {
+        return validateContent(teamId, graphId, nodeId, node, baseVersion,
+                requestedChange, effectiveChange, null);
+    }
+
+    public ConflictResult validateContent(
+            Long teamId,
+            Long graphId,
+            Long nodeId,
+            Node node,
+            int baseVersion,
+            NodeContentChange requestedChange,
+            NodeContentChange effectiveChange,
+            Long requesterId
+    ) {
         int currentVersion = node.getVersion();
         if (baseVersion == currentVersion) {
             return ConflictResult.pass(currentVersion);
@@ -75,7 +89,7 @@ public class NodeConflictValidator {
 
         List<String> requestedFields = requestedChange.fieldNames();
         List<String> effectiveFields = effectiveChange.fieldNames();
-        Map<String, Object> currentValues = extractCurrentValues(node, ALL_CONTENT_FIELDS);
+        Map<String, Object> currentValues = extractCurrentValues(node, ALL_CONTENT_FIELDS, requesterId);
         Map<String, Object> incomingValues = requestedChange.externalValues();
         Map<String, Object> proposedValues = mergeValues(currentValues, incomingValues);
 
@@ -95,7 +109,7 @@ public class NodeConflictValidator {
         }
 
         Set<String> changedByOthers = loadChangedFields(
-                teamId, graphId, nodeId, baseVersion, currentVersion, requestedFields
+                teamId, graphId, nodeId, baseVersion, currentVersion, requestedFields, requesterId
         );
         List<String> serverChangedFields = ALL_CONTENT_FIELDS.stream()
                 .filter(changedByOthers::contains)
@@ -150,11 +164,20 @@ public class NodeConflictValidator {
             int baseVersion,
             NodeContentChange requestedChange
     ) {
+        return concurrentContentUpdate(node, baseVersion, requestedChange, null);
+    }
+
+    public ConflictResult concurrentContentUpdate(
+            Node node,
+            int baseVersion,
+            NodeContentChange requestedChange,
+            Long requesterId
+    ) {
         return ConflictResult.concurrentUpdate(
                 baseVersion,
                 node.getVersion(),
                 requestedChange.fieldNames(),
-                extractCurrentValues(node, ALL_CONTENT_FIELDS),
+                extractCurrentValues(node, ALL_CONTENT_FIELDS, requesterId),
                 requestedChange.externalValues()
         );
     }
@@ -206,7 +229,7 @@ public class NodeConflictValidator {
         }
 
         Set<String> changedByOthers = loadChangedFields(
-                teamId, graphId, nodeId, baseVersion, currentVersion, incomingFields
+                teamId, graphId, nodeId, baseVersion, currentVersion, incomingFields, null
         );
 
         // ── 교집합 판정 ───────────────────────────────────────────────────────
@@ -245,26 +268,42 @@ public class NodeConflictValidator {
             Long nodeId,
             int baseVersion,
             int currentVersion,
-            List<String> incomingFields
+            List<String> incomingFields,
+            Long requesterId
     ) {
         Timer.Sample sample = Timer.start(meterRegistry);
-        Map<Integer, List<String>> hints = editSessionService.getVersionHints(
-                teamId, graphId, nodeId, baseVersion, currentVersion
-        );
+        Map<Integer, com.example.trader.dto.canvas.VersionHintDto> hints;
+        if (requesterId == null) {
+            Map<Integer, List<String>> legacyHints = editSessionService.getVersionHints(
+                    teamId, graphId, nodeId, baseVersion, currentVersion);
+            if (legacyHints == null) {
+                hints = null;
+            } else {
+                hints = new LinkedHashMap<>();
+                for (Map.Entry<Integer, List<String>> entry : legacyHints.entrySet()) {
+                    hints.put(entry.getKey(), new com.example.trader.dto.canvas.VersionHintDto(
+                            entry.getKey(), entry.getValue(), null, 0L));
+                }
+            }
+        } else {
+            hints = editSessionService.getVersionHintDetails(
+                    teamId, graphId, nodeId, baseVersion, currentVersion);
+        }
 
         Set<String> changedByOthers;
         String validatePath;
         if (hints != null) {
             validatePath = "redis-hint";
             changedByOthers = hints.values().stream()
-                    .flatMap(List::stream)
+                    .flatMap(hint -> scopedFields(hint.changedFields(), hint.changedBy(), requesterId).stream())
                     .collect(Collectors.toCollection(LinkedHashSet::new));
         } else {
             validatePath = "db-fallback";
             List<NodeHistory> histories = nodeHistoryRepository
                     .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(nodeId, baseVersion);
             changedByOthers = histories.stream()
-                    .flatMap(history -> parseFields(history).stream())
+                    .flatMap(history -> scopedFields(
+                            parseFields(history), history.getChangedBy(), requesterId).stream())
                     .collect(Collectors.toCollection(LinkedHashSet::new));
         }
 
@@ -292,6 +331,11 @@ public class NodeConflictValidator {
 
     /** 현재 노드에서 충돌 필드의 값 추출 */
     private Map<String, Object> extractCurrentValues(Node node, Collection<String> fields) {
+        return extractCurrentValues(node, fields, null);
+    }
+
+    private Map<String, Object> extractCurrentValues(
+            Node node, Collection<String> fields, Long requesterId) {
         Map<String, Object> values = new LinkedHashMap<>();
         for (String field : fields) {
             switch (field) {
@@ -300,10 +344,22 @@ public class NodeConflictValidator {
                 case "symb"       -> values.put(field, node.getSymb());
                 case "recordDate" -> values.put(field, node.getRecordDate());
                 case "noteIds"    -> values.put(field, node.getNoteLinks().stream()
+                        .filter(link -> requesterId == null
+                                || (link.getNote().getUser() != null
+                                && requesterId.equals(link.getNote().getUser().getId())))
                         .map(l -> l.getNote().getId()).toList());
             }
         }
         return values;
+    }
+
+    private Set<String> scopedFields(
+            Collection<String> fields, Long changedBy, Long requesterId) {
+        Set<String> scoped = new LinkedHashSet<>(fields);
+        if (requesterId != null && changedBy != null && !requesterId.equals(changedBy)) {
+            scoped.remove("noteIds");
+        }
+        return scoped;
     }
 
     /** NodeHistory.changedFields를 검증된 필드 집합으로 변환한다. */

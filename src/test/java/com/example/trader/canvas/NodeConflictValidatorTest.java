@@ -1,6 +1,7 @@
 package com.example.trader.canvas;
 
 import com.example.trader.dto.canvas.ConflictResult;
+import com.example.trader.dto.canvas.VersionHintDto;
 import com.example.trader.entity.Node;
 import com.example.trader.entity.NodeContentChange;
 import com.example.trader.entity.NodeContentField;
@@ -345,6 +346,55 @@ class NodeConflictValidatorTest {
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
         assertThat(result.currentVersion()).isEqualTo(4);
         verifyNoInteractions(nodeHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("다른 소유자의 noteIds 변경은 요청자의 링크 집합과 독립적으로 병합")
+    void note_links_from_another_owner_do_not_conflict() {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHintDetails(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, new VersionHintDto(4, List.of("noteIds"), 99L, 1L)));
+        NodeContentChange change = NodeContentChange.of(
+                Map.of(NodeContentField.NOTE_IDS, List.of(10L)));
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change, change, 40L);
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
+        verifyNoInteractions(nodeHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("같은 소유자의 noteIds 변경은 소유자 단위 충돌")
+    void note_links_from_same_owner_conflict() {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHintDetails(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, new VersionHintDto(4, List.of("noteIds"), 40L, 1L)));
+        NodeContentChange change = NodeContentChange.of(
+                Map.of(NodeContentField.NOTE_IDS, List.of(10L)));
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change, change, 40L);
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
+        assertThat(result.conflictingFields()).containsExactly("noteIds");
+    }
+
+    @Test
+    @DisplayName("DB fallback도 다른 소유자의 noteIds 변경을 독립된 집합으로 판단")
+    void db_history_applies_owner_scope_to_note_links() {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHintDetails(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(null);
+        when(nodeHistoryRepository.findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 3))
+                .thenReturn(List.of(history(4, "[\"noteIds\"]")));
+        NodeContentChange change = NodeContentChange.of(
+                Map.of(NodeContentField.NOTE_IDS, List.of(10L)));
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change, change, 40L);
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.example.trader.service;
 
 import com.example.trader.dto.canvas.ConflictResult;
+import com.example.trader.dto.ResponseNoteDto;
 import com.example.trader.dto.map.CreateNodeRequest;
 import com.example.trader.dto.map.ResponseNodeDto;
 import com.example.trader.dto.map.ResponseNodeSummaryDto;
@@ -57,6 +58,7 @@ public class NodeService {
     private final NodeCacheService       nodeCacheService;
     private final GraphCacheService      graphCacheService;
     private final NodeHistoryRepository  nodeHistoryRepository;
+    private final NodeNoteLinkRepository nodeNoteLinkRepository;
     private final NodeChangeRequestValidator changeRequestValidator;
     private final NodeConflictValidator  conflictValidator;
     private final TransactionalReliableEventService transactionalReliableEventService;
@@ -169,7 +171,8 @@ public class NodeService {
                 node,
                 req.getBaseVersion(),
                 plan.requestedChange(),
-                plan.effectiveChange()
+                plan.effectiveChange(),
+                userId
         );
         if (conflict.requiresUserReview()) {
             throw new NodeConflictException(conflict);
@@ -177,7 +180,7 @@ public class NodeService {
 
         // 최신 문맥 검토까지 통과한 동일 값 재요청만 부수효과 없는 멱등 성공이다.
         if (plan.isNoOp()) {
-            return ResponseNodeDto.from(node);
+            return ResponseNodeDto.from(node, userId);
         }
 
         NodeChangeResult changeResult = node.applyContentChange(
@@ -221,7 +224,7 @@ public class NodeService {
                 changedFields
         ));
         flushWithOptimisticConcurrencyCheck();
-        return ResponseNodeDto.from(node);
+        return ResponseNodeDto.from(node, userId);
     }
 
     private void flushWithOptimisticConcurrencyCheck() {
@@ -288,7 +291,7 @@ public class NodeService {
 
         nodeCacheService.evictPageNodes(pageId);
         graphCacheService.evictGraph(pageId);
-        return ResponseNodeDto.from(saved);
+        return ResponseNodeDto.from(saved, userId);
     }
 
     @Transactional
@@ -335,7 +338,7 @@ public class NodeService {
         );
 
 
-        return ResponseNodeDto.from(saved);
+        return ResponseNodeDto.from(saved, userId);
     }
 
     @Transactional(readOnly = true)
@@ -372,7 +375,7 @@ public class NodeService {
     }
 
     @Transactional(readOnly = true)
-    public ResponseNodeDto findTeamNodeById(Long graphId, Long nodeId, Long teamId) {
+    public ResponseNodeDto findTeamNodeById(Long graphId, Long nodeId, Long teamId, Long userId) {
         if (!nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(nodeId, graphId, teamId)) {
             throw new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE);
         }
@@ -380,7 +383,17 @@ public class NodeService {
         Node findNode = nodeRepository.findByIdWithLinks(nodeId)
                 .orElseThrow(IllegalArgumentException::new);
 
-        return ResponseNodeDto.from(findNode);
+        return ResponseNodeDto.from(findNode, userId);
+    }
+
+    @Transactional(readOnly = true)
+    public ResponseNoteDto findTeamLinkedNote(
+            Long teamId, Long graphId, Long nodeId, Long noteId
+    ) {
+        return nodeNoteLinkRepository
+                .findLinkedNoteInTeamGraph(teamId, graphId, nodeId, noteId)
+                .map(link -> ResponseNoteDto.fromEntity(link.getNote()))
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.INVALID_NOTE));
     }
 
     private Set<Long> allNoteIds(Node node) {

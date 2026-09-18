@@ -31,12 +31,17 @@ public class ResponseNodeDto {
     private String symb;
     private LocalDate recordDate;
     private Map<Long, String> notes;
+    private List<LinkedNoteDto> linkedNotes;
     private Long pageId;
     private LocalDateTime createdAt;
     private LocalDateTime modifiedAt;
     private int version;
 
     public static ResponseNodeDto from(Node node) {
+        return from(node, null);
+    }
+
+    public static ResponseNodeDto from(Node node, Long requesterId) {
         Long pageId = node.getPage() != null ? node.getPage().getId() : null;
 
         Map<Long, String> notes = node.getNoteLinks().stream()
@@ -47,6 +52,25 @@ public class ResponseNodeDto {
                         (a, b) -> a,
                         LinkedHashMap::new
                 ));
+
+        List<LinkedNoteDto> linkedNotes = node.getNoteLinks().stream()
+                .filter(link -> link.getNote() != null)
+                .map(link -> {
+                    var owner = link.getNote().getUser();
+                    Long ownerId = owner != null ? owner.getId() : null;
+                    String ownerName = owner == null
+                            ? "알 수 없는 사용자"
+                            : (owner.getNickName() == null || owner.getNickName().isBlank()
+                            ? owner.getUsername()
+                            : owner.getNickName());
+                    return new LinkedNoteDto(
+                            link.getNote().getId(), link.getNote().getSubject(),
+                            ownerId, ownerName, requesterId != null && requesterId.equals(ownerId)
+                    );
+                })
+                .sorted(Comparator.comparing(LinkedNoteDto::ownerName, Comparator.nullsLast(String::compareTo))
+                        .thenComparing(LinkedNoteDto::noteId))
+                .toList();
 
         return ResponseNodeDto.builder()
                 .id(node.getId())
@@ -61,6 +85,9 @@ public class ResponseNodeDto {
                 .modifiedAt(node.getModifiedAt())
                 .version(node.getVersion())
                 .notes(notes)
+                .linkedNotes(linkedNotes)
                 .build();
     }
+
+    public record LinkedNoteDto(Long noteId, String subject, Long ownerId, String ownerName, boolean editable) {}
 }

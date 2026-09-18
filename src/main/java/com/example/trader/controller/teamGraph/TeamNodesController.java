@@ -9,6 +9,7 @@ import com.example.trader.dto.canvas.EditStartReq;
 import com.example.trader.dto.map.CreateNodeRequest;
 import com.example.trader.dto.map.ResponseNodeDto;
 import com.example.trader.dto.map.UpdateTeamNodeContentRequest;
+import com.example.trader.dto.ResponseNoteDto;
 import com.example.trader.exception.NodeConflictException;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.service.NodeService;
@@ -188,8 +189,20 @@ public class TeamNodesController {
     public ResponseEntity<ResponseNodeDto> getNode(
             @PathVariable Long graphId,
             @PathVariable Long nodeId,
-            @PathVariable Long teamId
+            @PathVariable Long teamId,
+            @AuthenticationPrincipal UserContext context
     ) {
-        return ResponseEntity.ok(nodeService.findTeamNodeById(graphId, nodeId, teamId));
+        return ResponseEntity.ok(nodeService.findTeamNodeById(
+                graphId, nodeId, teamId, context.getUserDto().getId()));
+    }
+
+    @GetMapping("/{nodeId}/notes/{noteId}")
+    public ResponseEntity<ResponseNoteDto> getLinkedNote(
+            @PathVariable Long teamId,
+            @PathVariable Long graphId,
+            @PathVariable Long nodeId,
+            @PathVariable Long noteId
+    ) {
+        return ResponseEntity.ok(nodeService.findTeamLinkedNote(teamId, graphId, nodeId, noteId));
     }
 }

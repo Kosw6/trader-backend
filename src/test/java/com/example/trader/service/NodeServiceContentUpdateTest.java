@@ -6,6 +6,7 @@ import com.example.trader.dto.map.UpdatePersonalNodeContentRequest;
 import com.example.trader.dto.map.UpdateTeamNodeContentRequest;
 import com.example.trader.entity.Node;
 import com.example.trader.entity.NodeHistory;
+import com.example.trader.entity.NodeNoteLink;
 import com.example.trader.entity.Note;
 import com.example.trader.entity.Role;
 import com.example.trader.entity.User;
@@ -56,6 +57,7 @@ class NodeServiceContentUpdateTest {
     @Mock NodeCacheService nodeCacheService;
     @Mock GraphCacheService graphCacheService;
     @Mock NodeHistoryRepository nodeHistoryRepository;
+    @Mock com.example.trader.repository.NodeNoteLinkRepository nodeNoteLinkRepository;
     @Mock NodeConflictValidator conflictValidator;
     @Mock TransactionalReliableEventService reliableEventService;
     @Mock ApplicationEventPublisher eventPublisher;
@@ -74,6 +76,7 @@ class NodeServiceContentUpdateTest {
                 nodeCacheService,
                 graphCacheService,
                 nodeHistoryRepository,
+                nodeNoteLinkRepository,
                 new NodeChangeRequestValidator(),
                 conflictValidator,
                 reliableEventService,
@@ -89,7 +92,7 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any()))
                 .thenReturn(ConflictResult.pass(3));
 
         ResponseNodeDto response = nodeService.updateTeamNode(10L, 20L, 30L, 40L, request);
@@ -127,13 +130,13 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any()))
                 .thenReturn(ConflictResult.pass(3));
 
         ResponseNodeDto response = nodeService.updateTeamNode(10L, 20L, 30L, 40L, request);
 
         assertThat(response.getVersion()).isEqualTo(3);
-        verify(conflictValidator).validateContent(any(), any(), any(), any(), any(Integer.class), any(), any());
+        verify(conflictValidator).validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any());
         verify(nodeHistoryRepository, never()).save(any());
         verify(nodeCacheService, never()).evictPageNodes(any());
         verify(graphCacheService, never()).evictGraph(any());
@@ -161,7 +164,7 @@ class NodeServiceContentUpdateTest {
         assertThat(node.getSubject()).isEqualTo("기존 제목");
         assertThat(node.getContent()).isEqualTo("기존 내용");
         assertThat(node.getVersion()).isEqualTo(3);
-        verify(conflictValidator, never()).validateContent(any(), any(), any(), any(), any(Integer.class), any(), any());
+        verify(conflictValidator, never()).validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any());
         verify(nodeHistoryRepository, never()).save(any());
         verify(reliableEventService, never()).stage(any());
         verify(eventPublisher, never()).publishEvent(any());
@@ -175,7 +178,7 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any()))
                 .thenReturn(ConflictResult.conflict(
                         1,
                         3,
@@ -189,7 +192,7 @@ class NodeServiceContentUpdateTest {
 
         assertThat(node.getSubject()).isEqualTo("기존 제목");
         assertThat(node.getVersion()).isEqualTo(3);
-        verify(conflictValidator).validateContent(any(), any(), any(), any(), any(Integer.class), any(), any());
+        verify(conflictValidator).validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any());
         verify(nodeHistoryRepository, never()).save(any());
         verify(reliableEventService, never()).stage(any());
         verify(eventPublisher, never()).publishEvent(any());
@@ -213,7 +216,7 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any()))
                 .thenThrow(failure);
 
         assertThatThrownBy(() -> nodeService.updateTeamNode(10L, 20L, 30L, 40L, request))
@@ -235,6 +238,7 @@ class NodeServiceContentUpdateTest {
         Note note = Note.builder().id(50L).user(owner).subject("연결 노트").build();
         Node node = node();
         node.attach(note);
+        node.attach(Note.builder().id(60L).user(user(41L)).subject("다른 사용자 노트").build());
         UpdateTeamNodeContentRequest request = new UpdateTeamNodeContentRequest();
         request.setNoteIds(List.of());
         request.setDirtyFields(List.of("noteIds"));
@@ -243,12 +247,13 @@ class NodeServiceContentUpdateTest {
         when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
                 .thenReturn(true);
         when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
-        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any()))
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any()))
                 .thenReturn(ConflictResult.pass(3));
 
         nodeService.updateTeamNode(10L, 20L, 30L, 40L, request);
 
-        assertThat(node.getNoteLinks()).isEmpty();
+        assertThat(node.getNoteLinks()).extracting(link -> link.getNote().getId())
+                .containsExactly(60L);
         ArgumentCaptor<NodeHistory> historyCaptor = ArgumentCaptor.forClass(NodeHistory.class);
         verify(nodeHistoryRepository).save(historyCaptor.capture());
         assertThat(historyCaptor.getValue().getChangedFields()).isEqualTo("[\"noteIds\"]");
@@ -256,6 +261,28 @@ class NodeServiceContentUpdateTest {
                 ArgumentCaptor.forClass(TeamNodeChangeCommittedEvent.class);
         verify(eventPublisher).publishEvent(eventCaptor.capture());
         assertThat(eventCaptor.getValue().changedFields()).containsExactly("noteIds");
+    }
+
+    @Test
+    @DisplayName("팀 사용자는 다른 사용자의 노트를 자신의 링크 집합에 추가할 수 없음")
+    void cannot_attach_another_users_note() {
+        Node node = node();
+        UpdateTeamNodeContentRequest request = new UpdateTeamNodeContentRequest();
+        request.setNoteIds(List.of(60L));
+        request.setDirtyFields(List.of("noteIds"));
+        request.setBaseVersion(3);
+        when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
+                .thenReturn(true);
+        when(nodeRepository.findByIdWithLinks(30L)).thenReturn(Optional.of(node));
+        when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any()))
+                .thenReturn(ConflictResult.pass(3));
+        when(noteRepository.findIdsByUserIdAndIdIn(40L, java.util.Set.of(60L)))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> nodeService.updateTeamNode(10L, 20L, 30L, 40L, request))
+                .isInstanceOf(com.example.trader.exception.BaseException.class);
+        assertThat(node.getNoteLinks()).isEmpty();
+        verify(nodeHistoryRepository, never()).save(any());
     }
 
     @Test
@@ -277,6 +304,50 @@ class NodeServiceContentUpdateTest {
         assertThat(node.getVersion()).isEqualTo(3);
         verify(nodeCacheService).evictPageNodes(20L);
         verify(graphCacheService).evictGraph(20L);
+    }
+
+    @Test
+    @DisplayName("팀 연결 노트 조회는 지정한 그래프의 노드에 실제 연결된 노트만 반환")
+    void find_team_linked_note_uses_scoped_link_query() {
+        User owner = user(41L);
+        Note note = Note.builder().id(50L).user(owner).teamId(10L)
+                .subject("공유 노트").content("공유 내용").build();
+        Node linkedNode = node();
+        NodeNoteLink link = NodeNoteLink.of(linkedNode, note);
+        when(nodeNoteLinkRepository.findLinkedNoteInTeamGraph(10L, 20L, 30L, 50L))
+                .thenReturn(Optional.of(link));
+
+        var response = nodeService.findTeamLinkedNote(10L, 20L, 30L, 50L);
+
+        assertThat(response.getId()).isEqualTo(50L);
+        assertThat(response.getSubject()).isEqualTo("공유 노트");
+        assertThat(response.getUsername()).isEqualTo("사용자");
+    }
+
+    @Test
+    @DisplayName("다른 그래프 또는 노드의 노트는 팀 연결 노트 API로 조회할 수 없음")
+    void find_team_linked_note_rejects_unscoped_note() {
+        when(nodeNoteLinkRepository.findLinkedNoteInTeamGraph(10L, 20L, 30L, 50L))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> nodeService.findTeamLinkedNote(10L, 20L, 30L, 50L))
+                .isInstanceOf(com.example.trader.exception.BaseException.class);
+    }
+
+    @Test
+    @DisplayName("팀 노드 응답은 모든 링크를 노출하되 요청자 소유 링크만 편집 가능")
+    void team_node_response_marks_only_requester_links_editable() {
+        Node node = node();
+        node.attach(Note.builder().id(50L).user(user(40L)).subject("내 노트").build());
+        node.attach(Note.builder().id(60L).user(user(41L)).subject("다른 노트").build());
+
+        ResponseNodeDto response = ResponseNodeDto.from(node, 40L);
+
+        assertThat(response.getLinkedNotes()).hasSize(2);
+        assertThat(response.getLinkedNotes()).filteredOn(note -> note.noteId().equals(50L))
+                .allMatch(ResponseNodeDto.LinkedNoteDto::editable);
+        assertThat(response.getLinkedNotes()).filteredOn(note -> note.noteId().equals(60L))
+                .noneMatch(ResponseNodeDto.LinkedNoteDto::editable);
     }
 
     private UpdateTeamNodeContentRequest teamSubjectRequest(

@@ -192,6 +192,20 @@ class NodeEditSessionServiceTest {
     }
 
     @Test
+    @DisplayName("getVersionHintDetails는 충돌 범위 판정에 필요한 변경자 ID를 보존")
+    void get_version_hint_details_preserves_changed_by() throws Exception {
+        VersionHintDto hint = new VersionHintDto(3, List.of("noteIds"), 99L, 123L);
+        when(valueOps.multiGet(List.of("canvas:version-hint:1:2:3:3")))
+                .thenReturn(List.of(objectMapper.writeValueAsString(hint)));
+
+        Map<Integer, VersionHintDto> result = service.getVersionHintDetails(
+                TEAM_ID, GRAPH_ID, NODE_ID, 2, 3);
+
+        assertThat(result.get(3).changedFields()).containsExactly("noteIds");
+        assertThat(result.get(3).changedBy()).isEqualTo(99L);
+    }
+
+    @Test
     @DisplayName("getVersionHints → 중간 버전(v3) 누락 → null 반환 (DB fallback 신호)")
     void get_version_hints_returns_null_when_chain_incomplete() {
         when(valueOps.multiGet(List.of(

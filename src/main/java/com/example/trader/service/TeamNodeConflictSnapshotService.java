@@ -55,7 +55,8 @@ public class TeamNodeConflictSnapshotService {
                     node,
                     request.getBaseVersion(),
                     plan.requestedChange(),
-                    plan.effectiveChange()
+                    plan.effectiveChange(),
+                    userId
             );
             if (conflict.requiresUserReview()) {
                 return conflict;
@@ -65,7 +66,8 @@ public class TeamNodeConflictSnapshotService {
         return conflictValidator.concurrentContentUpdate(
                 node,
                 request.getBaseVersion(),
-                plan.requestedChange()
+                plan.requestedChange(),
+                userId
         );
     }
 }
