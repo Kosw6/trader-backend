@@ -20,13 +20,10 @@ import com.example.trader.exception.ConcurrentNodeUpdateException;
 import com.example.trader.exception.NodeConflictException;
 import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.observability.ObservedLog;
-import com.example.trader.realtime.message.RealtimeEnvelope;
-import com.example.trader.realtime.message.RealtimeSubType;
-import com.example.trader.realtime.message.RealtimeType;
-import com.example.trader.realtime.outbox.TransactionalReliableEventService;
+import com.example.trader.service.event.NodeChange;
+import com.example.trader.service.event.NodeChangeEventStager;
 import com.example.trader.repository.*;
 import com.example.trader.service.event.TeamNodeChangeCommittedEvent;
-import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
@@ -62,7 +59,7 @@ public class NodeService {
     private final NodeNoteLinkRepository nodeNoteLinkRepository;
     private final NodeChangeRequestValidator changeRequestValidator;
     private final NodeConflictValidator  conflictValidator;
-    private final TransactionalReliableEventService transactionalReliableEventService;
+    private final NodeChangeEventStager nodeChangeEventStager;
     private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
@@ -90,17 +87,7 @@ public class NodeService {
         nodeCacheService.evictPageNodes(graphId);
         graphCacheService.evictGraph(graphId);
 
-        publishNodeChanged(
-                teamId,
-                graphId,
-                nodeId,
-                null,
-                "NODE_DELETED",
-                List.of("node"),
-                null,
-                null,
-                null
-        );
+        nodeChangeEventStager.stage(NodeChange.deleted(teamId, graphId, nodeId));
     }
 
     @Transactional
@@ -206,17 +193,8 @@ public class NodeService {
                 .changedAt(java.time.LocalDateTime.now())
                 .build());
 
-        publishNodeChanged(
-                teamId,
-                graphId,
-                nodeId,
-                userId,
-                "NODE_UPDATED",
-                changedFields,
-                newVersion,
-                null,
-                null
-        );
+        nodeChangeEventStager.stage(NodeChange.updated(
+                teamId, graphId, nodeId, userId, changedFields, newVersion));
 
         eventPublisher.publishEvent(new TeamNodeChangeCommittedEvent(
                 teamId,
@@ -320,17 +298,8 @@ public class NodeService {
 
         nodeCacheService.evictPageNodes(pageId);
         graphCacheService.evictGraph(pageId);
-        publishNodeChanged(
-                teamId,
-                pageId,
-                saved.getId(),
-                userId,
-                "NODE_CREATED",
-                List.of("node"),
-                saved.getVersion(),
-                null,
-                null
-        );
+        nodeChangeEventStager.stage(NodeChange.created(
+                teamId, pageId, saved.getId(), userId, saved.getVersion()));
 
 
         return ResponseNodeDto.from(saved, userId);
@@ -425,52 +394,4 @@ public class NodeService {
                 .toList();
     }
 
-    private void publishNodeChanged(
-            Long teamId,
-            Long graphId,
-            Long nodeId,
-            Long userId,
-            String eventType,
-            List<String> changedFields,
-            Integer version,
-            Double x,
-            Double y
-    ) {
-        RawCursorMessage msg = new RawCursorMessage(
-                "__CONTROL__",
-                eventType,
-                teamId,
-                graphId,
-                userId,
-                null,
-                nodeId,
-                x != null ? x : 0,
-                y != null ? y : 0,
-                System.currentTimeMillis(),
-                changedFields,
-                null,
-                null,
-                version
-        );
-
-        transactionalReliableEventService.stage(
-                RealtimeEnvelope.builder()
-                        .type(RealtimeType.RELIABLE)
-                        .subType(toRealtimeSubType(eventType))
-                        .teamId(teamId)
-                        .graphId(graphId)
-                        .payload(msg)
-                        .build()
-        );
-    }
-
-    private RealtimeSubType toRealtimeSubType(String eventType) {
-        return switch (eventType) {
-            case "NODE_CREATED" -> RealtimeSubType.NODE_CREATED;
-            case "NODE_UPDATED" -> RealtimeSubType.NODE_UPDATED;
-            case "NODE_DELETED" -> RealtimeSubType.NODE_DELETED;
-            case "NODE_POSITION_UPDATED" -> RealtimeSubType.NODE_POSITION_UPDATED;
-            default -> RealtimeSubType.CONTROL;
-        };
-    }
 }

@@ -16,15 +16,14 @@ import com.example.trader.exception.NodeChangeErrorCode;
 import com.example.trader.exception.NodeHistoryCorruptedException;
 import com.example.trader.exception.NodeHistoryCorruptionReason;
 import com.example.trader.exception.NodeConflictException;
-import com.example.trader.realtime.message.RealtimeEnvelope;
-import com.example.trader.realtime.outbox.TransactionalReliableEventService;
+import com.example.trader.service.event.NodeChange;
+import com.example.trader.service.event.NodeChangeEventStager;
 import com.example.trader.repository.EdgeRepository;
 import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.repository.NodeRepository;
 import com.example.trader.repository.NoteRepository;
 import com.example.trader.repository.PageRepository;
 import com.example.trader.service.event.TeamNodeChangeCommittedEvent;
-import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,7 +59,7 @@ class NodeServiceContentUpdateTest {
     @Mock NodeHistoryRepository nodeHistoryRepository;
     @Mock com.example.trader.repository.NodeNoteLinkRepository nodeNoteLinkRepository;
     @Mock NodeConflictValidator conflictValidator;
-    @Mock TransactionalReliableEventService reliableEventService;
+    @Mock NodeChangeEventStager reliableEventService;
     @Mock ApplicationEventPublisher eventPublisher;
 
     private NodeService nodeService;
@@ -110,11 +109,8 @@ class NodeServiceContentUpdateTest {
         verify(nodeCacheService, never()).evictPageNodes(any());
         verify(graphCacheService, never()).evictGraph(any());
 
-        ArgumentCaptor<RealtimeEnvelope> envelopeCaptor = ArgumentCaptor.forClass(RealtimeEnvelope.class);
-        verify(reliableEventService).stage(envelopeCaptor.capture());
-        RawCursorMessage payload = (RawCursorMessage) envelopeCaptor.getValue().getPayload();
-        assertThat(payload.version()).isEqualTo(4);
-        assertThat(payload.fields()).containsExactly("subject");
+        verify(reliableEventService).stage(NodeChange.updated(
+                10L, 20L, 30L, 40L, List.of("subject"), 4));
 
         ArgumentCaptor<TeamNodeChangeCommittedEvent> eventCaptor =
                 ArgumentCaptor.forClass(TeamNodeChangeCommittedEvent.class);
@@ -414,6 +410,37 @@ class NodeServiceContentUpdateTest {
                 .allMatch(ResponseNodeDto.LinkedNoteDto::editable);
         assertThat(response.getLinkedNotes()).filteredOn(note -> note.noteId().equals(60L))
                 .noneMatch(ResponseNodeDto.LinkedNoteDto::editable);
+    }
+
+    @Test
+    void creation_records_saved_identity_and_version() {
+        var request = new CreateNodeRequest();
+        request.setX(10.0);
+        request.setY(20.0);
+        request.setSubject("새 노드");
+        when(pageRepository.existsByIdAndDirectoryTeamId(20L, 10L)).thenReturn(true);
+        when(pageRepository.findById(20L)).thenReturn(Optional.of(
+                com.example.trader.entity.Page.builder().id(20L).build()));
+        when(nodeRepository.save(any(Node.class))).thenReturn(node());
+
+        nodeService.createTeamNode(request, 10L, 20L, 40L);
+
+        verify(reliableEventService).stage(NodeChange.created(10L, 20L, 30L, 40L, 3));
+    }
+
+    @Test
+    void deletion_records_node_target_without_inventing_actor_or_version() {
+        when(nodeRepository.existsByIdAndPageIdAndPageDirectoryTeamId(30L, 20L, 10L))
+                .thenReturn(true);
+        nodeService.deleteTeamNode(10L, 20L, 30L);
+        verify(reliableEventService).stage(NodeChange.deleted(10L, 20L, 30L));
+    }
+
+    @Test
+    void unauthorized_deletion_does_not_record_event() {
+        assertThatThrownBy(() -> nodeService.deleteTeamNode(10L, 20L, 30L))
+                .isInstanceOf(com.example.trader.exception.BaseException.class);
+        verify(reliableEventService, never()).stage(any());
     }
 
     private UpdateTeamNodeContentRequest teamSubjectRequest(

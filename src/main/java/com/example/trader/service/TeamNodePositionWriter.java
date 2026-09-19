@@ -1,13 +1,10 @@
 package com.example.trader.service;
 
 import com.example.trader.entity.NodeHistory;
-import com.example.trader.realtime.message.RealtimeEnvelope;
-import com.example.trader.realtime.message.RealtimeSubType;
-import com.example.trader.realtime.message.RealtimeType;
-import com.example.trader.realtime.outbox.TransactionalReliableEventService;
+import com.example.trader.service.event.NodeChange;
+import com.example.trader.service.event.NodeChangeEventStager;
 import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.repository.NodeRepository;
-import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +29,7 @@ public class TeamNodePositionWriter {
 
     private final NodeRepository nodeRepository;
     private final NodeHistoryRepository nodeHistoryRepository;
-    private final TransactionalReliableEventService reliableEventService;
+    private final NodeChangeEventStager nodeChangeEventStager;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -63,32 +60,8 @@ public class TeamNodePositionWriter {
                 .changedAt(LocalDateTime.now())
                 .build());
 
-        RawCursorMessage message = new RawCursorMessage(
-                "__CONTROL__",
-                "NODE_POSITION_UPDATED",
-                teamId,
-                graphId,
-                userId,
-                null,
-                nodeId,
-                x,
-                y,
-                System.currentTimeMillis(),
-                POSITION_FIELDS,
-                null,
-                null,
-                newVersion
-        );
-
-        reliableEventService.stage(
-                RealtimeEnvelope.builder()
-                        .type(RealtimeType.RELIABLE)
-                        .subType(RealtimeSubType.NODE_POSITION_UPDATED)
-                        .teamId(teamId)
-                        .graphId(graphId)
-                        .payload(message)
-                        .build()
-        );
+        nodeChangeEventStager.stage(NodeChange.positionUpdated(
+                teamId, graphId, nodeId, userId, newVersion, x, y));
 
         return Optional.of(newVersion);
     }

@@ -10,6 +10,10 @@ import com.example.trader.entity.Team;
 import com.example.trader.entity.User;
 import com.example.trader.exception.ConcurrentNodeUpdateException;
 import com.example.trader.realtime.outbox.TransactionalReliableEventService;
+import com.example.trader.realtime.outbox.OutboxNodeChangeEventStager;
+import com.example.trader.realtime.outbox.RealtimeOutboxService;
+import com.example.trader.repository.RealtimeOutboxRepository;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.repository.NodeRepository;
 import com.example.trader.service.event.TeamNodeChangeAfterCommitListener;
@@ -47,7 +51,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 @DataJpaTest(properties = {
@@ -56,6 +59,9 @@ import static org.mockito.Mockito.when;
 })
 @Import({
         NodeService.class,
+        OutboxNodeChangeEventStager.class,
+        TransactionalReliableEventService.class,
+        RealtimeOutboxService.class,
         NodeChangeRequestValidator.class,
         TeamNodeChangeAfterCommitListener.class,
         NodeServiceTransactionContractTest.ObjectMapperConfiguration.class
@@ -68,6 +74,7 @@ class NodeServiceTransactionContractTest {
     @Autowired NodeService nodeService;
     @Autowired NodeRepository nodeRepository;
     @Autowired NodeHistoryRepository nodeHistoryRepository;
+    @Autowired RealtimeOutboxRepository outboxRepository;
     @Autowired EntityManager entityManager;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired ApplicationEventPublisher eventPublisher;
@@ -76,7 +83,7 @@ class NodeServiceTransactionContractTest {
     @MockitoBean GraphCacheService graphCacheService;
     @MockitoBean NodeConflictValidator conflictValidator;
     @MockitoBean NodeEditSessionService editSessionService;
-    @MockitoBean TransactionalReliableEventService reliableEventService;
+    @MockitoSpyBean RealtimeOutboxService outboxService;
     @MockitoBean NodeQueryCacheInvalidator cacheInvalidator;
     @MockitoBean CacheInvalidationRetryService cacheInvalidationRetryService;
 
@@ -86,8 +93,13 @@ class NodeServiceTransactionContractTest {
         Fixture fixture = createFixture();
         when(conflictValidator.validateContent(any(), any(), any(), any(), any(Integer.class), any(), any(), any()))
                 .thenReturn(ConflictResult.pass(3));
-        doThrow(new IllegalStateException("outbox save failed"))
-                .when(reliableEventService).stage(any());
+        RealtimeOutboxService outboxTarget = org.springframework.test.util.AopTestUtils
+                .getUltimateTargetObject(outboxService);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            invocation.callRealMethod();
+            outboxRepository.flush();
+            throw new IllegalStateException("outbox save failed");
+        }).when(outboxTarget).savePending(any());
 
         UpdateTeamNodeContentRequest request = new UpdateTeamNodeContentRequest();
         request.setSubject("롤백될 제목");
@@ -109,6 +121,9 @@ class NodeServiceTransactionContractTest {
         assertThat(nodeHistoryRepository
                 .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(fixture.nodeId(), 0))
                 .isEmpty();
+        assertThat(outboxRepository.findAll())
+                .noneMatch(event -> event.getGraphId().equals(fixture.graphId()));
+        org.mockito.Mockito.verifyNoInteractions(editSessionService, cacheInvalidator);
     }
 
     @Test
@@ -270,7 +285,7 @@ class NodeServiceTransactionContractTest {
     static class ObjectMapperConfiguration {
         @Bean
         ObjectMapper objectMapper() {
-            return new ObjectMapper();
+            return new ObjectMapper().findAndRegisterModules();
         }
     }
 }
