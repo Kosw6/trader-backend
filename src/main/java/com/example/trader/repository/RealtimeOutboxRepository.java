@@ -75,8 +75,26 @@ public interface RealtimeOutboxRepository extends JpaRepository<RealtimeOutbox, 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update RealtimeOutbox o
+               set o.status = com.example.trader.realtime.outbox.OutboxStatus.FAILED,
+                   o.lastTriedAt = :failedAt,
+                   o.lastErrorMessage = :reason,
+                   o.claimToken = null,
+                   o.claimedBy = null,
+                   o.leaseUntil = null
+             where o.eventId = :eventId
+               and o.status = com.example.trader.realtime.outbox.OutboxStatus.PUBLISHING
+               and o.claimToken = :claimToken
+            """)
+    int markFailedIfOwned(@Param("eventId") String eventId,
+                          @Param("claimToken") String claimToken,
+                          @Param("reason") String reason,
+                          @Param("failedAt") LocalDateTime failedAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update RealtimeOutbox o
                set o.status = com.example.trader.realtime.outbox.OutboxStatus.PENDING,
-                   o.lastErrorMessage = 'stale publishing recovered',
+                   o.lastErrorMessage = coalesce(o.lastErrorMessage, 'stale publishing recovered'),
                    o.claimToken = null,
                    o.claimedBy = null,
                    o.leaseUntil = null

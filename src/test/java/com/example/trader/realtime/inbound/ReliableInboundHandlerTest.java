@@ -46,6 +46,16 @@ class ReliableInboundHandlerTest {
         verify(broadcaster, times(2)).enqueueReliable("team:1:graph:2", event);
     }
 
+    @Test
+    void new_process_cache_allows_old_event_to_be_propagated_again() {
+        RawPresenceBroadcaster broadcaster = mock(RawPresenceBroadcaster.class);
+        RealtimeEnvelope event = event();
+        assertThat(handler(broadcaster).handle(event)).isTrue();
+        // 재시작 후 새 캐시: 영구적인 exactly-once가 아님을 계약으로 남긴다.
+        assertThat(handler(broadcaster).handle(event)).isTrue();
+        verify(broadcaster, times(2)).enqueueReliable("team:1:graph:2", event);
+    }
+
     private ReliableInboundHandler handler(RawPresenceBroadcaster broadcaster) {
         LocalReliableEventDeduplicator deduplicator =
                 new LocalReliableEventDeduplicator(100, Duration.ofMinutes(10));

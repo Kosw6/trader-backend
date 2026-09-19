@@ -80,6 +80,12 @@ public class RealtimeOutboxClaimService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean markFailed(String eventId, String claimToken, String reason) {
+        String truncatedReason = reason == null ? null : reason.substring(0, Math.min(reason.length(), 1000));
+        return repository.markFailedIfOwned(eventId, claimToken, truncatedReason, LocalDateTime.now()) == 1;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public int recoverExpiredPublishing(LocalDateTime now) {
         return repository.recoverExpiredPublishing(now);
     }
