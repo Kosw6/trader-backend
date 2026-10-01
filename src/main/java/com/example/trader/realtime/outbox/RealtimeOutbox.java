@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
         name = "realtime_outbox",
         indexes = {
                 @Index(name = "idx_realtime_outbox_status_created", columnList = "status, createdAt"),
+                @Index(name = "idx_realtime_outbox_status_lease", columnList = "status, lease_until"),
                 @Index(name = "idx_realtime_outbox_graph_id", columnList = "graphId")
         }
 )
@@ -54,6 +55,18 @@ public class RealtimeOutbox {
     private LocalDateTime lastTriedAt;
     private LocalDateTime sentAt;
 
+    /** 현재 PUBLISHING 선점 시도에만 유효한 fencing token. */
+    @Column(name = "claim_token", length = 36)
+    private String claimToken;
+
+    /** 운영 추적용 선점 서버 식별자. 상태 변경 권한은 claimToken으로 검증한다. */
+    @Column(name = "claimed_by", length = 100)
+    private String claimedBy;
+
+    /** 이 시각이 지나면 다른 작업자가 stale claim을 회수할 수 있다. */
+    @Column(name = "lease_until")
+    private LocalDateTime leaseUntil;
+
     @Column(length = 1000)
     private String lastErrorMessage;
 
@@ -81,24 +94,4 @@ public class RealtimeOutbox {
         }
     }
 
-    public void markSent() {
-        this.status = OutboxStatus.SENT;
-        this.sentAt = LocalDateTime.now();
-        this.lastTriedAt = LocalDateTime.now();
-        this.lastErrorMessage = null;
-    }
-
-    public void markFailed(String reason) {
-        this.status = OutboxStatus.FAILED;
-        this.retryCount += 1;
-        this.lastTriedAt = LocalDateTime.now();
-        this.lastErrorMessage = reason == null
-                ? null
-                : reason.substring(0, Math.min(reason.length(), 1000));
-    }
-
-    public void markPendingForRetry() {
-        this.status = OutboxStatus.PENDING;
-        this.lastTriedAt = LocalDateTime.now();
-    }
 }

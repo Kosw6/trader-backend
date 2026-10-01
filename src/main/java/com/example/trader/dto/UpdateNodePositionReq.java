@@ -6,5 +6,6 @@ import jakarta.validation.constraints.NotNull;
 
 public record UpdateNodePositionReq(
         @NotNull @JsonSetter(nulls = Nulls.FAIL) Double x,
-        @NotNull @JsonSetter(nulls = Nulls.FAIL) Double y
+        @NotNull @JsonSetter(nulls = Nulls.FAIL) Double y,
+        Integer baseVersion
 ) {}

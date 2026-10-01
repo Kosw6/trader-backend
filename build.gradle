@@ -54,6 +54,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	implementation "com.fasterxml.jackson.core:jackson-databind"
 	implementation 'org.springframework.boot:spring-boot-starter-cache'      // @Cacheable 등
+	implementation 'com.github.ben-manes.caffeine:caffeine'
 	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
 	implementation 'io.micrometer:micrometer-registry-prometheus'
     implementation 'org.springframework.boot:spring-boot-starter-aop'//로깅 aop용

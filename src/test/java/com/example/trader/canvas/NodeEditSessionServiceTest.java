@@ -5,7 +5,7 @@ import com.example.trader.dto.canvas.VersionHintDto;
 import com.example.trader.entity.EditSessionEntity;
 import com.example.trader.entity.EditSessionId;
 import com.example.trader.infra.redis.RedisHealthState;
-import com.example.trader.realtime.RealtimePublisher;
+import com.example.trader.realtime.LiveRealtimePublisher;
 import com.example.trader.repository.EditSessionRepository;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,7 +48,7 @@ class NodeEditSessionServiceTest {
     @Mock
     EditSessionRepository repository;
     @Mock
-    RealtimePublisher publisher;
+    LiveRealtimePublisher publisher;
     @Mock
     RedisHealthState state;
     final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();

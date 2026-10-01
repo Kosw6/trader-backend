@@ -2,19 +2,19 @@ package com.example.trader.infra.redis.pubsub;
 
 import com.example.trader.realtime.inbound.ReliableInboundHandler;
 import com.example.trader.realtime.inbound.VolatileInboundHandler;
+import com.example.trader.realtime.inbound.TransientInboundHandler;
 import com.example.trader.realtime.message.RealtimeEnvelope;
 import com.example.trader.realtime.message.RealtimeType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.Message;
 import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
@@ -28,31 +28,31 @@ public class RedisPubSubListener implements MessageListener {
     private final ObjectMapper objectMapper;
     private final ReliableInboundHandler reliableInboundHandler;
     private final VolatileInboundHandler volatileInboundHandler;
-    private final MeterRegistry meterRegistry;
+    private final TransientInboundHandler transientInboundHandler;
+    @Value("${app.instance-id:local}")
+    private String instanceId;
 
     @Override
     public void onMessage(Message message, byte[] pattern) {
         try {
             String body = new String(message.getBody(), StandardCharsets.UTF_8);
             RealtimeEnvelope envelope = objectMapper.readValue(body, RealtimeEnvelope.class);
-            meterRegistry.counter(
-                    "realtime.relay.inbound",
-                    "path", "redis",
-                    "type", envelope.getType().name(),
-                    "subType", envelope.getSubType() == null ? "unknown" : envelope.getSubType().name()
-            ).increment();
             log.info("[REDIS-INBOUND] type={}, subType={}, eventId={}",
                     envelope.getType(), envelope.getSubType(), envelope.getEventId());
+
+            if (envelope.getType() != RealtimeType.RELIABLE
+                    && instanceId.equals(envelope.getOriginInstanceId())) {
+                log.debug("[REDIS-INBOUND] origin loopback skipped. eventId={}", envelope.getEventId());
+                return;
+            }
+
             if (envelope.getType() == RealtimeType.RELIABLE) {
-                // 발행 → 수신 구간 lag 측정 (publishedAt이 없는 구버전 메시지는 skip)
-                if (envelope.getPublishedAt() != null) {
-                    long lagMs = System.currentTimeMillis() - envelope.getPublishedAt();
-                    meterRegistry.timer(
-                            "realtime.pubsub.reliable.latency",
-                            "subType", envelope.getSubType() == null ? "unknown" : envelope.getSubType().name()
-                    ).record(lagMs, TimeUnit.MILLISECONDS);
-                }
                 reliableInboundHandler.handle(envelope);
+                return;
+            }
+
+            if (envelope.getType() == RealtimeType.TRANSIENT) {
+                transientInboundHandler.handle(envelope);
                 return;
             }
 
