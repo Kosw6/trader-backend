@@ -49,8 +49,9 @@ class RealtimeOutboxRepositoryClaimTest {
         assertThat(repository.markSentIfOwned(
                 "event-1", "token-A", secondClaimedAt.plusSeconds(1)
         )).isZero();
-        assertThat(repository.markPendingForRetryIfOwned(
-                "event-1", "token-A", "late failure", secondClaimedAt.plusSeconds(1)
+        assertThat(repository.scheduleRetryIfOwned(
+                "event-1", "token-A", "late failure", secondClaimedAt.plusSeconds(1),
+                secondClaimedAt.plusSeconds(6), "PUBLISH_UNKNOWN", false
         )).isZero();
 
         RealtimeOutbox claimedByB = repository.findById("event-1").orElseThrow();
@@ -72,8 +73,8 @@ class RealtimeOutboxRepositoryClaimTest {
         repository.saveAndFlush(pending("poison"));
         var now = LocalDateTime.now();
         repository.claimPending("poison", "owner", "server", now, now.plusSeconds(30));
-        assertThat(repository.markFailedIfOwned("poison", "stale", "INVALID_EVENT", now)).isZero();
-        assertThat(repository.markFailedIfOwned("poison", "owner", "INVALID_EVENT", now)).isEqualTo(1);
+        assertThat(repository.markFailedIfOwned("poison", "stale", "INVALID_EVENT", now, "INVALID_EVENT")).isZero();
+        assertThat(repository.markFailedIfOwned("poison", "owner", "INVALID_EVENT", now, "INVALID_EVENT")).isEqualTo(1);
         assertThat(repository.recoverExpiredPublishing(now.plusMinutes(1))).isZero();
         assertThat(repository.claimPending("poison", "next", "server", now, now.plusSeconds(30))).isZero();
         var failed = repository.findById("poison").orElseThrow();

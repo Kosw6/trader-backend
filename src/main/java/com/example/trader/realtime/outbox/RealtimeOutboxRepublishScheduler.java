@@ -29,6 +29,11 @@ public class RealtimeOutboxRepublishScheduler {
         if (!kafkaHealthState.isAvailable()) {
             return;
         }
+        LocalDateTime recoveryAt = kafkaHealthState.confirmedRecoveryAt();
+        if (recoveryAt != null) {
+            // DB에서 실패 건별 1회만 초기화한다. DB 오류 후 다음 tick에서 같은 신호로 재시도 가능.
+            claimService.resetKafkaAttemptsAfterRecovery(recoveryAt);
+        }
         relay.publishPendingBatch();
     }
 }
