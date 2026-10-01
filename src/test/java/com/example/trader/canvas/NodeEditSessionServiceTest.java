@@ -6,6 +6,8 @@ import com.example.trader.entity.EditSessionEntity;
 import com.example.trader.entity.EditSessionId;
 import com.example.trader.infra.redis.RedisHealthState;
 import com.example.trader.realtime.LiveRealtimePublisher;
+import com.example.trader.realtime.message.RealtimeEnvelope;
+import com.example.trader.realtime.message.RealtimeSubType;
 import com.example.trader.repository.EditSessionRepository;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -108,6 +110,23 @@ class NodeEditSessionServiceTest {
     }
 
     @Test
+    @DisplayName("세션 저장소 정리가 실패해도 EDIT_END를 한 번 전파")
+    void end_edit_session_publishes_even_when_cleanup_fails() {
+        when(state.isAvailable()).thenReturn(false);
+        ReflectionTestUtils.setField(service, "fallbackMode", "db");
+        doThrow(new IllegalStateException("DB 삭제 실패"))
+                .when(repository)
+                .deleteById(new EditSessionId(TEAM_ID, GRAPH_ID, NODE_ID, USER_ID));
+
+        service.endEditSession(TEAM_ID, GRAPH_ID, NODE_ID, USER_ID);
+
+        ArgumentCaptor<RealtimeEnvelope> envelopeCaptor =
+                ArgumentCaptor.forClass(RealtimeEnvelope.class);
+        verify(publisher).publishTransient(envelopeCaptor.capture());
+        assertThat(envelopeCaptor.getValue().getSubType()).isEqualTo(RealtimeSubType.EDIT_END);
+    }
+
+    @Test
     @DisplayName("getEditSession → Redis에 값 있으면 Optional<EditSessionDto> 반환")
     void get_edit_session_returns_dto_when_present() throws Exception {
         EditSessionDto dto = new EditSessionDto(3, List.of("subject"));
@@ -170,6 +189,20 @@ class NodeEditSessionServiceTest {
                 "canvas:version-hint:1:2:3:3",
                 "canvas:version-hint:1:2:3:4"
         ));
+    }
+
+    @Test
+    @DisplayName("getVersionHintDetails는 충돌 범위 판정에 필요한 변경자 ID를 보존")
+    void get_version_hint_details_preserves_changed_by() throws Exception {
+        VersionHintDto hint = new VersionHintDto(3, List.of("noteIds"), 99L, 123L);
+        when(valueOps.multiGet(List.of("canvas:version-hint:1:2:3:3")))
+                .thenReturn(List.of(objectMapper.writeValueAsString(hint)));
+
+        Map<Integer, VersionHintDto> result = service.getVersionHintDetails(
+                TEAM_ID, GRAPH_ID, NODE_ID, 2, 3);
+
+        assertThat(result.get(3).changedFields()).containsExactly("noteIds");
+        assertThat(result.get(3).changedBy()).isEqualTo(99L);
     }
 
     @Test

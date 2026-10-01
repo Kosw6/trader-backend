@@ -47,6 +47,7 @@ public class NodeNoteLink {
         l.note = note;
         l.noteId = note.getId();
         l.nodeId = node.getId();
+        l.noteSubject = note.getSubject();
         return l;
     }
 

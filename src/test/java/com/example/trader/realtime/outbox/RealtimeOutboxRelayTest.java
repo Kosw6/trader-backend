@@ -25,6 +25,7 @@ class RealtimeOutboxRelayTest {
         );
         RealtimeEnvelope envelope = RealtimeEnvelope.builder()
                 .eventId("event-1")
+                .payload(java.util.Map.of("version", 4))
                 .type(RealtimeType.RELIABLE)
                 .subType(RealtimeSubType.NODE_UPDATED)
                 .teamId(1L)
@@ -58,6 +59,7 @@ class RealtimeOutboxRelayTest {
         );
         RealtimeEnvelope envelope = RealtimeEnvelope.builder()
                 .eventId("event-2")
+                .payload(java.util.Map.of("version", 4))
                 .type(RealtimeType.RELIABLE)
                 .subType(RealtimeSubType.NODE_UPDATED)
                 .teamId(1L)
@@ -70,14 +72,14 @@ class RealtimeOutboxRelayTest {
 
         when(healthState.isAvailable()).thenReturn(true);
         when(claimService.claimByEventId("event-2")).thenReturn(Optional.of(outbox));
-        when(claimService.markPendingForRetry("event-2", "claim-2", "kafka unavailable"))
+        when(claimService.markPendingForRetry("event-2", "claim-2", "PUBLISH_UNKNOWN: kafka unavailable"))
                 .thenReturn(true);
         doThrow(new IllegalStateException("kafka unavailable"))
                 .when(kafkaPublisher).publishOrThrow(any(RealtimeEnvelope.class));
 
         relay.publishByEventId("event-2");
 
-        verify(claimService).markPendingForRetry("event-2", "claim-2", "kafka unavailable");
+        verify(claimService).markPendingForRetry("event-2", "claim-2", "PUBLISH_UNKNOWN: kafka unavailable");
         verify(claimService, never()).markSent(anyString(), anyString());
     }
 }

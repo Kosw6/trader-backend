@@ -1,16 +1,19 @@
 package com.example.trader.controller.teamGraph;
 
 import com.example.trader.common.interceptor.TeamMemberRequired;
-import com.example.trader.dto.UpdateNodePositionReq;
 import com.example.trader.dto.UpdateNodePositionRes;
+import com.example.trader.dto.UpdateTeamNodePositionRequest;
 import com.example.trader.dto.canvas.DraftAutosaveReq;
 import com.example.trader.dto.canvas.EditSessionDto;
 import com.example.trader.dto.canvas.EditStartReq;
-import com.example.trader.dto.map.RequestNodeDto;
+import com.example.trader.dto.map.CreateNodeRequest;
 import com.example.trader.dto.map.ResponseNodeDto;
+import com.example.trader.dto.map.UpdateTeamNodeContentRequest;
+import com.example.trader.dto.ResponseNoteDto;
 import com.example.trader.exception.NodeConflictException;
 import com.example.trader.security.details.UserContext;
 import com.example.trader.service.NodeService;
+import com.example.trader.service.TeamNodeContentUpdateCoordinator;
 import com.example.trader.service.TeamNodePositionService;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
 import jakarta.validation.Valid;
@@ -29,6 +32,7 @@ import java.util.List;
 public class TeamNodesController {
 
     private final NodeService nodeService;
+    private final TeamNodeContentUpdateCoordinator teamNodeContentUpdateCoordinator;
     private final TeamNodePositionService teamNodePositionService;
     private final NodeEditSessionService editSessionService;
 
@@ -37,7 +41,7 @@ public class TeamNodesController {
             @PathVariable Long teamId,
             @PathVariable Long graphId,
             @PathVariable Long nodeId,
-            @Valid @RequestBody UpdateNodePositionReq dto,
+            @Valid @RequestBody UpdateTeamNodePositionRequest dto,
             @AuthenticationPrincipal UserContext context
     ) {
         UpdateNodePositionRes result = teamNodePositionService.updatePosition(
@@ -64,7 +68,7 @@ public class TeamNodesController {
 
     @PostMapping
     public ResponseEntity<ResponseNodeDto> createTeamNode(
-            @RequestBody RequestNodeDto dto,
+            @RequestBody CreateNodeRequest dto,
             @PathVariable Long graphId,
             @PathVariable Long teamId,
             @AuthenticationPrincipal UserContext context
@@ -83,13 +87,13 @@ public class TeamNodesController {
             @PathVariable Long nodeId,
             @PathVariable Long graphId,
             @PathVariable Long teamId,
-            @RequestBody RequestNodeDto dto,
+            @RequestBody UpdateTeamNodeContentRequest dto,
             @AuthenticationPrincipal UserContext context
     ) {
         Long userId = context.getUserDto().getId();
 
         try {
-            ResponseNodeDto result = nodeService.updateTeamNode(
+            ResponseNodeDto result = teamNodeContentUpdateCoordinator.update(
                     teamId,
                     graphId,
                     nodeId,
@@ -185,8 +189,20 @@ public class TeamNodesController {
     public ResponseEntity<ResponseNodeDto> getNode(
             @PathVariable Long graphId,
             @PathVariable Long nodeId,
-            @PathVariable Long teamId
+            @PathVariable Long teamId,
+            @AuthenticationPrincipal UserContext context
     ) {
-        return ResponseEntity.ok(nodeService.findTeamNodeById(graphId, nodeId, teamId));
+        return ResponseEntity.ok(nodeService.findTeamNodeById(
+                graphId, nodeId, teamId, context.getUserDto().getId()));
+    }
+
+    @GetMapping("/{nodeId}/notes/{noteId}")
+    public ResponseEntity<ResponseNoteDto> getLinkedNote(
+            @PathVariable Long teamId,
+            @PathVariable Long graphId,
+            @PathVariable Long nodeId,
+            @PathVariable Long noteId
+    ) {
+        return ResponseEntity.ok(nodeService.findTeamLinkedNote(teamId, graphId, nodeId, noteId));
     }
 }

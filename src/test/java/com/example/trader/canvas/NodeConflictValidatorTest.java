@@ -1,9 +1,13 @@
 package com.example.trader.canvas;
 
 import com.example.trader.dto.canvas.ConflictResult;
-import com.example.trader.dto.map.RequestNodeDto;
+import com.example.trader.dto.canvas.VersionHintDto;
 import com.example.trader.entity.Node;
+import com.example.trader.entity.NodeContentChange;
+import com.example.trader.entity.NodeContentField;
 import com.example.trader.entity.NodeHistory;
+import com.example.trader.exception.NodeHistoryCorruptedException;
+import com.example.trader.exception.NodeHistoryCorruptionReason;
 import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.service.NodeConflictValidator;
 import com.example.trader.ws.raw.edit.NodeEditSessionService;
@@ -21,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -57,25 +62,12 @@ class NodeConflictValidatorTest {
     // ── 1. PASS 케이스 ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("baseVersion 없음 → PASS, Redis/DB 조회 없음")
-    void pass_when_baseVersion_null() {
-        when(node.getVersion()).thenReturn(5);
-        RequestNodeDto req = req(null, "새 제목");
-
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
-
-        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.PASS);
-        // Redis, DB 조회 없어야 함
-        verifyNoInteractions(editSessionService, nodeHistoryRepository);
-    }
-
-    @Test
-    @DisplayName("baseVersion >= currentVersion → PASS, Redis/DB 조회 없음")
+    @DisplayName("baseVersion == currentVersion → PASS, Redis/DB 조회 없음")
     void pass_when_no_version_change() {
         when(node.getVersion()).thenReturn(3);
-        RequestNodeDto req = req(3, "새 제목");
+        NodeContentChange change = subjectChange("새 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.PASS);
         assertThat(result.currentVersion()).isEqualTo(3);
@@ -85,7 +77,7 @@ class NodeConflictValidatorTest {
     // ── 2. AUTO_MERGE 케이스 ─────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Redis 완전 + 교집합 없음 → AUTO_MERGE, DB 미조회")
+    @DisplayName("Redis 완전 + 콘텐츠 변경이 서로 다름 → MERGE_REVIEW_REQUIRED, DB 미조회")
     void auto_merge_when_redis_complete_no_intersection() {
         // 현재 버전 4, A는 base=2 에서 편집 시작
         when(node.getVersion()).thenReturn(4);
@@ -94,13 +86,17 @@ class NodeConflictValidatorTest {
         when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 2, 4))
                 .thenReturn(hints);
 
-        RequestNodeDto req = req(2, "A의 새 제목"); // subject 만 변경
+        NodeContentChange change = subjectChange("A의 새 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change, change);
 
-        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.MERGE_REVIEW_REQUIRED);
         assertThat(result.baseVersion()).isEqualTo(2);
         assertThat(result.currentVersion()).isEqualTo(4);
+        assertThat(result.serverChangedFields()).containsExactly("content");
+        assertThat(result.requestedFields()).containsExactly("subject");
+        assertThat(result.effectiveFields()).containsExactly("subject");
+        assertThat(result.proposedValues()).containsEntry("subject", "A의 새 제목");
         // DB fallback 없어야 함
         verify(nodeHistoryRepository, never())
                 .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(any(), any());
@@ -118,9 +114,9 @@ class NodeConflictValidatorTest {
         when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 2, 3))
                 .thenReturn(hints);
 
-        RequestNodeDto req = req(2, "A가 쓰려던 제목");
+        NodeContentChange change = subjectChange("A가 쓰려던 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
         assertThat(result.conflictingFields()).containsExactly("subject");
@@ -132,10 +128,95 @@ class NodeConflictValidatorTest {
                 .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(any(), any());
     }
 
+    @Test
+    @DisplayName("서버 버전 차이가 위치 변경뿐이면 콘텐츠 수정은 내부 AUTO_MERGE")
+    void content_auto_merge_when_server_changed_only_position() {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, List.of("x", "y")));
+        NodeContentChange change = subjectChange("새 제목");
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change, change
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
+        verifyNoInteractions(nodeHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("사용자가 요청한 필드와 현재 상태에서 실제로 달라지는 필드를 구분")
+    void distinguish_requested_fields_from_effective_fields() {
+        when(node.getVersion()).thenReturn(4);
+        when(node.getContent()).thenReturn("서버 최신 내용");
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, List.of("content")));
+        NodeContentChange requested = NodeContentChange.of(Map.of(
+                NodeContentField.SUBJECT, "새 제목",
+                NodeContentField.CONTENT, "서버 최신 내용"
+        ));
+        NodeContentChange effective = subjectChange("새 제목");
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, requested, effective
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.MERGE_REVIEW_REQUIRED);
+        assertThat(result.requestedFields()).containsExactly("subject", "content");
+        assertThat(result.effectiveFields()).containsExactly("subject");
+        assertThat(result.conflictingFields()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("요청값이 최신값과 같아도 다른 콘텐츠 변경을 보지 못했다면 검토가 필요")
+    void stale_no_op_still_requires_context_review() {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, List.of("content")));
+        NodeContentChange requested = subjectChange("이미 반영된 제목");
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, requested, NodeContentChange.empty()
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.MERGE_REVIEW_REQUIRED);
+        assertThat(result.requestedFields()).containsExactly("subject");
+        assertThat(result.effectiveFields()).isEmpty();
+        assertThat(result.serverChangedFields()).containsExactly("content");
+    }
+
+    @Test
+    @DisplayName("저장 시점 CAS 충돌은 한 스냅샷의 전체 현재 값과 요청값을 반환")
+    void concurrent_update_contains_complete_review_snapshot() {
+        when(node.getVersion()).thenReturn(5);
+        when(node.getSubject()).thenReturn("서버 최신 제목");
+        when(node.getContent()).thenReturn("서버 최신 내용");
+        when(node.getSymb()).thenReturn(null);
+        when(node.getRecordDate()).thenReturn(java.time.LocalDate.of(2026, 9, 12));
+
+        ConflictResult result = validator.concurrentContentUpdate(
+                node,
+                4,
+                subjectChange("내가 저장할 제목")
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONCURRENT_UPDATE);
+        assertThat(result.baseVersion()).isEqualTo(4);
+        assertThat(result.currentVersion()).isEqualTo(5);
+        assertThat(result.conflictingFields()).containsExactly("subject");
+        assertThat(result.currentValues())
+                .containsEntry("subject", "서버 최신 제목")
+                .containsEntry("content", "서버 최신 내용")
+                .containsEntry("symb", null)
+                .containsEntry("recordDate", java.time.LocalDate.of(2026, 9, 12))
+                .containsEntry("noteIds", List.of());
+        assertThat(result.incomingValues()).containsEntry("subject", "내가 저장할 제목");
+    }
+
     // ── 4. DB fallback 케이스 ────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Redis 불완전 → DB fallback + 교집합 없음 → AUTO_MERGE")
+    @DisplayName("Redis 불완전 → DB fallback + 콘텐츠 변경이 서로 다름 → MERGE_REVIEW_REQUIRED")
     void auto_merge_when_redis_incomplete_db_fallback_no_intersection() {
         when(node.getVersion()).thenReturn(4);
         // Redis 힌트 불완전 → null 반환
@@ -145,11 +226,11 @@ class NodeConflictValidatorTest {
         when(nodeHistoryRepository.findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 2))
                 .thenReturn(List.of(history(3, "[\"content\"]")));
 
-        RequestNodeDto req = req(2, "A의 새 제목"); // subject만
+        NodeContentChange change = subjectChange("A의 새 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change, change);
 
-        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.MERGE_REVIEW_REQUIRED);
         // DB 조회 반드시 발생해야 함
         verify(nodeHistoryRepository)
                 .findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 2);
@@ -166,9 +247,9 @@ class NodeConflictValidatorTest {
         when(nodeHistoryRepository.findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 2))
                 .thenReturn(List.of(history(3, "[\"subject\"]")));
 
-        RequestNodeDto req = req(2, "A의 제목");
+        NodeContentChange change = subjectChange("A의 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
         assertThat(result.conflictingFields()).contains("subject");
@@ -192,12 +273,61 @@ class NodeConflictValidatorTest {
                         history(4, "[\"subject\"]")
                 ));
 
-        RequestNodeDto req = req(2, "A의 제목"); // subject 수정
+        NodeContentChange change = subjectChange("A의 제목");
 
-        ConflictResult result = validator.validate(TEAM_ID, GRAPH_ID, NODE_ID, node, req);
+        ConflictResult result = validator.validateContent(TEAM_ID, GRAPH_ID, NODE_ID, node, 2, change, change);
 
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
         assertThat(result.conflictingFields()).containsExactly("subject");
+    }
+
+    @Test
+    @DisplayName("DB 변경 이력이 잘못된 JSON이면 자동 병합하지 않고 검증을 중단")
+    void fail_closed_when_history_json_is_malformed() {
+        assertDbHistoryCorrupted("not-json", NodeHistoryCorruptionReason.MALFORMED_CHANGED_FIELDS);
+    }
+
+    @Test
+    @DisplayName("DB 변경 이력이 빈 배열이면 History 불변식 위반으로 검증을 중단")
+    void fail_closed_when_history_fields_are_empty() {
+        assertDbHistoryCorrupted("[]", NodeHistoryCorruptionReason.EMPTY_CHANGED_FIELDS);
+    }
+
+    @Test
+    @DisplayName("DB 변경 이력에 지원하지 않는 필드가 있으면 검증을 중단")
+    void fail_closed_when_history_contains_unsupported_field() {
+        assertDbHistoryCorrupted(
+                "[\"unknown\"]",
+                NodeHistoryCorruptionReason.UNSUPPORTED_CHANGED_FIELD
+        );
+    }
+
+    @Test
+    @DisplayName("DB 변경 이력에 중복 필드가 있으면 검증을 중단")
+    void fail_closed_when_history_contains_duplicate_field() {
+        assertDbHistoryCorrupted(
+                "[\"subject\",\"subject\"]",
+                NodeHistoryCorruptionReason.DUPLICATE_CHANGED_FIELD
+        );
+    }
+
+    @Test
+    @DisplayName("DB의 x,y 변경 이력은 유효한 위치 이력으로 처리")
+    void accept_position_fields_from_db_history() {
+        when(node.getVersion()).thenReturn(4);
+        when(node.getX()).thenReturn(10.0);
+        when(node.getY()).thenReturn(20.0);
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(null);
+        when(nodeHistoryRepository.findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 3))
+                .thenReturn(List.of(history(4, "[\"x\",\"y\"]")));
+
+        ConflictResult result = validator.validatePosition(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, 30.0, 40.0
+        );
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
+        assertThat(result.conflictingFields()).containsExactlyInAnyOrder("x", "y");
     }
 
     @Test
@@ -216,6 +346,55 @@ class NodeConflictValidatorTest {
         assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
         assertThat(result.currentVersion()).isEqualTo(4);
         verifyNoInteractions(nodeHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("다른 소유자의 noteIds 변경은 요청자의 링크 집합과 독립적으로 병합")
+    void note_links_from_another_owner_do_not_conflict() {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHintDetails(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, new VersionHintDto(4, List.of("noteIds"), 99L, 1L)));
+        NodeContentChange change = NodeContentChange.of(
+                Map.of(NodeContentField.NOTE_IDS, List.of(10L)));
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change, change, 40L);
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
+        verifyNoInteractions(nodeHistoryRepository);
+    }
+
+    @Test
+    @DisplayName("같은 소유자의 noteIds 변경은 소유자 단위 충돌")
+    void note_links_from_same_owner_conflict() {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHintDetails(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(Map.of(4, new VersionHintDto(4, List.of("noteIds"), 40L, 1L)));
+        NodeContentChange change = NodeContentChange.of(
+                Map.of(NodeContentField.NOTE_IDS, List.of(10L)));
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change, change, 40L);
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.CONFLICT);
+        assertThat(result.conflictingFields()).containsExactly("noteIds");
+    }
+
+    @Test
+    @DisplayName("DB fallback도 다른 소유자의 noteIds 변경을 독립된 집합으로 판단")
+    void db_history_applies_owner_scope_to_note_links() {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHintDetails(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(null);
+        when(nodeHistoryRepository.findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 3))
+                .thenReturn(List.of(history(4, "[\"noteIds\"]")));
+        NodeContentChange change = NodeContentChange.of(
+                Map.of(NodeContentField.NOTE_IDS, List.of(10L)));
+
+        ConflictResult result = validator.validateContent(
+                TEAM_ID, GRAPH_ID, NODE_ID, node, 3, change, change, 40L);
+
+        assertThat(result.type()).isEqualTo(ConflictResult.ConflictType.AUTO_MERGE);
     }
 
     @Test
@@ -255,27 +434,54 @@ class NodeConflictValidatorTest {
     }
 
     @Test
-    @DisplayName("명시한 dirtyFields만 변경 필드로 판단")
-    void extract_changed_fields_prefers_explicit_dirty_fields() {
-        RequestNodeDto req = new RequestNodeDto();
-        req.setSubject("새 제목");
-        req.setContent("화면 DTO에 함께 들어왔지만 수정하지 않은 내용");
-        req.setDirtyFields(List.of("subject"));
+    @DisplayName("검증된 변경 객체가 실제 적용 필드만 노출")
+    void content_change_exposes_exact_fields() {
+        NodeContentChange change = subjectChange("새 제목");
 
-        assertThat(validator.extractChangedFields(req)).containsExactly("subject");
+        assertThat(change.fieldNames()).containsExactly("subject");
+        assertThat(change.externalValues()).containsOnly(Map.entry("subject", "새 제목"));
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────
 
-    private RequestNodeDto req(Integer baseVersion, String subject) {
-        RequestNodeDto dto = new RequestNodeDto();
-        dto.setSubject(subject);
-        dto.setBaseVersion(baseVersion);
-        return dto;
+    private NodeContentChange subjectChange(String subject) {
+        return NodeContentChange.of(Map.of(NodeContentField.SUBJECT, subject));
+    }
+
+    private void assertDbHistoryCorrupted(
+            String changedFields,
+            NodeHistoryCorruptionReason expectedReason
+    ) {
+        when(node.getVersion()).thenReturn(4);
+        when(editSessionService.getVersionHints(TEAM_ID, GRAPH_ID, NODE_ID, 3, 4))
+                .thenReturn(null);
+        when(nodeHistoryRepository.findByNodeIdAndVersionGreaterThanOrderByVersionAsc(NODE_ID, 3))
+                .thenReturn(List.of(history(4, changedFields)));
+
+        assertThatThrownBy(() -> validator.validateContent(
+                TEAM_ID,
+                GRAPH_ID,
+                NODE_ID,
+                node,
+                3,
+                subjectChange("새 제목"),
+                subjectChange("새 제목")
+        )).isInstanceOfSatisfying(
+                NodeHistoryCorruptedException.class,
+                exception -> {
+                    assertThat(exception.getReason()).isEqualTo(expectedReason);
+                    assertThat(exception.getHistoryId()).isEqualTo(100L);
+                    assertThat(exception.getNodeId()).isEqualTo(NODE_ID);
+                    assertThat(exception.getVersion()).isEqualTo(4);
+                    assertThat(exception.getMessage())
+                            .isEqualTo("변경 이력을 해석할 수 없어 충돌을 검증하지 못했습니다.");
+                }
+        );
     }
 
     private NodeHistory history(int version, String changedFieldsJson) {
         return NodeHistory.builder()
+                .id(100L)
                 .nodeId(NODE_ID).teamId(TEAM_ID).graphId(GRAPH_ID)
                 .version(version).changedBy(99L)
                 .changedFields(changedFieldsJson)

@@ -2,6 +2,7 @@ package com.example.trader.common;
 
 import com.example.trader.dto.canvas.ConflictResult;
 import com.example.trader.exception.BaseException;
+import com.example.trader.exception.InvalidNodeChangeRequestException;
 import com.example.trader.exception.NodeConflictException;
 import com.example.trader.httpresponse.BaseResponseStatus;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -20,6 +21,30 @@ import java.util.Map;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(InvalidNodeChangeRequestException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidNodeChange(
+            InvalidNodeChangeRequestException ex,
+            HttpServletRequest request
+    ) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("traceId", MDC.get("traceId"));
+        response.put("status", HttpStatus.BAD_REQUEST.value());
+        response.put("domain", "canvas");
+        response.put("errorCode", ex.getErrorCode().name());
+        response.put("severity", "LOW");
+        response.put("message", ex.getMessage());
+        response.put("path", request.getRequestURI());
+
+        MDC.put("event", "API_ERROR");
+        MDC.put("domain", "canvas");
+        MDC.put("errorCode", ex.getErrorCode().name());
+        MDC.put("severity", "LOW");
+        MDC.put("httpStatus", String.valueOf(HttpStatus.BAD_REQUEST.value()));
+
+        log.warn("invalid node change request");
+        return ResponseEntity.badRequest().body(response);
+    }
 
     @ExceptionHandler(NodeConflictException.class)
     public ResponseEntity<ConflictResult> handleNodeConflict(NodeConflictException ex) {

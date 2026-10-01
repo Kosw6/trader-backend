@@ -44,9 +44,7 @@ public class RealtimeHealthCheckScheduler {
 
         // Kafka 복구 시 outbox 스케줄러의 circuit breaker도 함께 리셋
         // KafkaHealthState.markDown() 후 스케줄러가 stuck되는 것을 방지
-        if (kafka) {
-            kafkaHealthState.markUp();
-        }
+        kafkaHealthState.confirmProbe(kafka, java.time.LocalDateTime.now());
 
         log.debug("[REALTIME-HEALTH] redis={}, kafka={}, grpc={}, http={}",
                 redis, kafka, grpc, http);

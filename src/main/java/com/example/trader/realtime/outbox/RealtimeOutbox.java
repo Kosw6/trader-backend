@@ -19,6 +19,8 @@ import java.time.LocalDateTime;
         indexes = {
                 @Index(name = "idx_realtime_outbox_status_created", columnList = "status, createdAt"),
                 @Index(name = "idx_realtime_outbox_status_lease", columnList = "status, lease_until"),
+                @Index(name = "idx_realtime_outbox_due", columnList = "status, next_attempt_at, createdAt"),
+                @Index(name = "idx_realtime_outbox_deadline", columnList = "status, retry_deadline_at"),
                 @Index(name = "idx_realtime_outbox_graph_id", columnList = "graphId")
         }
 )
@@ -48,6 +50,20 @@ public class RealtimeOutbox {
 
     @Column(nullable = false)
     private int retryCount;
+
+    /** 최초 시도 포함 누적 선점 수. Kafka 복구 시에도 초기화하지 않는다. */
+    @Column(nullable = false)
+    private long totalAttemptCount;
+
+    private LocalDateTime firstAttemptAt;
+    private LocalDateTime retryDeadlineAt;
+    private LocalDateTime nextAttemptAt;
+
+    @Column(length = 50)
+    private String lastFailureCode;
+
+    @Column(nullable = false)
+    private boolean kafkaRecoveryPending;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;

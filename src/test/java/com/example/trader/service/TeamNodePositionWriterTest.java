@@ -1,12 +1,10 @@
 package com.example.trader.service;
 
 import com.example.trader.entity.NodeHistory;
-import com.example.trader.realtime.message.RealtimeEnvelope;
-import com.example.trader.realtime.message.RealtimeSubType;
-import com.example.trader.realtime.outbox.TransactionalReliableEventService;
+import com.example.trader.service.event.NodeChange;
+import com.example.trader.service.event.NodeChangeEventStager;
 import com.example.trader.repository.NodeHistoryRepository;
 import com.example.trader.repository.NodeRepository;
-import com.example.trader.ws.raw.dto.RawCursorMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -31,7 +29,7 @@ class TeamNodePositionWriterTest {
 
     @Mock NodeRepository nodeRepository;
     @Mock NodeHistoryRepository nodeHistoryRepository;
-    @Mock TransactionalReliableEventService reliableEventService;
+    @Mock NodeChangeEventStager reliableEventService;
 
     TeamNodePositionWriter writer;
 
@@ -64,15 +62,8 @@ class TeamNodePositionWriterTest {
         assertThat(historyCaptor.getValue().getChangedBy()).isEqualTo(USER_ID);
         assertThat(historyCaptor.getValue().getChangedFields()).isEqualTo("[\"x\",\"y\"]");
 
-        ArgumentCaptor<RealtimeEnvelope> envelopeCaptor = ArgumentCaptor.forClass(RealtimeEnvelope.class);
-        verify(reliableEventService).stage(envelopeCaptor.capture());
-        RealtimeEnvelope envelope = envelopeCaptor.getValue();
-        assertThat(envelope.getSubType()).isEqualTo(RealtimeSubType.NODE_POSITION_UPDATED);
-        assertThat(envelope.getPayload()).isInstanceOf(RawCursorMessage.class);
-        RawCursorMessage message = (RawCursorMessage) envelope.getPayload();
-        assertThat(message.version()).isEqualTo(5);
-        assertThat(message.baseVersion()).isNull();
-        assertThat(message.fields()).containsExactly("x", "y");
+        verify(reliableEventService).stage(NodeChange.positionUpdated(
+                TEAM_ID, GRAPH_ID, NODE_ID, USER_ID, 5, 10.0, 20.0));
     }
 
     @Test

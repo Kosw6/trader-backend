@@ -77,13 +77,13 @@ public class RedisCacheConfig {
 
             perCache.put("graphDetail",
                     defaultConfig
-                            .entryTtl(Duration.ofMinutes(10))
+                            .entryTtl(Duration.ofMinutes(15))
                             .serializeValuesWith(pair(ResponseGraphDto.class))
             );
 
             perCache.put("pageNodes",
                     defaultConfig
-                            .entryTtl(Duration.ofMinutes(30))
+                            .entryTtl(Duration.ofMinutes(15))
                             .serializeValuesWith(pair(PageNodesCacheDto.class))
             );
 

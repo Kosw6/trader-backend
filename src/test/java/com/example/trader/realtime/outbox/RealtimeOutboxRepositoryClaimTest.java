@@ -49,8 +49,9 @@ class RealtimeOutboxRepositoryClaimTest {
         assertThat(repository.markSentIfOwned(
                 "event-1", "token-A", secondClaimedAt.plusSeconds(1)
         )).isZero();
-        assertThat(repository.markPendingForRetryIfOwned(
-                "event-1", "token-A", "late failure", secondClaimedAt.plusSeconds(1)
+        assertThat(repository.scheduleRetryIfOwned(
+                "event-1", "token-A", "late failure", secondClaimedAt.plusSeconds(1),
+                secondClaimedAt.plusSeconds(6), "PUBLISH_UNKNOWN", false
         )).isZero();
 
         RealtimeOutbox claimedByB = repository.findById("event-1").orElseThrow();
@@ -65,6 +66,37 @@ class RealtimeOutboxRepositoryClaimTest {
         assertThat(sent.getStatus()).isEqualTo(OutboxStatus.SENT);
         assertThat(sent.getClaimToken()).isNull();
         assertThat(sent.getLeaseUntil()).isNull();
+    }
+
+    @Test
+    void quarantine_requires_ownership_and_is_not_recovered_or_reclaimed() {
+        repository.saveAndFlush(pending("poison"));
+        var now = LocalDateTime.now();
+        repository.claimPending("poison", "owner", "server", now, now.plusSeconds(30));
+        assertThat(repository.markFailedIfOwned("poison", "stale", "INVALID_EVENT", now, "INVALID_EVENT")).isZero();
+        assertThat(repository.markFailedIfOwned("poison", "owner", "INVALID_EVENT", now, "INVALID_EVENT")).isEqualTo(1);
+        assertThat(repository.recoverExpiredPublishing(now.plusMinutes(1))).isZero();
+        assertThat(repository.claimPending("poison", "next", "server", now, now.plusSeconds(30))).isZero();
+        var failed = repository.findById("poison").orElseThrow();
+        assertThat(failed.getStatus()).isEqualTo(OutboxStatus.FAILED);
+        assertThat(failed.getLastErrorMessage()).isEqualTo("INVALID_EVENT");
+        assertThat(failed.getClaimToken()).isNull();
+    }
+
+    @Test
+    void unrecorded_failure_is_recovered_after_lease_and_retains_event_data() {
+        repository.saveAndFlush(pending("recovery"));
+        String originalJson = repository.findById("recovery").orElseThrow().getEnvelopeJson();
+        var now = LocalDateTime.now();
+        repository.claimPending("recovery", "first", "server", now, now.plusSeconds(30));
+        // 실패 상태 기록이 불가능해 아무 상태 변경도 커밋하지 못한 상황
+        assertThat(repository.recoverExpiredPublishing(now.plusSeconds(31))).isEqualTo(1);
+        assertThat(repository.claimPending("recovery", "second", "server", now.plusSeconds(31), now.plusMinutes(1)))
+                .isEqualTo(1);
+        assertThat(repository.markSentIfOwned("recovery", "first", now.plusSeconds(32))).isZero();
+        var recovered = repository.findById("recovery").orElseThrow();
+        assertThat(recovered.getEnvelopeJson()).isEqualTo(originalJson);
+        assertThat(recovered.getClaimToken()).isEqualTo("second");
     }
 
     private RealtimeOutbox pending(String eventId) {

@@ -7,8 +7,24 @@ import org.springframework.data.jpa.repository.Query;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public interface NodeNoteLinkRepository extends JpaRepository<NodeNoteLink, Long> {
+    @Query("""
+        select l from NodeNoteLink l
+        join fetch l.note note
+        join fetch note.user
+        where l.node.id = :nodeId
+          and l.note.id = :noteId
+          and l.node.page.id = :graphId
+          and l.node.page.directory.team.id = :teamId
+        """)
+    Optional<NodeNoteLink> findLinkedNoteInTeamGraph(
+            @Param("teamId") Long teamId,
+            @Param("graphId") Long graphId,
+            @Param("nodeId") Long nodeId,
+            @Param("noteId") Long noteId
+    );
     // 부모 묶음으로 링크를 한 번에
     @Query("""
       select l

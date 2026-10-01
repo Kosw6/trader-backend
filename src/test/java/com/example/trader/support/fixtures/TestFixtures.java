@@ -5,6 +5,8 @@ import org.hibernate.mapping.Join;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class TestFixtures {
@@ -126,7 +128,7 @@ public class TestFixtures {
     //Node + Note 연결
     public static Node nodeWithNote(Page page, Note note) {
         Node node = node(page);
-        node.attach(note);
+        node.replaceNoteLinks(List.of(note), Set.of());
         return node;
     }
 
