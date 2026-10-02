@@ -68,7 +68,7 @@ public class TeamNodesController {
 
     @PostMapping
     public ResponseEntity<ResponseNodeDto> createTeamNode(
-            @RequestBody CreateNodeRequest dto,
+            @Valid @RequestBody CreateNodeRequest dto,
             @PathVariable Long graphId,
             @PathVariable Long teamId,
             @AuthenticationPrincipal UserContext context

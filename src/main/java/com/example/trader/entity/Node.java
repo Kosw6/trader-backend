@@ -126,7 +126,7 @@ public class Node extends BaseTimeEntity {
             if (value == null) {
                 throw new InvalidNodeChangeRequestException(NodeChangeErrorCode.NULL_VALUE_NOT_ALLOWED);
             }
-            if (value.isEmpty()) {
+            if (value.isBlank()) {
                 throw new InvalidNodeChangeRequestException(NodeChangeErrorCode.EMPTY_SUBJECT_NOT_ALLOWED);
             }
         }

@@ -163,7 +163,7 @@ public class NodeChangeRequestValidator {
         return switch (field) {
             case SUBJECT -> {
                 if (value == null) throw error(NodeChangeErrorCode.NULL_VALUE_NOT_ALLOWED);
-                if (((String) value).isEmpty()) throw error(NodeChangeErrorCode.EMPTY_SUBJECT_NOT_ALLOWED);
+                if (((String) value).isBlank()) throw error(NodeChangeErrorCode.EMPTY_SUBJECT_NOT_ALLOWED);
                 yield value;
             }
             case CONTENT, RECORD_DATE -> {

@@ -32,7 +32,7 @@ public class NodeController {
     @PostMapping
     public ResponseEntity<ResponseNodeDto> createNode(
             @PathVariable Long pageId,
-            @RequestBody CreateNodeRequest dto,
+            @jakarta.validation.Valid @RequestBody CreateNodeRequest dto,
             @AuthenticationPrincipal UserContext user
     ) {
         ResponseNodeDto saved = nodeService.createNode(dto, pageId, user.getUserDto().getId());
