@@ -107,7 +107,7 @@ public class loginController {
                     .httpOnly(true)
                     .secure(false)          // 배포(HTTPS)면 true
                     .path("/")
-                    .maxAge(60 * 30)        // 예: 30분
+                    .maxAge(jwtTokenProvider.accessTokenSeconds())
                     .sameSite("Lax")        // cross-site면 None 필요
                     .build();
 
@@ -116,7 +116,7 @@ public class loginController {
                     .httpOnly(true)
                     .secure(false)          // 배포(HTTPS)면 true
                     .path("/")
-                    .maxAge(7 * 24 * 60 * 60)
+                    .maxAge(jwtTokenProvider.refreshTokenSeconds())
                     .sameSite("Lax")
                     .build();
 
@@ -173,7 +173,7 @@ public class loginController {
         }
 
         try {
-            DecodedJWT jwt = jwtTokenProvider.validateTokenOrThrow(refreshToken);
+            DecodedJWT jwt = jwtTokenProvider.validateRefreshTokenOrThrow(refreshToken);
 
             Long userId = jwt.getClaim("userId").asLong();
             String loginId = jwt.getSubject();
@@ -202,7 +202,7 @@ public class loginController {
                     .httpOnly(true)
                     .secure(false)     // 배포면 true
                     .path("/")
-                    .maxAge(60 * 30)
+                    .maxAge(jwtTokenProvider.accessTokenSeconds())
                     .sameSite("Lax")
                     .build();
 
@@ -210,7 +210,7 @@ public class loginController {
                     .httpOnly(true)
                     .secure(false)     // 배포면 true
                     .path("/")
-                    .maxAge(7 * 24 * 60 * 60)
+                    .maxAge(jwtTokenProvider.refreshTokenSeconds())
                     .sameSite("Lax")
                     .build();
 

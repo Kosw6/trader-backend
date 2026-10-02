@@ -105,6 +105,7 @@ public class SecurityConfig {
                                     "/oauth2/**",
                                     "/login/oauth2/**",
                                     "/api/login/**",
+                                    "/api/auth/jwks",
                                     "/api/oauth2/**",
                                     "/login/oauth2/code/**",
                                     "/ws/**").permitAll()

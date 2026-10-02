@@ -68,7 +68,7 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
                 .httpOnly(true)
                 .secure(cookieSecure)
                 .path("/")
-                .maxAge(60 * 30)
+                .maxAge(jwtTokenProvider.accessTokenSeconds())
                 .sameSite("Lax")
                 .build();
 
@@ -76,7 +76,7 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
                 .httpOnly(true)
                 .secure(cookieSecure)
                 .path("/")
-                .maxAge(7 * 24 * 60 * 60)
+                .maxAge(jwtTokenProvider.refreshTokenSeconds())
                 .sameSite("Lax")
                 .build();
 

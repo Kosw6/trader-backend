@@ -5,171 +5,100 @@ import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.example.trader.dto.ResponseUserDto;
-import com.example.trader.entity.User;
 import com.example.trader.exception.BaseException;
 import com.example.trader.httpresponse.BaseResponseStatus;
 import com.example.trader.security.details.UserContext;
-import com.example.trader.service.UserService;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.stereotype.Service;
-
 import java.io.UnsupportedEncodingException;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
-@Slf4j
+/** RS256 전용. 기존 HMAC 토큰은 재로그인으로 전환한다. */
 @Service
 public class JwtTokenProvider {
+    private final JwtKeyRing keys;
+    private final String issuer, audience, refreshAudience;
+    private final long accessSeconds, refreshSeconds, leeway;
 
-    public final String secret = "~cN-T:#7T(1Ocfc7{";//시그니쳐키
-    //TODO:나중에 최종 빌드할때는 시간 줄이기
-    public final int accessTokenExpMinutes = 30;//엑세스 토큰
-    public final int refreshTokenExpMinutes = 100;//리프레쉬 토큰
-
-    private final UserService userService;
-    private final UserDetailsService userDetailsService;
-    public JwtTokenProvider(UserDetailsService userDetailsService,UserService userService) {
-        this.userService = userService;
-        this.userDetailsService = userDetailsService;
+    public JwtTokenProvider(JwtKeyRing keys,
+            @Value("${auth.jwt.issuer:trader-backend}") String issuer,
+            @Value("${auth.jwt.audience:trader-services}") String audience,
+            @Value("${auth.jwt.refresh-audience:trader-refresh}") String refreshAudience,
+            @Value("${auth.jwt.access-seconds:1800}") long accessSeconds,
+            @Value("${auth.jwt.refresh-seconds:6000}") long refreshSeconds,
+            @Value("${auth.jwt.clock-skew-seconds:30}") long leeway) {
+        if (issuer.isBlank() || audience.isBlank() || refreshAudience.isBlank()
+                || audience.equals(refreshAudience) || accessSeconds <= 0 || refreshSeconds <= 0
+                || accessSeconds > 86400 || refreshSeconds > 2592000 || leeway < 0 || leeway > 120)
+            throw new IllegalArgumentException("JWT 발급/검증 설정이 유효하지 않습니다.");
+        this.keys = keys; this.issuer = issuer; this.audience = audience;
+        this.refreshAudience = refreshAudience; this.accessSeconds = accessSeconds;
+        this.refreshSeconds = refreshSeconds; this.leeway = leeway;
     }
-
-    public String createAccessToken(Long userId, String loginId, String roleName,String nickName) throws UnsupportedEncodingException {
-        return JWT.create()
-                .withSubject(loginId)
-                .withIssuer("auth0")
-                .withClaim("userId", userId)
-                .withClaim("role", roleName)
-                .withClaim("nickName",nickName)
-                .withIssuedAt(new Date(System.currentTimeMillis()))
-                .withExpiresAt(new Date(System.currentTimeMillis() + (60000L * accessTokenExpMinutes)))
-                .sign(Algorithm.HMAC256(secret));
+    public long accessTokenSeconds() { return accessSeconds; }
+    public long refreshTokenSeconds() { return refreshSeconds; }
+    public String createAccessToken(Long id, String login, String role, String nick) throws UnsupportedEncodingException {
+        return issue(id, login, role, nick, "access", audience, accessSeconds);
     }
-
-    //refreshToken발급하는 메서드
-    public String createRefreshToken(Long userId, String loginId, String roleName,String nickName) throws UnsupportedEncodingException{
-        return JWT.create()
-                .withSubject(loginId)
-                .withIssuer("auth0")
-                .withClaim("userId", userId)
-                .withClaim("role", roleName)
-                .withClaim("nickName",nickName)
-                .withIssuedAt(new Date(System.currentTimeMillis()))
-                .withExpiresAt(new Date(System.currentTimeMillis() + (60000L * refreshTokenExpMinutes)))
-                .sign(Algorithm.HMAC256(secret));
+    public String createRefreshToken(Long id, String login, String role, String nick) throws UnsupportedEncodingException {
+        return issue(id, login, role, nick, "refresh", refreshAudience, refreshSeconds);
     }
-    public String getTokenInfo(String receivedToken) throws UnsupportedEncodingException {
-        //비밀키를 받아서 알고리즘으로 복호화, 만약 전달받은 토큰이 알고리즘과 비밀키가 일치하지 않으면 예외반환하고
-        //만약 일치하면 복호화한 유저ID반환
-        //만료시간 비교하고 만약 만료되었으면 리프레쉬 토큰을 확인하고
-        DecodedJWT decodedJWT = validateToken(receivedToken);
-        if(decodedJWT.getSubject() != null){
-            if(new Date(System.currentTimeMillis()).before(decodedJWT.getExpiresAt())) {//토큰만료시간 이전이냐
-                return decodedJWT.getSubject();
-            }else{//토큰이 만료되었을때 발생->호출하는 쪽에서 getRefreshTokenInfo메서드로 확인하고 AccessToken발급
-                throw new BaseException(BaseResponseStatus.ACCESS_TOKEN_EXPIRED);
-            }
-        }
-        throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
-    }
-    public String getTokenSubject(DecodedJWT jwt) {
-        String sub = jwt.getSubject();
-        if (sub == null) {
+    private String issue(Long id, String login, String role, String nick, String use, String target, long seconds) {
+        if (id == null || id <= 0 || login == null || login.isBlank() || role == null || role.isBlank() || nick == null || nick.isBlank())
             throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
-        }
-        return sub;
+        Instant now = Instant.now();
+        return JWT.create().withKeyId(keys.activeKid()).withSubject(login).withIssuer(issuer).withAudience(target)
+                .withClaim("token_use", use).withClaim("userId", id).withClaim("role", role).withClaim("nickName", nick)
+                .withIssuedAt(Date.from(now)).withExpiresAt(Date.from(now.plusSeconds(seconds)))
+                .sign(Algorithm.RSA256(keys.publicKey(keys.activeKid()), keys.privateKey()));
     }
-
-
-    // 토큰 유효성 검사-복호화하고, 시간확인
-    public DecodedJWT validateToken(String receivedToken) {
-//        log.info("run validation");
+    /** REST/WS 기존 호출은 Access 전용이다. */
+    public DecodedJWT validateTokenOrThrow(String token) { return verify(token, "access", audience); }
+    public DecodedJWT validateRefreshTokenOrThrow(String token) { return verify(token, "refresh", refreshAudience); }
+    private DecodedJWT verify(String token, String use, String target) {
         try {
-            DecodedJWT verify = JWT.require(Algorithm.HMAC256(secret))
-                    .build().verify(receivedToken);
-            if(new Date(System.currentTimeMillis()).before(verify.getExpiresAt())) {//토큰만료시간 이전이냐
-                return verify;
-            }
-            return null;//호출하는 쪽에서 널값 체크해서 처리
-        } catch (Exception e) {
-            log.error(e.getMessage());
-            return null;
-        }
-    }
-
-    public DecodedJWT validateTokenOrThrow(String token) {
-        try {
-            DecodedJWT jwt = JWT.require(Algorithm.HMAC256(secret))
-                    .build()
-                    .verify(token); // 여기서 서명/형식 검증
-
-            Date exp = jwt.getExpiresAt();
-            if (exp == null) {
-                throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
-            }
-            if (System.currentTimeMillis() > exp.getTime()) {
-                throw new BaseException(BaseResponseStatus.ACCESS_TOKEN_EXPIRED);
-            }
+            if (token == null || token.length() > 16384) throw new IllegalArgumentException();
+            var header = JWT.decode(token);
+            if (!"RS256".equals(header.getAlgorithm()) || header.getKeyId() == null
+                    || !header.getKeyId().matches("[A-Za-z0-9_-]{1,64}")
+                    || !header.getHeaderClaim("crit").isNull() || !header.getHeaderClaim("jku").isNull()
+                    || !header.getHeaderClaim("x5u").isNull()) throw new IllegalArgumentException();
+            var jwt = JWT.require(Algorithm.RSA256(keys.publicKey(header.getKeyId()), null))
+                    .withIssuer(issuer).withAudience(target).withClaim("token_use", use).acceptLeeway(leeway).build().verify(token);
+            if (jwt.getExpiresAt() == null || jwt.getIssuedAt() == null || !jwt.getExpiresAt().after(jwt.getIssuedAt())
+                    || jwt.getIssuedAt().toInstant().isAfter(Instant.now().plusSeconds(leeway))
+                    || jwt.getSubject() == null || jwt.getSubject().isBlank()
+                    || jwt.getClaim("userId").asLong() == null || jwt.getClaim("userId").asLong() <= 0
+                    || jwt.getClaim("role").asString() == null || jwt.getClaim("role").asString().isBlank()
+                    || jwt.getClaim("nickName").asString() == null || jwt.getClaim("nickName").asString().isBlank()) throw new IllegalArgumentException();
             return jwt;
-        } catch (BaseException e) {
-            throw e;
+        } catch (TokenExpiredException e) {
+            throw new BaseException(BaseResponseStatus.ACCESS_TOKEN_EXPIRED);
         } catch (Exception e) {
-            log.error("JWT validation failed: {}", e.getMessage());
             throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
         }
     }
-
-    // 요청에서 JWT 토큰 추출
+    public DecodedJWT validateToken(String token) {
+        try { return validateTokenOrThrow(token); } catch (BaseException e) { return null; }
+    }
+    public String getTokenInfo(String token) throws UnsupportedEncodingException { return validateTokenOrThrow(token).getSubject(); }
+    public String getTokenSubject(DecodedJWT jwt) { return jwt.getSubject(); }
     public String resolveToken(HttpServletRequest request) {
-
-        Cookie[] cookies = request.getCookies();
-
-        if (cookies == null) {
-            return null;
-        }
-
-        for (Cookie cookie : cookies) {
-            if ("accessToken".equals(cookie.getName())) {
-                return cookie.getValue();
-            }
-        }
-
+        if (request.getCookies() == null) return null;
+        for (var cookie : request.getCookies()) if ("accessToken".equals(cookie.getName())) return cookie.getValue();
         return null;
     }
-
-     public Authentication getAuthentication(DecodedJWT jwt) {
-         String loginId = jwt.getSubject();
-         Long userId = jwt.getClaim("userId").asLong();
-         String roleName = jwt.getClaim("role").asString();
-         String nickName = jwt.getClaim("nickName").asString();
-
-         if (loginId == null || userId == null || roleName == null || nickName == null) {
-             throw new BaseException(BaseResponseStatus.INVALID_JWT_TOKEN);
-         }
-
-         ResponseUserDto userDto = ResponseUserDto.builder()
-                 .id(userId)
-                 .loginId(loginId)
-                 .role(roleName)
-                 .nickName(nickName)
-                 .build();
-
-         List<SimpleGrantedAuthority> authorities =
-                 List.of(new SimpleGrantedAuthority(roleName));
-
-         UserContext userContext = new UserContext(userDto, authorities);
-
-         return new UsernamePasswordAuthenticationToken(
-                 userContext,
-                 "",
-                 userContext.getAuthorities()
-         );
-     }
+    public Authentication getAuthentication(DecodedJWT jwt) {
+        var userDto = ResponseUserDto.builder().id(jwt.getClaim("userId").asLong()).loginId(jwt.getSubject())
+                .role(jwt.getClaim("role").asString()).nickName(jwt.getClaim("nickName").asString()).build();
+        var authorities = List.of(new SimpleGrantedAuthority(jwt.getClaim("role").asString()));
+        var context = new UserContext(userDto, authorities);
+        return new UsernamePasswordAuthenticationToken(context, "", context.getAuthorities());
+    }
 }
