@@ -30,6 +30,8 @@ public class Note extends BaseTimeEntity {
     private User user;
     private Long teamId;
     private String subject;
+    // 긴 노트 원문을 보존한다. 기본 varchar(255)나 PostgreSQL LOB OID로 저장하지 않는다.
+    @Column(columnDefinition = "text")
     private String content;
     private String stockSymb;
     private LocalDate noteDate;
