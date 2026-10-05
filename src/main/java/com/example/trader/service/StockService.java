@@ -1,14 +1,10 @@
 package com.example.trader.service;
 
-import com.example.trader.entity.Stock;
-import com.example.trader.repository.StockRepository;
+import com.example.trader.dto.StockPriceResponse;
+import com.example.trader.repository.PriceBarQueryRepository;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -16,39 +12,24 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class StockService {
-    private static final Logger log = LoggerFactory.getLogger(StockService.class);
-    private final StockRepository repository;
+    private final PriceBarQueryRepository repository;
 
-    @Transactional(readOnly = true)
-    public List<Stock> getTimeSeriesData(LocalDateTime start, LocalDateTime end, String stockName) {
-        OffsetDateTime from = toOffset(start);
-        OffsetDateTime to   = toOffset(end);
-        return repository.findBySymbAndTimestampBetweenOrderByTimestampAsc(stockName, from, to).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 주식명입니다."));
+    public List<StockPriceResponse> getTimeSeriesData(LocalDateTime start, LocalDateTime end, String stockName) {
+        return repository.between(stockName, toOffset(start), toOffset(end));
     }
 
-    @Transactional(readOnly = true)
-    public List<Stock> getLatestDataBefore(LocalDateTime latestDate, String stock, int count) {
-        OffsetDateTime cursor = toOffset(latestDate);
-        List<Stock> rowsDesc = repository
-                .findBySymbAndTimestampLessThanEqualOrderByTimestampDesc(
-                        stock, cursor, PageRequest.of(0, Math.max(count, 1))
-                ).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 주식명입니다.")).getContent();
-        return rowsDesc;
+    public List<StockPriceResponse> getLatestDataBefore(LocalDateTime latestDate, String stock, int count) {
+        return repository.before(stock, toOffset(latestDate), Math.max(count, 1));
     }
 
-    @Transactional(readOnly = true)
-    public List<Stock> getLatestDataAfter(LocalDateTime latestDate, String stock, int count) {
-        OffsetDateTime cursor = toOffset(latestDate);
-        return repository
-                .findBySymbAndTimestampGreaterThanEqualOrderByTimestampAsc(
-                        stock, cursor, PageRequest.of(0, Math.max(count, 1))
-                ).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 주식명입니다."))
-                .getContent();
+    public List<StockPriceResponse> getLatestDataAfter(LocalDateTime latestDate, String stock, int count) {
+        return repository.after(stock, toOffset(latestDate), Math.max(count, 1));
     }
 
-
-    private static OffsetDateTime toOffset(LocalDateTime ldt) {
-        return ldt.atOffset(ZoneOffset.of("+09:00")); // 환경에 맞게 조정
+    private static OffsetDateTime toOffset(LocalDateTime date) {
+        // 기존 API의 시간대 계약 유지. DB 원본 시각은 TIMESTAMPTZ로 비교한다.
+        return date.atOffset(ZoneOffset.ofHours(9));
     }
 }
