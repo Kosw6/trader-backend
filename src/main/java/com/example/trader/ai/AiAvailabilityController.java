@@ -7,6 +7,7 @@ import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,41 +21,78 @@ public class AiAvailabilityController {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final URI readiness;
+    private final AiInstanceStatus instanceStatus;
     private final HttpClient client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2))
             .followRedirects(HttpClient.Redirect.NEVER).build();
     private volatile long checkedAt;
-    private volatile boolean ready;
+    private Map<String,Object> runtimeState=Map.of("state","UNAVAILABLE");
 
     public AiAvailabilityController(JdbcTemplate jdbc,ObjectMapper mapper,
-            @Value("${ai.runtime.readiness-url:http://127.0.0.1:8091/ai-api/health/ready}") String url) {
+            @Value("${ai.runtime.readiness-url:http://127.0.0.1:8091/ai-api/health/ready}") String url,
+            AiInstanceStatus instanceStatus) {
         this.jdbc=jdbc; this.mapper=mapper; this.readiness=URI.create(url);
+        this.instanceStatus=instanceStatus;
     }
 
-    private synchronized boolean probe() {
+    private synchronized Map<String,Object> probe() {
         // polling은 GPU 사용 시각을 갱신하지 않는다. 요청마다 의존성을 두드리지도 않는다.
         long now=System.nanoTime();
-        if(now-checkedAt<Duration.ofSeconds(5).toNanos()) return ready;
+        if(checkedAt != 0 && now-checkedAt<Duration.ofSeconds(5).toNanos()) return runtimeState;
+        var infrastructure=instanceStatus.read();
+        runtimeState=resolve(infrastructure, () -> readRuntime());
+        checkedAt=System.nanoTime();
+        return runtimeState;
+    }
+
+    static Map<String,Object> resolve(AiInstanceStatus.Snapshot instance,
+            java.util.function.Supplier<Map<String,Object>> runtime) {
+        // EC2가 꺼져 있으면 죽은 private endpoint를 호출하거나 READY 캐시를 신뢰하지 않는다.
+        return switch(instance.state()) {
+            case STOPPED -> Map.of("state","STOPPED");
+            case STARTING -> Map.of("state","STARTING");
+            case UNKNOWN -> Map.of("state","UNAVAILABLE");
+            case DISABLED -> runtime.get();
+            case RUNNING -> {
+                var result=runtime.get();
+                yield instance.bootGrace() && "UNAVAILABLE".equals(result.get("state"))
+                        ? Map.of("state","STARTING") : result;
+            }
+        };
+    }
+
+    private Map<String,Object> readRuntime() {
         try {
             var response=client.send(HttpRequest.newBuilder(readiness)
                     .timeout(Duration.ofSeconds(3)).GET().build(),HttpResponse.BodyHandlers.ofString());
-            ready=response.statusCode()==200 && "ready".equals(mapper.readTree(response.body()).path("status").asText());
+            return decodeState(mapper,response.statusCode(),response.body());
         } catch(Exception e) {
             if(e instanceof InterruptedException) Thread.currentThread().interrupt();
-            ready=false;
+            // 연결 실패는 EC2 정지의 증거가 아니다. 오래된 READY도 유지하지 않는다.
+            return Map.of("state","UNAVAILABLE");
         }
-        checkedAt=System.nanoTime();
-        return ready;
+    }
+
+    static Map<String,Object> decodeState(ObjectMapper mapper,int status,String body) throws Exception {
+        var json=mapper.readTree(body);
+        String state=json.path("state").asText();
+        if(status==200 && "READY".equals(state) && "ready".equals(json.path("status").asText()))
+            return Map.of("state","READY");
+        if(status==503 && "not_ready".equals(json.path("status").asText()) &&
+                Set.of("STOPPED","STARTING","WARMING","UNAVAILABLE").contains(state))
+            return Map.of("state",state);
+        return Map.of("state","UNAVAILABLE");
     }
 
     @GetMapping("/availability")
     public Map<String,Object> status() {
         Long userId=SecurityService.getAuthenticationUserId();
-        boolean available=probe();
+        var snapshot=probe();
+        boolean available="READY".equals(snapshot.get("state"));
         boolean requested=Boolean.TRUE.equals(jdbc.queryForObject(
                 "SELECT EXISTS(SELECT 1 FROM ai_wake_request WHERE user_id=? AND notified_at IS NULL)",
                 Boolean.class,userId));
         // 로컬 구현은 실제 ASG 기동을 가장하지 않는다. 운영 제어 어댑터는 별도 배포 범위다.
-        return Map.of("state",available?"READY":"OFF","wakeRequested",requested,
+        return Map.of("state",snapshot.get("state"),"wakeRequested",requested,
                 "controlMode","MANUAL_LOCAL","notification",available && requested);
     }
 

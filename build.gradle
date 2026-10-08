@@ -38,6 +38,8 @@ dependencyManagement {
 }
 
 dependencies {
+    implementation 'software.amazon.awssdk:ec2:2.31.54'
+    implementation 'software.amazon.awssdk:url-connection-client:2.31.54'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
@@ -128,6 +130,15 @@ tasks.named('test') {
     enabled = true
 	useJUnitPlatform()
 //	finalizedBy tasks.jacocoTestReport   // 리포트는 테스트 후
+}
+
+// 로컬 YAML은 Git에서 제외되어 있어도 일반 bootJar에는 들어간다.
+// 배포 산출물은 반드시 외부 설정을 주입하고 개발자 설정/비밀값은 포함하지 않는다.
+tasks.named('bootJar') {
+    if (project.hasProperty('externalRuntimeConfig')) {
+        archiveFileName = 'trader-deployment.jar'
+        exclude('**/application*.yml', '**/application*.yaml', '**/application*.properties')
+    }
 }
 
 //tasks.jacocoTestReport {
