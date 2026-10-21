@@ -59,7 +59,7 @@ class ReliableInboundHandlerTest {
     private ReliableInboundHandler handler(RawPresenceBroadcaster broadcaster) {
         LocalReliableEventDeduplicator deduplicator =
                 new LocalReliableEventDeduplicator(100, Duration.ofMinutes(10));
-        return new ReliableInboundHandler(broadcaster, deduplicator);
+        return new ReliableInboundHandler(broadcaster, deduplicator, mock(com.example.trader.ws.raw.TeamTreeHub.class));
     }
 
     private RealtimeEnvelope event() {

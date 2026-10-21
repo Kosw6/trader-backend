@@ -31,7 +31,7 @@ public class KafkaReliablePublisher {
 
     public void publishOrThrow(RealtimeEnvelope envelope) throws Exception {
         String key = envelope.getGraphId() == null
-                ? "default"
+                ? "team:" + envelope.getTeamId() + ":tree"
                 : envelope.getGraphId().toString();
 
         // publishedAt이 없으면 kafkaTemplate.send 직전에 세팅

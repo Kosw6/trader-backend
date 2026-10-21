@@ -92,11 +92,14 @@ public class RealtimeOutboxRelay {
     }
 
     private void validateEnvelope(RealtimeEnvelope envelope, ClaimedRealtimeOutbox outbox) {
+        boolean treeEvent = envelope != null && envelope.getSubType() != null
+                && envelope.getSubType().isTeamScoped();
         if (envelope == null || envelope.getType() != RealtimeType.RELIABLE
                 || envelope.getEventId() == null || envelope.getEventId().isBlank()
                 || !Objects.equals(envelope.getEventId(), outbox.eventId())
                 || envelope.getSubType() == null || envelope.getSubType() != outbox.subType()
-                || envelope.getTeamId() == null || envelope.getGraphId() == null
+                || envelope.getTeamId() == null || envelope.getTeamId() <= 0
+                || (treeEvent ? envelope.getGraphId() != null : envelope.getGraphId() == null)
                 || !Objects.equals(envelope.getGraphId(), outbox.graphId())
                 || envelope.getPayload() == null) {
             throw new IllegalArgumentException("Outbox 이벤트의 필수 값 또는 저장 식별 정보가 올바르지 않습니다.");

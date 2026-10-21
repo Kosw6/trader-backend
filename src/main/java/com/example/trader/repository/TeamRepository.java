@@ -13,6 +13,9 @@ import java.util.List;
 import java.util.Optional;
 
 public interface TeamRepository extends JpaRepository<Team,Long> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Team t where t.id = :teamId")
+    Optional<Team> lockForChat(@Param("teamId") Long teamId);
 
     //해당 팀 + 모든 유저 상세 정보
     @Query("""

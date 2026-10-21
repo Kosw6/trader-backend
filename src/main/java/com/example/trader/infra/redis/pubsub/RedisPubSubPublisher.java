@@ -21,7 +21,8 @@ public class RedisPubSubPublisher {
 
     public void publish(RealtimeEnvelope envelope) {
         try {
-            String channel = "canvas:%d:%d".formatted(
+            String channel = envelope.getSubType() != null && envelope.getSubType().isTeamScoped()
+                    ? "canvas:%d:tree".formatted(envelope.getTeamId()) : "canvas:%d:%d".formatted(
                     envelope.getTeamId(),
                     envelope.getGraphId()
             );
