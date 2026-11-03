@@ -35,6 +35,7 @@ public class User extends BaseTimeEntity {
     private String loginId;
     @NonNull
     @Column(nullable = false)
+    @JsonIgnore
     private String password;
     private Gender gender;
     @NonNull
@@ -74,7 +75,7 @@ public class User extends BaseTimeEntity {
                 email(userDto.email()).
                 role(Role.USER).
                 loginId(userDto.loginId()).
-                gender(Gender.ofGender(userDto.gender())).
+                gender(userDto.gender() == null ? null : Gender.ofGender(userDto.gender())).
                 age(userDto.age()).
                 password(userDto.password()).
                 nickName(userDto.nickName()).
@@ -117,6 +118,16 @@ public class User extends BaseTimeEntity {
             throw new BaseException(BaseResponseStatus.INVALID_USER, "비밀번호가 비어있습니다.");
         }
         this.password = encodedPassword;
+    }
+
+    /** Update only profile fields; preserve roles, OAuth identity and owned relations. */
+    public void updateProfile655(User input) {
+        this.email = input.email;
+        this.username = input.username;
+        this.age = input.age;
+        this.gender = input.gender;
+        changeLoginId(input.loginId);
+        changeNickName(input.nickName);
     }
 
 

@@ -132,7 +132,7 @@ class NoteServiceTest {
     }
 
     @Test
-    void 해당_주식의_노트가_없으면_BaseException이_발생한다() {
+    void 해당_주식의_노트가_없으면_빈_페이지를_반환한다() {
         // given
         Long userId = 1L;
         String stockName = "AAPL";
@@ -144,9 +144,7 @@ class NoteServiceTest {
                 .willReturn(emptyPage);
 
         // when & then
-        assertThatThrownBy(() ->
-                noteService.findAllNoteByUserIdAndStock(userId, stockName, pageable)
-        ).isInstanceOf(BaseException.class);
+        assertThat(noteService.findAllNoteByUserIdAndStock(userId, stockName, pageable)).isEmpty();
 
         then(noteRepository)
                 .should()
@@ -189,7 +187,7 @@ class NoteServiceTest {
     }
 
     @Test
-    void 날짜_범위_내_노트가_없으면_BaseException이_발생한다() {
+    void 날짜_범위_내_노트가_없으면_빈_페이지를_반환한다() {
         // given
         Long userId = 1L;
         String stockName = "AAPL";
@@ -202,11 +200,7 @@ class NoteServiceTest {
         )).willReturn(Page.empty(pageable));
 
         // when & then
-        assertThatThrownBy(() ->
-                noteService.findAllNoteRangeByUserIdAndStock(
-                        userId, stockName, pageable, startDate, endDate
-                )
-        ).isInstanceOf(BaseException.class);
+        assertThat(noteService.findAllNoteRangeByUserIdAndStock(userId, stockName, pageable, startDate, endDate)).isEmpty();
     }
 
 

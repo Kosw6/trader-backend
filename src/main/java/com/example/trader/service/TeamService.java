@@ -77,7 +77,7 @@ public class TeamService {
 
     @Transactional
     public void joinTeam(Long requesterId, String code) {
-        Team team = teamRepository.findByCode(code)
+        Team team = teamRepository.findByCodeForUpdate(code)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.TEAM_NOT_FOUND, "코드와 일치하는 팀이 없습니다."));
 
         Long ownerUserId = teamRepository.findOwnerUserIdByTeamId(team.getId())
@@ -108,8 +108,9 @@ public class TeamService {
         );
     }
 
+    @Transactional
     public void exitTeam(Long userId, Long teamId){
-        Team team = teamRepository.findById(teamId).orElseThrow(()-> new BaseException(BaseResponseStatus.TEAM_NOT_FOUND));
+        Team team = teamRepository.lockForMembership(teamId).orElseThrow(()-> new BaseException(BaseResponseStatus.TEAM_NOT_FOUND));
         User user = userRepository.findById(userId).orElseThrow(()->new BaseException(BaseResponseStatus.USER_NOT_FOUND));
         team.removeMember(user);
     }
@@ -119,13 +120,24 @@ public class TeamService {
     //approverId:SecurityContext에서 불러오기
     @Transactional
     public void checkTeamRequest(Long approverId, Long requestId,JoinRequestStatus status) {
-        if (status == JoinRequestStatus.PENDING) throw new BaseException(BaseResponseStatus.INVALID_REQUEST,"해당 요청은 대기가 아닌 승인/거절이어야 합니다.");
-        JoinRequest joinRequest = joinRequestRepository.findPendingWithTeamAndRequester(requestId).orElseThrow(() -> new BaseException(BaseResponseStatus.JOIN_REQUEST_NOT_FOUND));
+        if (status != JoinRequestStatus.APPROVED && status != JoinRequestStatus.REJECTED)
+            throw new BaseException(BaseResponseStatus.INVALID_REQUEST,"해당 요청은 대기가 아닌 승인/거절이어야 합니다.");
+        // Same team -> request lock order for join, decision, leave and deletion.
+        Long teamId = joinRequestRepository.findTeamId(requestId)
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.JOIN_REQUEST_NOT_FOUND));
+        teamRepository.lockForMembership(teamId)
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.TEAM_NOT_FOUND));
+        JoinRequest joinRequest = joinRequestRepository.findWithTeamAndRequesterForUpdate(requestId).orElseThrow(() -> new BaseException(BaseResponseStatus.JOIN_REQUEST_NOT_FOUND));
         Team team = joinRequest.getTeam();
         // 권한 검증(OWNER)
         if (!utRepository.existsByTeamIdAndUserIdAndRole(team.getId(),approverId,TeamRole.OWNER)){
             throw new BaseException(BaseResponseStatus.ACCESS_DENIED,"권한 부족:팀의 오너만 승인이 가능합니다.");
         }
+
+        // An authorized repeat of the same decision is a no-op, not a new membership or notification.
+        if (joinRequest.getStatus() == status) return;
+        if (!joinRequest.isPending())
+            throw new BaseException(BaseResponseStatus.JOIN_REQUEST_ALREADY_PROCESSED);
 
         User requester = joinRequest.getRequester();
         if (status == JoinRequestStatus.APPROVED) {
@@ -162,7 +174,11 @@ public class TeamService {
     //팀 삭제 메서드
     @Transactional
     public void deleteTeam(Long teamId){
-        teamRepository.deleteById(teamId);
+        Team team = teamRepository.lockForMembership(teamId)
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.TEAM_NOT_FOUND));
+        joinRequestRepository.deleteAllForTeam(teamId);
+        teamRepository.deleteOwnedDirectories(teamId);
+        teamRepository.delete(team);
     }
     //팀 조회 메서드(단일,상세 내용[팀원목록])
     @Transactional(readOnly = true)

@@ -29,6 +29,7 @@ public class PageService {
     private final DirectoryRepository directoryRepository;
     private final SecurityService securityService;
     private final UserTeamRepository userTeamRepository;
+    private final com.example.trader.realtime.outbox.TeamTreeChangeStager treeChanges;
     @Transactional
     public ResponsePageDto createPage(RequestPageDto dto,Long userId) {
         User user = securityService.getAuthenticationUser();
@@ -62,13 +63,15 @@ public class PageService {
                 .user(creator)
                 .build();
 
-        return pageRepository.save(page);
+        Page saved = pageRepository.save(page);
+        treeChanges.stage(teamId);
+        return saved;
     }
 
     @Transactional(readOnly = true)
     public ResponsePageDto getPage(Long id,Long userId) {
-        Page page = pageRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Page not found"));
+        Page page = pageRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
         return toResponseDto(page);
     }
     @Transactional(readOnly = true)
@@ -122,6 +125,7 @@ public class PageService {
 
         // 3. 이동 처리
         page.setDir(targetDir);
+        treeChanges.stage(teamId);
 
         return oldDirId;
     }
@@ -144,6 +148,7 @@ public class PageService {
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
 
         if (dto.title() != null) page.setTitle(dto.title());
+        treeChanges.stage(teamId);
     }
 
     @Transactional
@@ -165,6 +170,7 @@ public class PageService {
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
 
         pageRepository.delete(page);
+        treeChanges.stage(teamId);
     }
 
     private ResponsePageDto toResponseDto(Page page) {

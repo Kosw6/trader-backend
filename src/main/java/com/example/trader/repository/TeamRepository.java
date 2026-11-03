@@ -13,6 +13,19 @@ import java.util.List;
 import java.util.Optional;
 
 public interface TeamRepository extends JpaRepository<Team,Long> {
+    // Existing DB cascades remove only this aggregate's pages/nodes/edges/links.
+    // Linked personal notes are not children of a directory and are preserved.
+    @Modifying(flushAutomatically = true)
+    @Query(value = "DELETE FROM directory WHERE team_id = :teamId", nativeQuery = true)
+    void deleteOwnedDirectories(@Param("teamId") Long teamId);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Team t where t.code = :code")
+    Optional<Team> findByCodeForUpdate(@Param("code") String code);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Team t where t.id = :teamId")
+    Optional<Team> lockForMembership(@Param("teamId") Long teamId);
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from Team t where t.id = :teamId")
     Optional<Team> lockForChat(@Param("teamId") Long teamId);

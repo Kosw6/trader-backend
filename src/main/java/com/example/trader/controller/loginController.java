@@ -49,6 +49,8 @@ public class loginController {
     private final JwtTokenProvider jwtTokenProvider;
     private final AuthenticationManager authenticationManager;
     private final UserService userService;
+    private final com.example.trader.policy.PolicyConsentService policyConsents;
+    private final com.example.trader.emailverification.EmailVerificationService emailVerification;
 
     @Operation(
             summary = "로그인"
@@ -138,17 +140,18 @@ public class loginController {
     @ApiResponse(responseCode = "201", description = "성공")
     @PostMapping("/api/login/signup")
     public ResponseEntity<?> join(@RequestBody SingUpDto singUpDto){
+        String verifiedEmail = emailVerification.consumeForSignup(singUpDto.email(), singUpDto.emailVerificationToken());
         User user = User.builder()
                 .nickName(singUpDto.nickName())
                 .loginId(singUpDto.loginId())
                 .password(singUpDto.password())
                 .age(singUpDto.age())
-                .email(singUpDto.email())
-                .gender(Gender.ofGender(singUpDto.gender()))
+                .email(verifiedEmail)
+                .gender(null)
                 .username(singUpDto.userName())
                 .role(Role.USER)
                 .build();
-        userService.createUser(user);
+        policyConsents.register(user, singUpDto.consent());
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 

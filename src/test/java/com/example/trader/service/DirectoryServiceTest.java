@@ -40,6 +40,7 @@ class DirectoryServiceTest {
 
     @Mock
     UserTeamRepository userTeamRepository;
+    @Mock com.example.trader.realtime.outbox.TeamTreeChangeStager treeChanges;
 
     @InjectMocks
     DirectoryService directoryService;

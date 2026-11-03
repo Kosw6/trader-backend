@@ -1,6 +1,7 @@
 package com.example.trader.controller;
 
 import com.example.trader.dto.PriceBarDto;
+import com.example.trader.dto.PriceChartSnapshotDto;
 import com.example.trader.service.AssetPriceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,7 +25,17 @@ public class AssetPriceController {
 
     private final AssetPriceService assetPriceService;
 
-    @Operation(summary = "기준 시각 이전의 Asset 일봉 조회")
+    @GetMapping("/{assetId}/chart-corporate-actions")
+    public List<com.example.trader.dto.ChartCorporateActionDto> getCorporateActions(@PathVariable Long assetId) {
+        return assetPriceService.getCorporateActions(assetId);
+    }
+
+    @GetMapping("/{assetId}/price-chart-snapshots")
+    public List<PriceChartSnapshotDto> getSnapshots(@PathVariable Long assetId) {
+        return assetPriceService.getSnapshots(assetId);
+    }
+
+    @Operation(summary = "기준 시각 이전의 Asset 일·주·월·년봉 조회")
     @GetMapping("/{assetId}/price-bars")
     public ResponseEntity<List<PriceBarDto>> getPriceBarsBefore(
             @PathVariable Long assetId,
@@ -33,10 +44,11 @@ public class AssetPriceController {
             OffsetDateTime before,
             @RequestParam(defaultValue = "100") int count,
             @RequestParam(defaultValue = "KIS") String source,
-            @RequestParam(defaultValue = "1D") String interval
+            @RequestParam(defaultValue = "1D") String interval,
+            @RequestParam(required = false) Long snapshotId
     ) {
         return ResponseEntity.ok(
-                assetPriceService.getBefore(assetId, before, count, source, interval)
+                assetPriceService.getBefore(assetId, before, count, source, interval, snapshotId)
         );
     }
 }

@@ -42,6 +42,9 @@ public class UserController {
     @PreAuthorize("@securityService.canAccessUser(authentication, #id)")
     //TODO:값이 덜 들어간 데이터에 대해서 처리하기
     public ResponseEntity updateUser(@PathVariable Long id, @RequestBody RequestUserDto userDto){
+        if (!java.util.Objects.equals(id, userDto.id())) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "User identity mismatch");
+        }
         User user = User.of(userDto);
         Long userId = userService.updateUser(user);
         return ResponseEntity.status(HttpStatus.CREATED).body(userId);

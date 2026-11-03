@@ -1,0 +1,3 @@
+services:
+  backend:
+    image: trader-local-notes-multiticker:20261019

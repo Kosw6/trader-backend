@@ -48,9 +48,6 @@ public class NoteController {
                                       @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         Long userId = SecurityService.getAuthenticationUserId();
         Page page = noteService.findAllNoteByUser(userId, pageable);
-        if (page.getContent().isEmpty()) {
-            return ResponseEntity.status(BaseResponseStatus.INVALID_NOTE.getCode()).body("노트가 없습니다.");
-        }
         return ResponseEntity.ok(page);
     }
 
@@ -62,9 +59,6 @@ public class NoteController {
                                              @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         Long userId = SecurityService.getAuthenticationUserId();
         Page page = noteService.findAllNoteByUserIdAndStock(userId, stockName, pageable);
-        if (page.getContent().isEmpty()) {
-            return ResponseEntity.status(BaseResponseStatus.INVALID_NOTE.getCode()).body(String.format("주식명이 %s인 노트가 없습니다.", stockName));
-        }
         return ResponseEntity.ok(page);
     }
 
@@ -78,9 +72,6 @@ public class NoteController {
                                                   @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         Long userId = SecurityService.getAuthenticationUserId();
         Page page = noteService.findAllNoteRangeByUserIdAndStock(userId, stockName, pageable, startDate, endDate);
-        if (page.getContent().isEmpty()) {
-            return ResponseEntity.status(BaseResponseStatus.INVALID_NOTE.getCode()).body(String.format("주식명이 %s인 노트가 없습니다.", stockName));
-        }
         return ResponseEntity.ok(page);
     }
 
@@ -94,6 +85,8 @@ public class NoteController {
                 .userId(note.getUser().getId())
                 .content(note.getContent())
                 .stockSymb(note.getStockSymb())
+                .stockSymbs(note.getStockSymbs())
+                .noteDate(note.getNoteDate())
                 .subject(note.getSubject())
                 .build();
         return ResponseEntity.ok(noteDto);
@@ -106,13 +99,13 @@ public class NoteController {
         UserContext userContext = (UserContext) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         User user = userService.findUserByUserId(userContext.getUserDto().getId());
         Note note = Note.builder()
-                .stockSymb(noteDto.stockSymb())
                 .user(user)
                 .teamId(validateTeam(noteDto) ? noteDto.teamId() : null)
                 .content(noteDto.content())
                 .noteDate(noteDto.noteDate())
                 .subject(noteDto.subject())
                 .build();
+        applyTickers(note, noteDto);
         Long noteId = noteService.saveNote(note);
         return ResponseEntity.ok(noteId);
     }
@@ -133,9 +126,17 @@ public class NoteController {
     public ResponseEntity updateNote(@Valid @RequestBody RequestNoteDto noteDto, @PathVariable Long noteId,@AuthenticationPrincipal UserContext userDetails) {
         Note note = noteService.findNoteById(userDetails.getUserDto().getId(), noteId);
         note.changeContent(noteDto.content());
-        note.changestockSymb(noteDto.stockSymb());
+        applyTickers(note, noteDto);
         note.changeSubject(noteDto.subject());
+        note.changeNoteDate(noteDto.noteDate());
         Long id = noteService.saveNote(note);
         return ResponseEntity.ok(id);
+    }
+
+    private void applyTickers(Note note, RequestNoteDto request) {
+        try { note.applyTickerRequest(request.stockSymbs(), request.stockSymb()); }
+        catch (IllegalArgumentException ex) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
     }
 }

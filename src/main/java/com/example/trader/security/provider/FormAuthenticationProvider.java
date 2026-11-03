@@ -22,10 +22,14 @@ public class FormAuthenticationProvider implements AuthenticationProvider {
         String loginId = authentication.getName();
         String password = (String)authentication.getCredentials();
         //가져온 유저의 정보로 비밀번호 매칭
-        UserContext userContext = (UserContext) userDetailsService.loadUserByUsername(loginId);
-        //TODO:비밀번호 암호화등 처리하기
-        //요청 id,password와 서버에 저장된 id,password비교
-        if(!password.equals(userContext.getPassword())){
+        UserContext userContext;
+        try {
+            userContext = (UserContext) userDetailsService.loadUserByUsername(loginId);
+        } catch (org.springframework.security.core.userdetails.UsernameNotFoundException missing) {
+            Password655.matches(password, null);
+            throw missing;
+        }
+        if(!Password655.matches(password, userContext.getPassword())){
             //TODO:클라이언트가 따로 처리
             throw new BadCredentialsException("일치하지 않은 비밀번호입니다.");
         }

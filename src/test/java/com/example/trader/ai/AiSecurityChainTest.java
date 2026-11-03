@@ -20,6 +20,7 @@ class AiSecurityChainTest {
     static class Config {}
     @RestController static class Probe {
         @GetMapping("/internal/ai/indexing/sources/NOTE/1") String read() {return "ok";}
+        @GetMapping("/internal/ai/retrieval/indicators/1") String indicators() {return "ok";}
     }
     @Test void actual_security_chain_does_not_inherit_internal_permit_all() throws Exception {
         try(var context=new AnnotationConfigWebApplicationContext()) {
@@ -33,6 +34,15 @@ class AiSecurityChainTest {
             mvc.perform(get("/internal/ai/indexing/sources/NOTE/1")).andExpect(status().isUnauthorized());
             mvc.perform(get("/internal/ai/indexing/sources/NOTE/1").header("Authorization","Bearer "+"r".repeat(43))).andExpect(status().isForbidden());
             mvc.perform(get("/internal/ai/indexing/sources/NOTE/1").header("Authorization","Bearer "+"i".repeat(43))).andExpect(status().isOk());
+            mvc.perform(get("/internal/ai/retrieval/indicators/1")).andExpect(status().isUnauthorized());
+            mvc.perform(get("/internal/ai/retrieval/indicators/1")
+                    .header("Authorization","Bearer "+"i".repeat(43))).andExpect(status().isForbidden());
+            mvc.perform(get("/internal/ai/retrieval/indicators/1")
+                    .header("Authorization","Bearer "+"r".repeat(43))
+                    .header("X-AI-User-Id","1")
+                    .header("X-AI-Accepted-At",java.time.Instant.now().toString())
+                    .header("X-AI-Deadline-At",java.time.Instant.now().plusSeconds(60).toString()))
+                    .andExpect(status().isOk());
         }
     }
 }

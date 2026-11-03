@@ -13,6 +13,22 @@ import java.util.List;
 import java.util.Optional;
 
 public interface JoinRequestRepository extends JpaRepository<JoinRequest, Long> {
+    @Query("select jr.team.id from JoinRequest jr where jr.id = :id")
+    Optional<Long> findTeamId(@Param("id") Long id);
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from JoinRequest jr where jr.team.id = :teamId")
+    int deleteAllForTeam(@Param("teamId") Long teamId);
+
+    // Lock before checking the terminal status: retries must see the committed decision.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        select jr from JoinRequest jr
+        join fetch jr.team t
+        join fetch jr.requester r
+        where jr.id = :id
+        """)
+    Optional<JoinRequest> findWithTeamAndRequesterForUpdate(@Param("id") Long id);
 
     Optional<JoinRequest> findByRequesterIdAndTeamIdAndStatus(Long requesterId, Long teamId, JoinRequestStatus status);
 

@@ -1,7 +1,6 @@
 package com.example.trader.security.oauth2;
 
 import com.example.trader.entity.User;
-import com.example.trader.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
@@ -18,10 +17,12 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequest, OAuth2User> {
 
-    private final UserService userService;
+    private final com.example.trader.policy.PolicyConsentService policyConsents;
+    private final com.example.trader.policy.OAuthConsentIntent consentIntents;
 
     @Override
     public OAuth2User loadUser(OAuth2UserRequest req) throws OAuth2AuthenticationException {
+        String provider = req.getClientRegistration().getRegistrationId();
         DefaultOAuth2UserService delegate = new DefaultOAuth2UserService();
         OAuth2User oauthUser = delegate.loadUser(req);
 
@@ -60,7 +61,14 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
         }
 
         // upsert 사용자
-        User user = userService.upsertOAuthUser(registrationId, providerUserId, email, name);
+        com.example.trader.policy.PolicyAcceptance acceptance = null;
+        try {
+            acceptance = consentIntents.consume(provider);
+        } catch (org.springframework.web.server.ResponseStatusException e) {
+            if (!"OAUTH_CONSENT_REQUIRED".equals(e.getReason()))
+                throw new OAuth2AuthenticationException(new org.springframework.security.oauth2.core.OAuth2Error("policy_consent_required_"+provider));
+        }
+        User user = policyConsents.loginOAuth(registrationId, providerUserId, email, name, acceptance);
 
         // ROLE_USER 기본 부여
         List authorities = List.of(new SimpleGrantedAuthority("ROLE_USER"));

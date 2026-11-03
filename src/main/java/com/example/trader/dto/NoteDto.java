@@ -7,5 +7,6 @@ import lombok.Builder;
 
 
 @Builder
-public record NoteDto(@NotBlank(message = "유저ID는 필수입니다.") Long userId, Long teamId, Long id, String subject, String content, String stockSymb) {
+public record NoteDto(@NotBlank(message = "유저ID는 필수입니다.") Long userId, Long teamId, Long id, String subject, String content, String stockSymb,
+                      java.util.List<String> stockSymbs, java.time.LocalDate noteDate) {
 }

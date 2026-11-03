@@ -21,6 +21,7 @@ public final class AiServiceAuthFilter extends OncePerRequestFilter {
     private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(AiServiceAuthFilter.class);
     private static final Pattern SOURCE = Pattern.compile("/internal/ai/(indexing|retrieval)/sources/(NOTE|NODE|EDGE)/[1-9][0-9]{0,18}");
     private static final Pattern RELATIONS = Pattern.compile("/internal/ai/(indexing|retrieval)/nodes/[1-9][0-9]{0,18}/relations");
+    private static final Pattern INDICATORS = Pattern.compile("/internal/ai/retrieval/indicators/[1-9][0-9]{0,18}");
     private static final Pattern INITIAL = Pattern.compile("/internal/ai/indexing/initial-runs/[0-9a-fA-F-]{36}/sources");
     private static final Pattern INITIAL_COMPLETION = Pattern.compile("/internal/ai/indexing/initial-runs/[0-9a-fA-F-]{36}/completion");
     private final boolean enabled;
@@ -59,7 +60,9 @@ public final class AiServiceAuthFilter extends OncePerRequestFilter {
             if (!matches(retrievalKey, key) && !matches(indexingKey, key))
                 throw new AiApiException(401, "SERVICE_AUTH_REQUIRED");
             boolean readAllowed="GET".equals(req.getMethod()) && (SOURCE.matcher(path).matches() || RELATIONS.matcher(path).matches()
-                    || INITIAL.matcher(path).matches() || path.equals("/internal/ai/retrieval/evidence-checks"));
+                    || INITIAL.matcher(path).matches() || path.equals("/internal/ai/retrieval/evidence-checks")
+                    || path.equals("/internal/ai/retrieval/exact-title")
+                    || path.equals("/internal/ai/retrieval/transfer-consent") || INDICATORS.matcher(path).matches());
             boolean reportAllowed="POST".equals(req.getMethod()) && INITIAL_COMPLETION.matcher(path).matches()
                     && req.getContentLengthLong()>0 && req.getContentLengthLong()<=8192;
             if (!readAllowed && !reportAllowed)

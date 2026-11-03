@@ -1,7 +1,7 @@
 package com.example.trader.repository;
 
 import com.example.trader.entity.Note;
-import io.lettuce.core.dynamic.annotation.Param;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -13,12 +13,14 @@ import java.util.Optional;
 import java.util.Set;
 
 public interface NoteRepository extends JpaRepository<Note,Long> {
-    Page<Note> findByUserIdAndStockSymb(Long userId, String stockName, Pageable pageable);
+    @Query("select n from Note n where n.user.id = :userId and (n.stockSymb = :stockName or :stockName member of n.stockSymbs)")
+    Page<Note> findByUserIdAndStockSymb(@Param("userId") Long userId, @Param("stockName") String stockName, Pageable pageable);
     Page<Note> findByUserId(Long userId, Pageable pageable);
-    Page<Note> findByUserIdAndStockSymbAndNoteDateBetween(Long userId,
-                                                          String stockSymb,
-                                                          LocalDate startDate,   // 포함(inclusive)
-                                                          LocalDate endDate,     // 포함(inclusive)
+    @Query("select n from Note n where n.user.id = :userId and (n.stockSymb = :stockSymb or :stockSymb member of n.stockSymbs) and n.noteDate between :startDate and :endDate")
+    Page<Note> findByUserIdAndStockSymbAndNoteDateBetween(@Param("userId") Long userId,
+                                                          @Param("stockSymb") String stockSymb,
+                                                          @Param("startDate") LocalDate startDate,
+                                                          @Param("endDate") LocalDate endDate,
                                                           Pageable pageable);
 
     @Query("select n.id from Note n where n.user.id = :userId and n.id in :ids")

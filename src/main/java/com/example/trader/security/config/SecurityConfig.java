@@ -121,8 +121,9 @@ public class SecurityConfig {
                             .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
                             .successHandler(oAuth2SuccessHandler)
                             .failureHandler((request, response, exception) -> {
-                                log.error("OAuth2 로그인 실패: {}", exception.getMessage(), exception);
-                                response.sendRedirect("/login?oauth2_error"); // 프론트 에러 페이지로 보내든지
+                                String destination=com.example.trader.security.oauth2.OAuthFailureRoute.destination(exception);
+                                log.info("OAuth2 login continuation: {}", destination);
+                                response.sendRedirect(destination);
                             })
                     );
             return http.build();

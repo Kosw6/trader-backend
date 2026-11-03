@@ -24,6 +24,7 @@ public class TeamContentCoordinator {
     private final DirectoryRepository directoryRepository;
     private final PageRepository pageRepository;
     private final UserTeamRepository userTeamRepository;
+    private final com.example.trader.realtime.outbox.TeamTreeChangeStager treeChanges;
 
     @Transactional(readOnly = true)
     public InitPayload loadAll(Long teamId) {
@@ -37,7 +38,7 @@ public class TeamContentCoordinator {
 
     @Transactional
     public ChangeResponse movePageAndReload(Long teamId, Long pageId, Long targetDirId) {
-        Long oldDirId = teamPageService.move(teamId, pageId, targetDirId); // team 소속 검증 포함
+        Long oldDirId = teamPageService.teamPageMove(teamId, pageId, targetDirId);
         var affected = List.of(
                 teamInitQuery.reloadDirectoryWithPages(teamId, oldDirId),
                 teamInitQuery.reloadDirectoryWithPages(teamId, targetDirId)
@@ -58,6 +59,7 @@ public class TeamContentCoordinator {
         List<Long> pageIds = pageRepository.findPageIdsInDirectoryTreeInTeam(dirId, teamId);
 
         directoryRepository.deleteById(dirId);
+        treeChanges.stage(teamId);
 
         return DeleteResponse.of(dirIds, pageIds);
     }

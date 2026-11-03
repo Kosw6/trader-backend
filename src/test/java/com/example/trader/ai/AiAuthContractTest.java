@@ -20,6 +20,29 @@ class AiAuthContractTest {
         request.addHeader("X-AI-Accepted-At",now.toString());
         request.addHeader("X-AI-Deadline-At",now.plusSeconds(120).toString());
     }
+    @Test void exact_title_requires_retrieval_identity_and_delegation() throws Exception {
+        for (String key : List.of(retrieval,indexing,"invalid")) {
+            var req=request("/internal/ai/retrieval/exact-title",key); delegate(req);
+            var res=new MockHttpServletResponse(); var chain=new MockFilterChain();
+            filter.doFilter(req,res,chain);
+            assertThat(res.getStatus()).isEqualTo(key.equals(retrieval)?200:key.equals(indexing)?403:401);
+        }
+        var req=request("/internal/ai/retrieval/exact-title",retrieval);
+        var res=new MockHttpServletResponse(); filter.doFilter(req,res,new MockFilterChain());
+        assertThat(res.getStatus()).isEqualTo(400);
+    }
+    @Test void consent_read_requires_retrieval_key_user_and_read_only_method() throws Exception {
+        for (String key : List.of(retrieval,indexing,"invalid")) {
+            var req=request("/internal/ai/retrieval/transfer-consent",key);delegate(req);
+            var res=new MockHttpServletResponse();var chain=new MockFilterChain();filter.doFilter(req,res,chain);
+            assertThat(res.getStatus()).isEqualTo(key.equals(retrieval)?200:key.equals(indexing)?403:401);
+            assertThat(chain.getRequest()!=null).isEqualTo(key.equals(retrieval));
+        }
+        var missing=request("/internal/ai/retrieval/transfer-consent",retrieval);
+        var res=new MockHttpServletResponse();filter.doFilter(missing,res,new MockFilterChain());assertThat(res.getStatus()).isEqualTo(400);
+        var write=request("/internal/ai/retrieval/transfer-consent",retrieval);delegate(write);write.setMethod("POST");
+        res=new MockHttpServletResponse();filter.doFilter(write,res,new MockFilterChain());assertThat(res.getStatus()).isEqualTo(403);
+    }
     @Test void separates_service_roles_and_requires_delegation() throws Exception {
         for (String key : List.of(retrieval,indexing,"invalid")) {
             var req=request("/internal/ai/retrieval/sources/NOTE/1",key); delegate(req);

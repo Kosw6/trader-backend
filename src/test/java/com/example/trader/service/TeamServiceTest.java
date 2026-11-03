@@ -142,7 +142,7 @@ class TeamServiceTest {
         User owner = TestFixtures.userWithId();
         Long ownerId = owner.getId();
 
-        given(teamRepository.findByCode(code)).willReturn(Optional.of(team));
+        given(teamRepository.findByCodeForUpdate(code)).willReturn(Optional.of(team));
         given(teamRepository.findOwnerUserIdByTeamId(team.getId())).willReturn(Optional.of(ownerId));
         given(userRepository.findById(requester.getId())).willReturn(Optional.of(requester));
 
@@ -187,7 +187,7 @@ class TeamServiceTest {
         String code = team.getCode();
 
         User owner = TestFixtures.userWithId();
-        given(teamRepository.findByCode(code)).willReturn(Optional.of(team));
+        given(teamRepository.findByCodeForUpdate(code)).willReturn(Optional.of(team));
         given(teamRepository.findOwnerUserIdByTeamId(team.getId())).willReturn(Optional.of(owner.getId()));
         given(userRepository.findById(requester.getId())).willReturn(Optional.of(requester));
 
@@ -214,7 +214,7 @@ class TeamServiceTest {
 
         User owner = TestFixtures.userWithId();
 
-        given(teamRepository.findByCode(code)).willReturn(Optional.of(team));
+        given(teamRepository.findByCodeForUpdate(code)).willReturn(Optional.of(team));
         given(teamRepository.findOwnerUserIdByTeamId(team.getId())).willReturn(Optional.of(owner.getId()));
         given(userRepository.findById(requester.getId())).willReturn(Optional.of(requester));
 
@@ -247,15 +247,15 @@ class TeamServiceTest {
 
         JoinRequest pendingReq = TestFixtures.joinRequestWithId(requester, team);
 
-        given(teamRepository.findById(team.getId())).willReturn(Optional.of(team));
         given(utRepository.existsByTeamIdAndUserIdAndRole(team.getId(), owner.getId(), TeamRole.OWNER))
                 .willReturn(true);
-        given(jqRepository.findPending(requester.getId(), team.getId()))
+        given(jqRepository.findTeamId(pendingReq.getId())).willReturn(Optional.of(team.getId()));
+        given(teamRepository.lockForMembership(team.getId())).willReturn(Optional.of(team));
+        given(jqRepository.findWithTeamAndRequesterForUpdate(pendingReq.getId()))
                 .willReturn(Optional.of(pendingReq));
-        given(userRepository.findById(requester.getId())).willReturn(Optional.of(requester));
 
         // when
-        teamService.checkTeamRequest(owner.getId(), requester.getId(), pendingReq.getStatus());
+        teamService.checkTeamRequest(owner.getId(), pendingReq.getId(), JoinRequestStatus.APPROVED);
 
         // then (MEMBER 추가됨)
         assertThat(team.getUserTeams().stream()
@@ -281,14 +281,15 @@ class TeamServiceTest {
         team.addMember(owner, TeamRole.OWNER);
         JoinRequest pendingReq = TestFixtures.joinRequestWithId(requester, team);
 
-        given(teamRepository.findById(team.getId())).willReturn(Optional.of(team));
         given(utRepository.existsByTeamIdAndUserIdAndRole(team.getId(), owner.getId(), TeamRole.OWNER))
                 .willReturn(true);
-        given(jqRepository.findPending(requester.getId(), team.getId()))
+        given(jqRepository.findTeamId(pendingReq.getId())).willReturn(Optional.of(team.getId()));
+        given(teamRepository.lockForMembership(team.getId())).willReturn(Optional.of(team));
+        given(jqRepository.findWithTeamAndRequesterForUpdate(pendingReq.getId()))
                 .willReturn(Optional.of(pendingReq));
 
         // when
-        teamService.checkTeamRequest(owner.getId(), requester.getId(), pendingReq.getStatus());
+        teamService.checkTeamRequest(owner.getId(), pendingReq.getId(), JoinRequestStatus.REJECTED);
 
         // then (requester가 팀에 추가되지 않아야)
         assertThat(team.getUserTeams().stream()
@@ -312,12 +313,16 @@ class TeamServiceTest {
         User notOwner = TestFixtures.userWithId();
         User requester = TestFixtures.userWithId();
 
-        given(teamRepository.findById(team.getId())).willReturn(Optional.of(team));
+        JoinRequest pendingReq = TestFixtures.joinRequestWithId(requester, team);
+        given(jqRepository.findTeamId(pendingReq.getId())).willReturn(Optional.of(team.getId()));
+        given(teamRepository.lockForMembership(team.getId())).willReturn(Optional.of(team));
+        given(jqRepository.findWithTeamAndRequesterForUpdate(pendingReq.getId()))
+                .willReturn(Optional.of(pendingReq));
         given(utRepository.existsByTeamIdAndUserIdAndRole(team.getId(), notOwner.getId(), TeamRole.OWNER))
                 .willReturn(false);
 
         // when / then
-        assertThatThrownBy(() -> teamService.checkTeamRequest(notOwner.getId(), requester.getId(),JoinRequestStatus.PENDING))
+        assertThatThrownBy(() -> teamService.checkTeamRequest(notOwner.getId(), pendingReq.getId(),JoinRequestStatus.APPROVED))
                 .isInstanceOf(BaseException.class)
                 .satisfies(e -> assertThat(((BaseException) e).getStatus())
                         .isEqualTo(BaseResponseStatus.ACCESS_DENIED));
@@ -336,10 +341,7 @@ class TeamServiceTest {
         User owner = TestFixtures.userWithId();
         User requester = TestFixtures.userWithId();
 
-        given(teamRepository.findById(team.getId())).willReturn(Optional.of(team));
-        given(utRepository.existsByTeamIdAndUserIdAndRole(team.getId(), owner.getId(), TeamRole.OWNER))
-                .willReturn(true);
-        given(jqRepository.findPending(requester.getId(), team.getId()))
+        given(jqRepository.findTeamId(requester.getId()))
                 .willReturn(Optional.empty());
 
         // when / then
@@ -366,7 +368,7 @@ class TeamServiceTest {
         team.addMember(owner, TeamRole.OWNER);
         team.addMember(member, TeamRole.MEMBER);
 
-        given(teamRepository.findById(team.getId())).willReturn(Optional.of(team));
+        given(teamRepository.lockForMembership(team.getId())).willReturn(Optional.of(team));
         given(userRepository.findById(member.getId())).willReturn(Optional.of(member));
 
         // when
@@ -385,7 +387,7 @@ class TeamServiceTest {
         User member = TestFixtures.userWithId();
         Team team = TestFixtures.teamWithId();
 
-        given(teamRepository.findById(team.getId())).willReturn(Optional.empty());
+        given(teamRepository.lockForMembership(team.getId())).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> teamService.exitTeam(member.getId(), team.getId()))
                 .isInstanceOf(BaseException.class)
@@ -393,7 +395,7 @@ class TeamServiceTest {
                         .isEqualTo(BaseResponseStatus.TEAM_NOT_FOUND));
 
         // case2: user not found
-        given(teamRepository.findById(team.getId())).willReturn(Optional.of(team));
+        given(teamRepository.lockForMembership(team.getId())).willReturn(Optional.of(team));
         given(userRepository.findById(member.getId())).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> teamService.exitTeam(member.getId(), team.getId()))

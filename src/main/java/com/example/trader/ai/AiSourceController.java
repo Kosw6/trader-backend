@@ -50,4 +50,9 @@ public class AiSourceController {
         parameters(request,"checks");
         return response(reader.evidence(AiEvidenceCheck.parse(request.getParameter("checks"),context(request))),request);
     }
+    @GetMapping("/retrieval/exact-title")
+    public ResponseEntity<byte[]> exactTitle(HttpServletRequest request) {
+        parameters(request, "title", "scopeType", "teamId");
+        return response(reader.exactTitle(request.getParameter("title"), scope(request)), request);
+    }
 }

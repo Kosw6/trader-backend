@@ -28,6 +28,7 @@ public class DirectoryService {
     private final DirectoryRepository directoryRepository;
     private final TeamRepository teamRepository;
     private final UserTeamRepository userTeamRepository;
+    private final com.example.trader.realtime.outbox.TeamTreeChangeStager treeChanges;
 
 
     @Transactional
@@ -105,13 +106,21 @@ public class DirectoryService {
         Team team = teamRepository.findById(teamId)
                 .orElseThrow(() -> new BaseException(BaseResponseStatus.INVALID_TEAM));
 
+        Directory parent = null;
+        if (dto.getParentId() != null && dto.getParentId() != 0L) {
+            parent = directoryRepository.findByIdAndTeamId(dto.getParentId(), teamId)
+                    .orElseThrow(() -> new BaseException(BaseResponseStatus.FAIL_AUTHENTICATE));
+        }
+
         Directory dir = Directory.builder()
                 .name(dto.getName())
                 .team(team)
+                .parent(parent)
                 .user(null) // 팀 디렉토리
                 .build();
 
         directoryRepository.save(dir);
+        treeChanges.stage(teamId);
         return ResponseDirectoryDto.ofDto(dir);
     }
 
@@ -146,6 +155,9 @@ public class DirectoryService {
 
         Directory parent = null;
         if (dto.parentId() != null && dto.parentId() != 0L) {
+            if (directoryRepository.findDirectorySubtreeIdsInTeam(dirId, teamId).contains(dto.parentId())) {
+                throw new IllegalArgumentException("Cannot move a directory into its subtree");
+            }
             boolean exists = directoryRepository.existsByIdAndTeamId(dto.parentId(), teamId);
             if (!exists) {
                 throw new IllegalArgumentException("Parent directory not found");
@@ -156,6 +168,7 @@ public class DirectoryService {
 
         dir.setParent(parent);
         dir.rename(dto.name());
+        treeChanges.stage(teamId);
         return ResponseDirectoryDto.ofDto(dir);
     }
 
@@ -174,5 +187,6 @@ public class DirectoryService {
         }
 
         directoryRepository.delete(dir);
+        treeChanges.stage(teamId);
     }
 }

@@ -19,6 +19,7 @@ public class ResponseNoteDto {
     private String subject;
     private String content;
     private String stockSymb;
+    private java.util.List<String> stockSymbs;
     private LocalDateTime createdAt;
     private LocalDateTime modifiedAt;
     private LocalDate noteDate;
@@ -32,6 +33,7 @@ public class ResponseNoteDto {
                 .subject(note.getSubject())
                 .content(note.getContent())
                 .stockSymb(note.getStockSymb())
+                .stockSymbs(note.getStockSymbs())
                 .createdAt(note.getCreatedAt())
                 .modifiedAt(note.getModifiedAt())
                 .noteDate(note.getNoteDate())

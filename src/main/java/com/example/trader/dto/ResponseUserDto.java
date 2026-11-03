@@ -14,7 +14,9 @@ public class ResponseUserDto {//Authentication 인증객체로 넘길 dto
     private Long id;
     private String username;//닉네임
     private String loginId;//로그인시에 사용할 아이디
-    private String password;//비밀번호
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @lombok.ToString.Exclude
+    private String password;// 인증 내부에서만 사용하며 API 응답에는 내보내지 않는다.
     private String email;
     private String gender;
     private String nickName;

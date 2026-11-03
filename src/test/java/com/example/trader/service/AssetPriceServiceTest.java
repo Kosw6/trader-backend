@@ -18,9 +18,23 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AssetPriceServiceTest {
+    @Test void rejectsUnknownAggregationUnit() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new AssetPriceService(repository)
+            .getBefore(1L, OffsetDateTime.now(), 10, "KIS", "1H"))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
 
     @Mock
     PriceBarRepository repository;
+
+    @Test void corporateActionsRejectInvalidAssetAndPreserveEmptyHistory() {
+        AssetPriceService service = new AssetPriceService(repository);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.getCorporateActions(0L))
+            .isInstanceOf(IllegalArgumentException.class);
+        when(repository.corporateActions(42L)).thenReturn(List.of());
+        assertThat(service.getCorporateActions(42L)).isEmpty();
+        verify(repository).corporateActions(42L);
+    }
 
     @Test
     void reads_only_price_bar_by_asset_id_with_normalized_dimensions() {

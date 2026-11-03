@@ -32,6 +32,26 @@ class AiSourcePostgresTest {
         if(schema!=null && schema.matches("ai_contract_[a-f0-9]{32}")) db.execute("drop schema "+schema+" cascade");
     }
     long revision(String type,long id) { return db.queryForObject("select revision from search_source_state where source_type=? and source_id=?",Long.class,type,id); }
+    @Test void exact_title_uses_current_authorized_rows_and_reports_ambiguity() {
+        var personal = new AiScope(false,1L,"PERSONAL",null);
+        var team = new AiScope(false,1L,"TEAM",7L);
+        assertThat(reader.exactTitle("없는제목",personal).get("items")).isEqualTo(List.of());
+        assertThat(reader.exactTitle("다른 노트",personal).get("items")).isEqualTo(List.of());
+        assertThat(reader.exactTitle("다른 노트",team).get("items"))
+                .isEqualTo(List.of(Map.of("sourceType","NOTE","sourceId","2")));
+        assertThat(reader.exactTitle("개인",personal).get("items"))
+                .isEqualTo(List.of(Map.of("sourceType","NODE","sourceId","1")));
+        db.update("update note set subject='새 이름' where id=1");
+        assertThat(reader.exactTitle("새이름",personal).get("items"))
+                .isEqualTo(List.of(Map.of("sourceType","NOTE","sourceId","1")));
+        assertThat(reader.exactTitle("내 노트",personal).get("items")).isEqualTo(List.of());
+        db.update("update node set subject='새 이름' where id=1");
+        assertThat(reader.exactTitle("새 이름",personal).get("status")).isEqualTo("AMBIGUOUS");
+        db.update("delete from node_note_link where id=1");
+        assertThat(reader.exactTitle("다른 노트",team).get("items")).isEqualTo(List.of());
+        assertThatThrownBy(()->reader.exactTitle("다른 노트",new AiScope(false,99L,"TEAM",7L)))
+                .isInstanceOf(AiApiException.class);
+    }
     AiScope index() {return new AiScope(true,null,null,null);}
     @Test void source_state_outbox_are_atomic_and_same_transaction_coalesces() {
         tx.executeWithoutResult(s->{db.update("update note set content='new' where id=1"); db.update("update note set subject='changed' where id=1");});

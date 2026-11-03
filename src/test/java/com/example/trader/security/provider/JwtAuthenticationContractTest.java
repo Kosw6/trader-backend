@@ -106,7 +106,7 @@ class JwtAuthenticationContractTest {
         assertThat(publicChain.getRequest()).isNotNull();
     }
     @Test void refresh_endpoint_rejects_access_cookie_value() throws Exception {
-        var controller = new loginController(provider, mock(AuthenticationManager.class), mock(UserService.class));
+        var controller = new loginController(provider, mock(AuthenticationManager.class), mock(UserService.class), mock(com.example.trader.policy.PolicyConsentService.class), mock(com.example.trader.emailverification.EmailVerificationService.class));
         var request = new MockHttpServletRequest(); request.setCookies(new Cookie("refreshToken", access()));
         assertThatThrownBy(() -> controller.refreshJwt(request, new MockHttpServletResponse())).isInstanceOf(BaseException.class);
         request.setCookies(new Cookie("refreshToken", refresh()));

@@ -10,9 +10,7 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(
         name = "join_request",
-        uniqueConstraints = {
-                @UniqueConstraint(name = "uq_join_request_team_requester", columnNames = {"team_id", "requester_id"})
-        },
+        // V049 enforces uniqueness only for PENDING requests, retaining decision history.
         indexes = {
                 @Index(name = "idx_join_request_team_status", columnList = "team_id,status"),
                 @Index(name = "idx_join_request_requester_status", columnList = "requester_id,status")

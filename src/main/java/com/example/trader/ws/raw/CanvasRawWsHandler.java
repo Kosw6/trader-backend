@@ -51,6 +51,11 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
             RoomIds room = parseRoomIds(params);
             String roomKey = registry.roomKey(room.teamId(), room.graphId());
 
+            if (!registry.authorized(room.teamId(), room.graphId(), session.getAttributes().get(WsAttrs.USER_ID))) {
+                session.close(CloseStatus.POLICY_VIOLATION);
+                return;
+            }
+
             WebSocketSession safeSession =
                     new ConcurrentWebSocketSessionDecorator(session, 100, 128 * 1024);
 
@@ -96,6 +101,12 @@ public class CanvasRawWsHandler extends TextWebSocketHandler {
                 session.close(CloseStatus.PROTOCOL_ERROR);
             } catch (Exception ignore) {
             }
+            return;
+        }
+
+        if (!registry.authorized(room.teamId(), room.graphId(), userId)) {
+            registry.leave(roomKey, session);
+            session.close(CloseStatus.POLICY_VIOLATION);
             return;
         }
 

@@ -51,7 +51,7 @@ public class TeamController {
     }
     //팀 삭제
     @DeleteMapping("/{teamId}")
-    public ResponseEntity<Void> deleteTeam(@AuthenticationPrincipal UserContext context,Long teamId){
+    public ResponseEntity<Void> deleteTeam(@AuthenticationPrincipal UserContext context,@PathVariable Long teamId){
         //권한검사-오너만
         utService.checkTeamAuthWithOwner(context.getUserDto().getId(), teamId);
         teamService.deleteTeam(teamId);

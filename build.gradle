@@ -38,11 +38,14 @@ dependencyManagement {
 }
 
 dependencies {
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
     implementation 'software.amazon.awssdk:ec2:2.31.54'
+    implementation 'software.amazon.awssdk:sesv2:2.31.54'
     implementation 'software.amazon.awssdk:url-connection-client:2.31.54'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
@@ -57,6 +60,7 @@ dependencies {
 	implementation "com.fasterxml.jackson.core:jackson-databind"
 	implementation 'org.springframework.boot:spring-boot-starter-cache'      // @Cacheable 등
 	implementation 'com.github.ben-manes.caffeine:caffeine'
+    implementation 'org.jsoup:jsoup:1.23.2'
 	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
 	implementation 'io.micrometer:micrometer-registry-prometheus'
     implementation 'org.springframework.boot:spring-boot-starter-aop'//로깅 aop용

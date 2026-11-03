@@ -31,21 +31,25 @@ public class UserService {
 
     public Long createUser(User user) {
         validateDuplicateUser(user);
+        user.changePassword(com.example.trader.security.provider.Password655.encode(user.getPassword()));
         return userRepository.save(user).getId();
     }
 
 
     private void validateDuplicateUser(User user) {//중복검사
-        if (userRepository.findByEmail(user.getEmail()).isPresent()) {
-            if(userRepository.findByEmail(user.getLoginId()).isPresent()){
-                throw new BaseException(BaseResponseStatus.EXIST_LOGIN_ID);
-            }
+        if (userRepository.existsByLoginId(user.getLoginId())) {
+            throw new BaseException(BaseResponseStatus.EXIST_LOGIN_ID);
+        }
+        // Verified local signup normalizes email case; also protect legacy mixed-case accounts.
+        if (userRepository.existsByEmailIgnoreCase(user.getEmail())) {
             throw new BaseException(BaseResponseStatus.EXIST_EMAIL);
         }
     }
     public Long updateUser(User user){
-        //todo:컨트롤러에서 SecurityContext에서 유저 id를 찾아서 저장소에서 검색해서 업데이트 시킬 유저를 생성해서 반환
-        return userRepository.save(user).getId();
+        User existing = findUserByUserId(user.getId());
+        existing.updateProfile655(user);
+        existing.changePassword(com.example.trader.security.provider.Password655.encode(user.getPassword()));
+        return userRepository.save(existing).getId();
     }
 
     public void deleteUser(Long userId){
@@ -56,44 +60,29 @@ public class UserService {
         userRepository.deleteById(userId);
     }
 
+    public java.util.Optional<User> findOAuthUser(String provider, String providerId) {
+        if (provider == null || !java.util.Set.of("google", "kakao", "github").contains(provider) || providerId == null || providerId.isBlank() || "null".equals(providerId))
+            throw new org.springframework.security.oauth2.core.OAuth2AuthenticationException("invalid_provider_identity");
+        return userRepository.findByProviderAndProviderId(provider, providerId);
+    }
+
     public User upsertOAuthUser(String provider, String providerId, String email, String name) {
-
-        // 1) 이미 소셜 연동된 계정이면 그대로 사용
-        return userRepository.findByProviderAndProviderId(provider, providerId)
-                .map(user -> {
-                    // email 고정
-                    // name도 덮어쓰기 금지, 단 비어있을경우 채우기
-                    user.fillProfileIfEmpty(name);
-                    return user;
-                })
-                .orElseGet(() -> {
-
-                    //같은 email로 기존 로컬 계정이 있으면 "연동" 처리
-                    return userRepository.findByEmail(email)
-                            .map(existing -> {
-                                existing.linkOAuth(provider, providerId);
-                                existing.fillProfileIfEmpty(name);
-                                return existing;
-                            })
-                            .orElseGet(() -> {
-
-                                // 3) 완전 신규 생성
-                                String strongPwd = RandomStringUtils.random(16,
-                                        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%");
-
-                                User newUser = User.builder()
-                                        .provider(provider)
-                                        .providerId(providerId)
-                                        .email(email)
-                                        .username(name)     // 초기값
-                                        .nickName(name)     // 초기값
-                                        .loginId(email)     // 정책에 따라
-                                        .password(strongPwd)
-                                        .role(Role.USER)
-                                        .build();
-
-                                return userRepository.save(newUser);
-                            });
-                });
+        if (provider == null || providerId == null || providerId.isBlank() || "null".equals(providerId)) {
+            throw new org.springframework.security.oauth2.core.OAuth2AuthenticationException("invalid_provider_identity");
+        }
+        var linked = userRepository.findByProviderAndProviderId(provider, providerId);
+        if (linked.isPresent()) { linked.get().fillProfileIfEmpty(name); return linked.get(); }
+        if (userRepository.findByEmail(email).isPresent() || userRepository.findByLoginId(email).isPresent()) {
+            throw new org.springframework.security.oauth2.core.OAuth2AuthenticationException(
+                    new org.springframework.security.oauth2.core.OAuth2Error("account_link_required"));
+        }
+        byte[] secret = new byte[32];
+        new java.security.SecureRandom().nextBytes(secret);
+        String randomPassword = java.util.Base64.getEncoder().encodeToString(secret);
+        User newUser = User.builder().provider(provider).providerId(providerId)
+                .email(email).username(name).nickName(name).loginId(email)
+                .password(com.example.trader.security.provider.Password655.encode(randomPassword))
+                .role(Role.USER).build();
+        return userRepository.save(newUser);
     }
 }

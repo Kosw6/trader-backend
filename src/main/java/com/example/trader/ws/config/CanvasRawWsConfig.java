@@ -31,7 +31,7 @@ public class CanvasRawWsConfig implements WebSocketConfigurer {
                 .setAllowedOriginPatterns(allowedOrigins.toArray(String[]::new));
         registry.addHandler(canvasRawWsHandler, "/ws/canvas-raw")
                 .addInterceptors(jwtHandshakeInterceptor)
-                .setAllowedOriginPatterns("*");
+                .setAllowedOriginPatterns(allowedOrigins.toArray(String[]::new));
     }
 
 

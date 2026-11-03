@@ -82,6 +82,10 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
 
         res.addHeader("Set-Cookie", accessCookie.toString());
         res.addHeader("Set-Cookie", refreshCookie.toString());
+        // OAuth authorization state is no longer needed after issuing JWT cookies.
+        var session=req.getSession(false);
+        if(session!=null) session.invalidate();
+        res.addHeader("Set-Cookie",ResponseCookie.from("JSESSIONID","").httpOnly(true).secure(cookieSecure).path("/").sameSite("Lax").maxAge(0).build().toString());
 
         res.sendRedirect(redirectUrl);
     }

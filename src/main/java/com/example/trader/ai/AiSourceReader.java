@@ -19,6 +19,35 @@ public class AiSourceReader {
         return switch (type) { case "NOTE" -> "note"; case "NODE" -> "node"; case "EDGE" -> "edge"; default -> throw AiApiException.invalid(); };
     }
     private boolean exists(String sql, Object... args) { return Boolean.TRUE.equals(db.queryForObject(sql, Boolean.class, args)); }
+    /** 현재 권한 안의 정확 제목 후보만 조회. 2개는 전체 목록이 아니라 동명 모호성 표식이다. */
+    public Map<String, Object> exactTitle(String title, AiScope scope) {
+        if (scope.indexing() || title == null || title.isBlank() || title.length() > 255)
+            throw AiApiException.invalid();
+        if (scope.teamId() != null && !exists(
+                "select exists(select 1 from user_team where user_id=? and team_id=?)",
+                scope.userId(), scope.teamId())) throw new AiApiException(404, "SOURCE_UNAVAILABLE");
+        // 정규식/SQL은 서버 고정. 제목은 바인딩하며 와일드카드로 해석하지 않는다.
+        String match = "lower(regexp_replace(s.subject, '[[:space:]]', '', 'g'))="
+                + "lower(regexp_replace(?, '[[:space:]]', '', 'g'))";
+        String notes = "select 'NOTE' as type,s.id from note s where " + match + " and ";
+        String nodes = "select 'NODE' as type,s.id from node s join page p on p.id=s.page_id "
+                + "join directory d on d.id=p.directory_id where " + match + " and ";
+        List<Map<String,Object>> rows;
+        if (scope.teamId() == null) {
+            rows = db.queryForList("(" + notes + "s.user_id=? limit 2) union all (" + nodes
+                    + "d.team_id is null and d.user_id=? and p.user_id=? limit 2) limit 2",
+                    title, scope.userId(), title, scope.userId(), scope.userId());
+        } else {
+            rows = db.queryForList("(" + notes + "exists(select 1 from node_note_link l "
+                    + "join node n on n.id=l.node_id join page p on p.id=n.page_id "
+                    + "join directory d on d.id=p.directory_id where l.note_id=s.id and d.team_id=?) "
+                    + "limit 2) union all (" + nodes + "d.team_id=? limit 2) limit 2",
+                    title, scope.teamId(), title, scope.teamId());
+        }
+        return Map.of("status", rows.size() > 1 ? "AMBIGUOUS" : "RESOLVED", "items",
+                rows.stream().map(r -> Map.of("sourceType", r.get("type"),
+                        "sourceId", r.get("id").toString())).toList());
+    }
     public boolean allowed(String type, long id, AiScope scope) {
         table(type);
         if (scope.indexing()) return true;

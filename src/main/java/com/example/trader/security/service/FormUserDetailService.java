@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 //일반적인 로그인시 loginId+Password
 @Slf4j
@@ -26,10 +27,17 @@ public class FormUserDetailService implements UserDetailsService {
     //회원Dto와 권한을 가져옴
     @Override
     public UserDetails loadUserByUsername(String loginId) throws UsernameNotFoundException {
-        User user = userService.findUserByLoginId(loginId);
+        User user;
+        try {
+            user = userService.findUserByLoginId(loginId);
+        } catch (NoSuchElementException missing) {
+            // The repository's Optional is empty for unknown/deleted accounts.
+            // Preserve the same authentication failure contract as a bad password.
+            throw new UsernameNotFoundException("Invalid credentials");
+        }
         if (user == null) {
             //TODO:클라이언트가 따로 처리하도록 하기
-            throw new UsernameNotFoundException("No user found with loginId: " + loginId);
+            throw new UsernameNotFoundException("Invalid credentials");
         }
         List<SimpleGrantedAuthority> authorities = new ArrayList<>();
         SimpleGrantedAuthority authority = new SimpleGrantedAuthority(user.getRole().getRoleName());

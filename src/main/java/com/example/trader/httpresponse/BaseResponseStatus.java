@@ -26,6 +26,7 @@ public enum BaseResponseStatus {
     NODE_NOT_FOUND(false, HttpStatus.NOT_FOUND.value(), "존재하지 않는 노드입니다.", "canvas", "NODE_NOT_FOUND", Severity.LOW),
     EDGE_NOT_FOUND(false, HttpStatus.NOT_FOUND.value(), "존재하지 않는 엣지입니다.", "canvas", "EDGE_NOT_FOUND", Severity.LOW),
     JOIN_REQUEST_NOT_FOUND(false, HttpStatus.NOT_FOUND.value(), "대기중인 합류 요청이 없습니다.", "team", "JOIN_REQUEST_NOT_FOUND", Severity.LOW),
+    JOIN_REQUEST_ALREADY_PROCESSED(false, HttpStatus.CONFLICT.value(), "이미 다른 결정으로 처리된 합류 요청입니다.", "team", "JOIN_REQUEST_ALREADY_PROCESSED", Severity.LOW),
     HTTP_METHOD_ERROR(false, HttpStatus.METHOD_NOT_ALLOWED.value(), "http요청 메서드가 올바르지 않습니다.", "common", "HTTP_METHOD_ERROR", Severity.LOW),
 
     // 존재하지만 문제있을때

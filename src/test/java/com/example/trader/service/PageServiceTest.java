@@ -34,6 +34,7 @@ class PageServiceTest {
     @Mock DirectoryRepository directoryRepository;
     @Mock SecurityService securityService;
     @Mock UserTeamRepository userTeamRepository;
+    @Mock com.example.trader.realtime.outbox.TeamTreeChangeStager treeChanges;
 
     @InjectMocks
     PageService pageService;
