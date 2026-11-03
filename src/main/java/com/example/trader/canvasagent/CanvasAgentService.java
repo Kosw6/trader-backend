@@ -2,8 +2,13 @@ package com.example.trader.canvasagent;
 
 import com.example.trader.dto.map.CreateNodeRequest;
 import com.example.trader.dto.map.RequestEdgeDto;
+import com.example.trader.dto.map.UpdateTeamNodeContentRequest;
 import com.example.trader.service.NodeService;
 import com.example.trader.service.EdgeService;
+import com.example.trader.service.TeamNodePositionWriter;
+import com.example.trader.service.NodeCacheService;
+import com.example.trader.service.GraphCacheService;
+import com.example.trader.ws.raw.lock.CanvasLockService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
@@ -12,6 +17,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -19,7 +26,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
 
-/** Bounded, append-only AI edit transaction. Membership is rechecked on every call. */
+/** Bounded reversible AI edit transaction. Membership is rechecked on every call. */
 @Service
 @RequiredArgsConstructor
 public class CanvasAgentService {
@@ -28,6 +35,10 @@ public class CanvasAgentService {
     private final NodeService nodes;
     private final EdgeService edges;
     private final EntityManager entityManager;
+    private final TeamNodePositionWriter positions;
+    private final CanvasLockService locks;
+    private final NodeCacheService nodeCache;
+    private final GraphCacheService graphCache;
 
     static final String CAPTURE = """
         SELECT jsonb_build_object(
@@ -139,9 +150,34 @@ public class CanvasAgentService {
             throw error(HttpStatus.CONFLICT,"CANVAS_RUN_EXPIRED");
         String before=capture(team,page);
         if (!fingerprint(before).equals(request.baseFingerprint())) throw error(HttpStatus.CONFLICT,"CANVAS_CHANGED");
-        if (request.nodes().isEmpty() && request.edges().isEmpty()) throw error(HttpStatus.BAD_REQUEST,"CANVAS_EMPTY_EDIT");
+        if (request.nodes().isEmpty() && request.edges().isEmpty() && request.edits().isEmpty()) throw error(HttpStatus.BAD_REQUEST,"CANVAS_EMPTY_EDIT");
         Set<String> keys=new HashSet<>();
-        for (JsonNode node:parse(before).path("nodes")) keys.add(node.path("id").asText());
+        Map<Long,JsonNode> originals=new HashMap<>();
+        for (JsonNode node:parse(before).path("nodes")) {
+            keys.add(node.path("id").asText());originals.put(node.path("id").asLong(),node);
+        }
+        if(request.edits().size()>6) throw error(HttpStatus.BAD_REQUEST,"CANVAS_EDIT_LIMIT");
+        Set<Long> edited=new HashSet<>();List<Map<String,Object>> backups=new ArrayList<>();
+        List<CanvasAgentContracts.NodeEdit> changes=new ArrayList<>();
+        for(var patch:request.edits()) {
+            JsonNode original=originals.get(patch.nodeId());
+            if(original==null || !edited.add(patch.nodeId())) throw error(HttpStatus.BAD_REQUEST,"CANVAS_INVALID_EDIT");
+            validatePatch(patch);
+            Map<String,Object> backup=new LinkedHashMap<>();backup.put("nodeId",patch.nodeId());
+            String subject=null,content=null;Double x=null,y=null;
+            if(patch.subject()!=null && !patch.subject().equals(original.path("subject").asText(null))) {
+                if(original.path("subject").isNull()) throw error(HttpStatus.CONFLICT,"CANVAS_ORIGINAL_NULL_REVIEW");
+                subject=patch.subject();backup.put("subject",original.path("subject").asText());
+            }
+            if(patch.content()!=null && !patch.content().equals(original.path("content").asText(null))) {
+                if(original.path("content").isNull()) throw error(HttpStatus.CONFLICT,"CANVAS_ORIGINAL_NULL_REVIEW");
+                content=patch.content();backup.put("content",original.path("content").asText());
+            }
+            if(patch.x()!=null && (Double.compare(patch.x(),original.path("x").asDouble())!=0 || Double.compare(patch.y(),original.path("y").asDouble())!=0)) {
+                x=patch.x();y=patch.y();backup.put("x",original.path("x").asDouble());backup.put("y",original.path("y").asDouble());
+            }
+            if(backup.size()>1) {backups.add(backup);changes.add(new CanvasAgentContracts.NodeEdit(patch.nodeId(),subject,content,x,y));}
+        }
         Set<String> added=new HashSet<>();
         for (var node:request.nodes()) {
             if (!Double.isFinite(node.x()) || !Double.isFinite(node.y()) || !added.add(node.key()))
@@ -152,6 +188,9 @@ public class CanvasAgentService {
             if (!keys.contains(edge.source()) || !keys.contains(edge.target()) || edge.source().equals(edge.target())
                     || !pairs.add(edge.source()+":"+edge.target())) throw error(HttpStatus.BAD_REQUEST,"CANVAS_INVALID_EDGE");
         }
+        if(request.nodes().isEmpty() && request.edges().isEmpty() && changes.isEmpty()) throw error(HttpStatus.BAD_REQUEST,"CANVAS_EMPTY_EDIT");
+        for(var patch:changes) acquireEditLock(user,team,page,patch.nodeId());
+        for(var patch:changes) writePatch(user,team,page,patch);
         Map<String,Long> replacements=new HashMap<>();List<Long> nodeIds=new ArrayList<>(),edgeIds=new ArrayList<>();
         for (var node:request.nodes()) {
             var dto=new CreateNodeRequest();dto.setSubject(node.subject());dto.setContent(node.content());
@@ -165,14 +204,63 @@ public class CanvasAgentService {
             dto.setStroke("#7c9cff");dto.setStrokeWidth(2);
             edgeIds.add(edges.createTeamEdge(team,page,dto).getId());
         }
-        entityManager.flush();String after=fingerprint(capture(team,page));
-        var receipt=Map.of("nodeIds",nodeIds,"edgeIds",edgeIds,"model","claude-sonnet-5-5","afterFingerprint",after);
-        jdbc.update("UPDATE canvas_ai_run SET status='APPLIED',receipt=?::jsonb,after_fingerprint=?,completed_at=now() WHERE id=?",
-                encode(receipt),after,request.requestId());
+        entityManager.flush();
+        for(var patch:changes) requireEditLock(user,team,page,patch.nodeId());
+        String after=fingerprint(capture(team,page));
+        var receipt=Map.of("nodeIds",nodeIds,"edgeIds",edgeIds,"updatedNodeIds",changes.stream().map(CanvasAgentContracts.NodeEdit::nodeId).toList(),
+                "beforeAvailable",!backups.isEmpty(),"model","claude-sonnet-5-5","afterFingerprint",after);
+        jdbc.update("UPDATE canvas_ai_run SET status='APPLIED',receipt=?::jsonb,before_state=?::jsonb,after_fingerprint=?,completed_at=now() WHERE id=?",
+                encode(receipt),encode(backups),after,request.requestId());
+        evictAfterCommit(page);
         return result(request.requestId(),row(user,team,page,request.requestId()));
     }
     private static long resolve(String key,Map<String,Long> replacements) {
         return replacements.containsKey(key)?replacements.get(key):Long.parseLong(key);
+    }
+
+    private void validatePatch(CanvasAgentContracts.NodeEdit patch) {
+        if(patch.nodeId()<=0 || (patch.subject()==null && patch.content()==null && patch.x()==null && patch.y()==null)
+                || (patch.subject()!=null && (patch.subject().isBlank() || patch.subject().length()>120))
+                || (patch.content()!=null && patch.content().length()>6000)
+                || (patch.x()==null)!=(patch.y()==null)
+                || (patch.x()!=null && (!Double.isFinite(patch.x()) || !Double.isFinite(patch.y()) || Math.abs(patch.x())>100000 || Math.abs(patch.y())>100000)))
+            throw error(HttpStatus.BAD_REQUEST,"CANVAS_INVALID_EDIT");
+    }
+    private void acquireEditLock(long user,long team,long page,long node) {
+        if(!locks.tryAcquire(team,page,node,user)) throw error(HttpStatus.CONFLICT,"CANVAS_NODE_BUSY");
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCompletion(int status) {
+                try {locks.release(team,page,node,user);} catch(RuntimeException ignored) { /* bounded lease expires */ }
+            }
+        });
+    }
+    private void requireEditLock(long user,long team,long page,long node) {
+        if(!locks.isHeldBy(team,page,node,user)) throw error(HttpStatus.CONFLICT,"CANVAS_NODE_LEASE_EXPIRED");
+    }
+    private void writePatch(long user,long team,long page,CanvasAgentContracts.NodeEdit patch) {
+        requireEditLock(user,team,page,patch.nodeId());
+        if(patch.subject()!=null || patch.content()!=null) {
+            var dto=new UpdateTeamNodeContentRequest();List<String> fields=new ArrayList<>();
+            if(patch.subject()!=null) {dto.setSubject(patch.subject());fields.add("subject");}
+            if(patch.content()!=null) {dto.setContent(patch.content());fields.add("content");}
+            dto.setDirtyFields(fields);dto.setBaseVersion(jdbc.queryForObject("SELECT version FROM node WHERE id=? AND page_id=?",Integer.class,patch.nodeId(),page));
+            nodes.updateTeamNode(team,page,patch.nodeId(),user,dto);
+            entityManager.flush();
+        }
+        if(patch.x()!=null) {
+            requireEditLock(user,team,page,patch.nodeId());
+            int version=jdbc.queryForObject("SELECT version FROM node WHERE id=? AND page_id=?",Integer.class,patch.nodeId(),page);
+            if(positions.write(team,page,patch.nodeId(),user,version,patch.x(),patch.y()).isEmpty())
+                throw error(HttpStatus.CONFLICT,"CANVAS_CHANGED");
+        }
+    }
+    private void evictAfterCommit(long page) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                try {nodeCache.evictPageNodes(page);} catch(RuntimeException ignored) {}
+                try {graphCache.evictGraph(page);} catch(RuntimeException ignored) {}
+            }
+        });
     }
 
     @Transactional
@@ -190,10 +278,28 @@ public class CanvasAgentService {
         if (!fingerprint(capture(team,page)).equals(value.get("after_fingerprint")))
             throw error(HttpStatus.CONFLICT,"CANVAS_CHANGED_AFTER_AI_EDIT");
         JsonNode receipt=parse((String)value.get("receipt"));
+        String saved=jdbc.queryForObject("SELECT before_state::text FROM canvas_ai_run WHERE id=?",String.class,id);
+        JsonNode backups=saved==null?mapper.createArrayNode():parse(saved);
+        Set<Long> expected=new HashSet<>(),actual=new HashSet<>();
+        for(JsonNode node:receipt.path("updatedNodeIds")) expected.add(node.asLong());
+        for(JsonNode node:backups) actual.add(node.path("nodeId").asLong());
+        if(!backups.isArray() || backups.size()>6 || actual.size()!=backups.size() || !expected.equals(actual))
+            throw error(HttpStatus.CONFLICT,"CANVAS_BACKUP_INVALID");
+        for(Long node:actual) acquireEditLock(user,team,page,node);
+        for(JsonNode node:receipt.path("nodeIds")) acquireEditLock(user,team,page,node.asLong());
+        for(JsonNode node:backups) {
+            var patch=new CanvasAgentContracts.NodeEdit(node.path("nodeId").asLong(),
+                    node.has("subject")?node.path("subject").asText():null,node.has("content")?node.path("content").asText():null,
+                    node.has("x")?node.path("x").asDouble():null,node.has("y")?node.path("y").asDouble():null);
+            // Restoration may be longer than new AI output. Never truncate original content.
+            writePatch(user,team,page,patch);
+        }
         for (JsonNode edge:receipt.path("edgeIds")) edges.deleteTeamEdge(team,page,edge.asLong());
         for (JsonNode node:receipt.path("nodeIds")) nodes.deleteTeamNode(team,page,node.asLong());
         entityManager.flush();
+        for(Long node:actual) requireEditLock(user,team,page,node);
         jdbc.update("UPDATE canvas_ai_run SET status='UNDONE',completed_at=now() WHERE id=?",id);
+        evictAfterCommit(page);
         return result(id,row(user,team,page,id));
     }
 }
